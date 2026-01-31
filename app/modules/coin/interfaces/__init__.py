@@ -1,0 +1,1 @@
+# app/modules/coin/interfaces
