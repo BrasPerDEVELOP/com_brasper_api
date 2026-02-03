@@ -1,5 +1,5 @@
-# Una sola base de datos (contenedor db). La API es el único servicio que la usa.
-# Variables desde .env. Nginx del servidor: apibras.finzeler.com -> localhost:8590.
+# Base de datos: por defecto usa el contenedor "db". Para usar la misma DB que en local,
+# en .env pon POSTGRES_HOST=IP_DE_TU_DB (ej. 213.199.44.2 o host.docker.internal si está en el host).
 
 services:
   db:
@@ -27,12 +27,16 @@ services:
     ports:
       - "8590:8590"
     env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
+      # Si .env tiene POSTGRES_HOST (ej. 213.199.44.2 o host.docker.internal), la API usa esa DB.
+      # Si no, usa el contenedor "db".
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       DEBUG: ${DEBUG:-False}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SECRET_KEY: ${SECRET_KEY}
