@@ -1,8 +1,26 @@
-# Todas las variables se leen del .env de la raíz del proyecto.
-# La API debe conectar al PostgreSQL del contenedor "db" (misma red).
-# Nginx del servidor: apibras.finzeler.com -> proxy a localhost:8590.
+# Una sola base de datos (contenedor db). La API es el único servicio que la usa.
+# Variables desde .env. Nginx del servidor: apibras.finzeler.com -> localhost:8590.
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: com_brasper_db
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - brasper
+    restart: unless-stopped
+
   api:
     build: .
     container_name: com_brasper_api
@@ -13,7 +31,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Obligatorio en Docker: host = nombre del servicio PostgreSQL
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       DEBUG: ${DEBUG:-False}
@@ -29,26 +46,6 @@ services:
     networks:
       - brasper
     restart: unless-stopped
-
-  db:
-    image: postgres:16-alpine
-    container_name: com_brasper_db
-    env_file: .env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - brasper
 
 networks:
   brasper:
