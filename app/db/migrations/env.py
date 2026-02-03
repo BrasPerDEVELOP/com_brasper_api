@@ -15,7 +15,7 @@ from app.core.settings import get_settings
 from app.shared.model_base import ORMBase
 from app.modules.auth.domain.models import AuthModel
 from app.modules.users.domain.models import User
-from app.modules.coin.domain.models import TaxRate, Commission
+from app.modules.coin.domain.models import TaxRate, TaxRateTrial, Commission
 from app.modules.transactions.domain.models import Transaction
 
 # Obtiene la configuración de la base de datos

@@ -5,6 +5,11 @@ from app.modules.coin.application.schemas.tax_rate_schema import (
     TaxRateUpdateCmd,
     TaxRateReadDTO,
 )
+from app.modules.coin.application.schemas.tax_rate_trial_schema import (
+    TaxRateTrialCreateCmd,
+    TaxRateTrialUpdateCmd,
+    TaxRateTrialReadDTO,
+)
 from app.modules.coin.application.schemas.commission_schema import (
     CommissionCreateCmd,
     CommissionUpdateCmd,
@@ -16,6 +21,9 @@ __all__ = [
     "TaxRateCreateCmd",
     "TaxRateUpdateCmd",
     "TaxRateReadDTO",
+    "TaxRateTrialCreateCmd",
+    "TaxRateTrialUpdateCmd",
+    "TaxRateTrialReadDTO",
     "CommissionCreateCmd",
     "CommissionUpdateCmd",
     "CommissionReadDTO",

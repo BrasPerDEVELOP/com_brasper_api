@@ -1,6 +1,6 @@
 # Simplified query filter - can be expanded later
 from typing import Any, List, Optional, Type, Union, Dict, TypeVar
-from sqlalchemy import func, select, and_, or_, asc, desc
+from sqlalchemy import func, select, and_, or_, desc
 from sqlalchemy.sql import Select
 from pydantic import BaseModel
 from enum import Enum
@@ -69,14 +69,11 @@ class QueryFilter:
             else:
                 stmt = stmt.where(or_(*filter_conditions))
 
-        # Aplicar ordenamiento
+        # Aplicar ordenamiento (solo descendente)
         for field_name, direction in self.order_by:
             field = getattr(model, field_name, None)
-            if field:
-                if direction.lower() == "desc":
-                    stmt = stmt.order_by(desc(field))
-                else:
-                    stmt = stmt.order_by(asc(field))
+            if field and direction.lower() == "desc":
+                stmt = stmt.order_by(desc(field))
 
         # Aplicar eager loading
         for option in self.eager_options:

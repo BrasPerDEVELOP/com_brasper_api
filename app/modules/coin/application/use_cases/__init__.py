@@ -6,6 +6,13 @@ from app.modules.coin.application.use_cases.tax_rate_use_cases import (
     UpdateTaxRateUseCase,
     DeleteTaxRateUseCase,
 )
+from app.modules.coin.application.use_cases.tax_rate_trial_use_cases import (
+    GetTaxRateTrialByIdUseCase,
+    ListTaxRateTrialsUseCase,
+    CreateTaxRateTrialUseCase,
+    UpdateTaxRateTrialUseCase,
+    DeleteTaxRateTrialUseCase,
+)
 from app.modules.coin.application.use_cases.commission_use_cases import (
     GetCommissionByIdUseCase,
     ListCommissionsUseCase,
@@ -20,6 +27,11 @@ __all__ = [
     "CreateTaxRateUseCase",
     "UpdateTaxRateUseCase",
     "DeleteTaxRateUseCase",
+    "GetTaxRateTrialByIdUseCase",
+    "ListTaxRateTrialsUseCase",
+    "CreateTaxRateTrialUseCase",
+    "UpdateTaxRateTrialUseCase",
+    "DeleteTaxRateTrialUseCase",
     "GetCommissionByIdUseCase",
     "ListCommissionsUseCase",
     "CreateCommissionUseCase",

@@ -7,7 +7,7 @@ from sqlalchemy import Numeric, Enum, String, ForeignKey, DateTime, Boolean, Int
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.modules.coin.domain.enums import Currency
+from app.modules.coin.domain.enums import Currency, CurrencyEnumType
 from app.modules.transactions.domain.enums import (
     TransactionStatus,
     BankCountry,
@@ -83,7 +83,7 @@ class Bank(ORMBaseModel):
     account: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     pix: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     company: Mapped[str] = mapped_column(String(200), nullable=False)
-    currency: Mapped[Currency] = mapped_column(Enum(Currency), nullable=False, index=True)
+    currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
     image: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[BankCountry] = mapped_column(
         Enum(BankCountry, schema="transaction", name="bank_country"), nullable=False, index=True
@@ -165,8 +165,8 @@ class Coupon(ORMBaseModel):
     code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     discount_percentage: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False)
-    origin_currency: Mapped[Currency] = mapped_column(Enum(Currency), nullable=False, index=True)
-    destination_currency: Mapped[Currency] = mapped_column(Enum(Currency), nullable=False, index=True)
+    origin_currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
+    destination_currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)

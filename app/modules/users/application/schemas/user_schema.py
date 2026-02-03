@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import File, Form, UploadFile
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from uuid import UUID
@@ -80,6 +81,9 @@ class UserReadDTO(BaseModel):
     role: Optional[UserRole] = None
     phone: Optional[int] = None
     code_phone: Optional[PhoneCode] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -88,6 +92,9 @@ class UserReadGeneralDTO(BaseModel):
     id: UUID
     names: Optional[str] = None
     lastnames: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -96,5 +103,8 @@ class UserNameDTO(BaseModel):
     id: UUID
     names: Optional[str] = None
     lastnames: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

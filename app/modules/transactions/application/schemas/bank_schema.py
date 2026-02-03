@@ -1,4 +1,5 @@
 # app/modules/transactions/application/schemas/bank_schema.py
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -48,6 +49,9 @@ class BankReadDTO(BaseModel):
     currency_display: str = ""
     image: str
     country: BankCountry
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +67,9 @@ class BankReadDTO(BaseModel):
             currency_display=CURRENCY_DISPLAY_BANK.get(entity.currency.value, entity.currency.value.upper()),
             image=entity.image,
             country=entity.country,
+            created_at=entity.created_at,
+            created_by=entity.created_by,
+            updated_at=entity.updated_at,
         )
 
 

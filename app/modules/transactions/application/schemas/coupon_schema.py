@@ -41,5 +41,8 @@ class CouponReadDTO(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: bool
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

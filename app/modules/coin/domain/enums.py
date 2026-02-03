@@ -3,12 +3,14 @@
 import enum
 from typing import Dict, Any
 
+from sqlalchemy import Enum as SaEnum
+
 
 class Currency(str, enum.Enum):
     """Código ISO de moneda con nombre y símbolo."""
-    pen = "pen"  # Sol Peruano
-    brl = "brl"  # Real Brasileño
-    usd = "usd"  # Dólar
+    pen = "PEN"  # Sol Peruano
+    brl = "BRL"  # Real Brasileño
+    usd = "USD"  # Dólar
 
     @property
     def display_name(self) -> str:
@@ -27,7 +29,10 @@ class Currency(str, enum.Enum):
 
 
 currency_display: Dict[str, Dict[str, str]] = {
-    "pen": {"name": "Sol Peruano", "symbol": "S/."},
-    "brl": {"name": "Real Brasileño", "symbol": "R$"},
-    "usd": {"name": "Dólar", "symbol": "$"},
+    "PEN": {"name": "Sol Peruano", "symbol": "S/."},
+    "BRL": {"name": "Real Brasileño", "symbol": "R$"},
+    "USD": {"name": "Dólar", "symbol": "$"},
 }
+
+# Tipo ENUM de PostgreSQL en esquema coin (creado por migraciones).
+CurrencyEnumType = SaEnum(Currency, name="currency", schema="coin", create_type=False)

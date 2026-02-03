@@ -1,4 +1,5 @@
 # app/modules/transactions/application/schemas/bank_account_schema.py
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -76,5 +77,8 @@ class BankAccountReadDTO(BaseModel):
     pix_key_confirmation: Optional[str] = None
     pix_key_type: Optional[str] = None
     cpf: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

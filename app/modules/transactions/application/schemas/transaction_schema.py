@@ -53,5 +53,8 @@ class TransactionReadDTO(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
