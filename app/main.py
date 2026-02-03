@@ -54,6 +54,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    if settings.PUBLIC_URL:
+        url = settings.PUBLIC_URL.rstrip("/")
+        openapi_schema["servers"] = [{"url": url}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,

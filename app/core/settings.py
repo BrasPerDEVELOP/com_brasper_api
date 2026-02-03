@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str
     ENVIRONMENT: str = "development"
     ROOT_PATH: str = ""
+    # URL pública cuando la API está detrás de proxy (ej. https://apibras.finzeler.com)
+    PUBLIC_URL: str = ""
     # Token Encryption
     TOKEN_EXPIRATION_MINUTES: int = 1440  # 24 horas por defecto
     TOKEN_REFRESH_EXPIRATION_MINUTES: int = 2880  # 48 horas por defecto

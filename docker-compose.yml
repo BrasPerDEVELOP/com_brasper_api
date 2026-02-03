@@ -40,6 +40,7 @@ services:
       TOKEN_REFRESH_EXPIRATION_MINUTES: ${TOKEN_REFRESH_EXPIRATION_MINUTES:-2880}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ROOT_PATH: ${ROOT_PATH:-}
+      PUBLIC_URL: ${PUBLIC_URL:-https://apibras.finzeler.com}
     depends_on:
       db:
         condition: service_healthy
