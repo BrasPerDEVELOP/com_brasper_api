@@ -1,0 +1,50 @@
+# Todas las variables se leen del .env de la raíz del proyecto.
+# Con Docker, la API usa POSTGRES_HOST=db para conectar al contenedor PostgreSQL.
+
+services:
+  api:
+    build: .
+    container_name: com_brasper_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file: .env
+    environment:
+      # Conexión a PostgreSQL dentro de Docker (sobrescribe .env)
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      # Resto desde .env (DEBUG, LOG_LEVEL, SECRET_KEY, TOKEN_*, etc.)
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEBUG: ${DEBUG:-False}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SECRET_KEY: ${SECRET_KEY}
+      TOKEN_EXPIRATION_MINUTES: ${TOKEN_EXPIRATION_MINUTES:-1440}
+      TOKEN_REFRESH_EXPIRATION_MINUTES: ${TOKEN_REFRESH_EXPIRATION_MINUTES:-2880}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ROOT_PATH: ${ROOT_PATH:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: com_brasper_db
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -1,0 +1,27 @@
+# Git y IDE
+.git
+.gitignore
+.idea
+.vscode
+*.md
+!README.md
+
+# Entorno local (no copiar al imagen)
+.venv
+venv
+env
+.env
+.env.*
+
+# Tests y desarrollo
+.pytest_cache
+.coverage
+htmlcov
+*.pyc
+__pycache__
+*.egg-info
+.mypy_cache
+
+# Logs
+*.log
+logs
