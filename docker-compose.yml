@@ -1,12 +1,13 @@
 # Todas las variables se leen del .env de la raíz del proyecto.
 # Con Docker, la API usa POSTGRES_HOST=db para conectar al contenedor PostgreSQL.
+# Nginx lo configuras en el servidor (host): apibras.finzeler.com -> proxy a localhost:8590.
 
 services:
   api:
     build: .
     container_name: com_brasper_api
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "8590:8000"
     env_file: .env
     environment:
       # Conexión a PostgreSQL dentro de Docker (sobrescribe .env)
@@ -48,3 +49,4 @@ services:
 
 volumes:
   postgres_data:
+

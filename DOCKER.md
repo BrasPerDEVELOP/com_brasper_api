@@ -1,57 +1,84 @@
-# Ejecutar en el servidor con Docker
+# Ejecutar en el servidor con Docker y Nginx
 
 ## Requisitos
 
 - Docker y Docker Compose instalados en el servidor.
+- Puerto 80 (y opcionalmente 443) libres para Nginx.
 
-## Pasos
+## Arquitectura
 
-### 1. Crear `.env` en el servidor
+```
+Internet → Nginx (80/443) → API (8000) → PostgreSQL (5432)
+```
 
-Copia `.env.example` a `.env` y ajusta los valores (sobre todo `POSTGRES_PASSWORD` y `SECRET_KEY`):
+La entrada pública es **Nginx** en el puerto **80**. La API no expone puerto al host; solo Nginx y (opcional) PostgreSQL.
+
+## Levantar la aplicación en el servidor
+
+### 1. Clonar (si aún no está) y entrar al proyecto
+
+```bash
+cd /ruta/donde/está/com_brasper_api
+```
+
+### 2. Crear `.env`
+
+Copia `.env.example` a `.env` y edita los valores (sobre todo `POSTGRES_PASSWORD` y `SECRET_KEY`):
 
 ```bash
 cp .env.example .env
-# Editar .env con tus valores
+nano .env   # o vim, etc.
 ```
 
-**Importante:** Con `docker-compose`, la API se conecta a PostgreSQL usando el servicio `db`. En `.env` debe estar:
+Con Docker, el compose sobrescribe `POSTGRES_HOST` para que la API use el contenedor `db`; el resto de variables se leen del `.env`.
 
-- `POSTGRES_HOST=db`
-- `POSTGRES_PORT=5432`
-
-El resto de variables (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `SECRET_KEY`, etc.) deben coincidir con lo que use el contenedor de la base de datos.
-
-### 2. Levantar los servicios
+### 3. Levantar todo (Nginx + API + PostgreSQL)
 
 ```bash
 docker compose up -d --build
 ```
 
-- `--build`: construye la imagen de la API.
+- `--build`: construye la imagen de la API la primera vez o tras cambios.
 - `-d`: ejecuta en segundo plano.
 
-### 3. Comprobar que la API responde
+### 4. Comprobar que responde
+
+Desde el propio servidor:
 
 ```bash
-curl http://localhost:8000/
+curl http://localhost/
 ```
 
-La API queda en el puerto **8000** y PostgreSQL en **5432** (solo necesario si quieres conectar desde fuera al mismo host).
-
-### 4. Ver logs
+Desde fuera (reemplaza por la IP o dominio de tu servidor):
 
 ```bash
+curl http://TU_IP_O_DOMINIO/
+```
+
+Deberías recibir algo como: `{"message":"Com Brasper API","version":"1.0.0"}`.
+
+La documentación Swagger queda en: **http://TU_IP_O_DOMINIO/docs**
+
+### 5. Ver logs
+
+```bash
+# Todos los servicios
+docker compose logs -f
+
+# Solo Nginx
+docker compose logs -f nginx
+
+# Solo la API
 docker compose logs -f api
 ```
 
-### 5. Parar los contenedores
+### 6. Parar los contenedores
 
 ```bash
 docker compose down
 ```
 
-Para borrar también el volumen de la base de datos:
+Para borrar también el volumen de PostgreSQL:
 
 ```bash
 docker compose down -v
@@ -59,7 +86,20 @@ docker compose down -v
 
 ## Comportamiento al arrancar
 
-1. Se inicia PostgreSQL y se espera a que esté listo (healthcheck).
-2. Se inicia la API: se ejecutan las migraciones (`alembic upgrade head`) y luego se lanza uvicorn en el puerto 8000.
+1. PostgreSQL (`db`) arranca y se espera a que esté listo (healthcheck).
+2. La API arranca: ejecuta `alembic upgrade head` y luego uvicorn en el puerto 8000 (interno).
+3. Nginx arranca y redirige el tráfico del puerto 80 (y 443) a la API.
 
-Si ya tienes una base de datos externa, puedes usar solo el servicio `api` en `docker-compose` y poner en `.env` `POSTGRES_HOST` (y puerto) apuntando a ese servidor, eliminando o comentando el servicio `db` en `docker-compose.yml`.
+## Configuración de Nginx
+
+- **Archivo:** `nginx/nginx.conf`
+- **Puertos:** 80 (HTTP) y 443 (HTTPS, para cuando añadas certificado).
+- Para **SSL con Let's Encrypt**, descomenta el bloque `server { listen 443 ssl; ... }` en `nginx/nginx.conf`, monta los certificados en el contenedor y reinicia Nginx.
+
+## Base de datos externa
+
+Si quieres usar una base de datos que ya está en otro servidor (no el contenedor `db`):
+
+1. En `.env` pon `POSTGRES_HOST` (y `POSTGRES_PORT`) con la IP/host de ese servidor.
+2. En `docker-compose.yml` comenta o elimina el servicio `db` y el `depends_on: db` de la API.
+3. Levanta solo: `docker compose up -d --build nginx api`
