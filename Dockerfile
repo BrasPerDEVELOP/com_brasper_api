@@ -19,8 +19,8 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Puerto de la API
-EXPOSE 8000
+# Puerto de la API (8590 para coincidir con el host)
+EXPOSE 8590
 
-# Migraciones + servidor (migrar al arrancar, luego uvicorn)
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migraciones + servidor (migrar al arrancar, luego uvicorn en 8590)
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8590"]

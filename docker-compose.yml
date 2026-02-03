@@ -25,7 +25,7 @@ services:
     build: .
     container_name: com_brasper_api
     ports:
-      - "8590:8000"
+      - "8590:8590"
     env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
