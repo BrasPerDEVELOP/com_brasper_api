@@ -10,11 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import get_settings
 
-# Auth, User, Coin, Transactions
+# Auth, User, Coin, Transactions, Integraciones
 from app.modules.auth.adapters.router import router as auth_router
 from app.modules.users.adapters.router import router as user_router
 from app.modules.coin.adapters.router import router as coin_router
 from app.modules.transactions.adapters.router import router as transaction_router
+from app.modules.integraciones.adapters.router import router as integraciones_router
 
 settings = get_settings()
 
@@ -91,6 +92,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(coin_router)
 app.include_router(transaction_router)
+app.include_router(integraciones_router)
 
 @app.get("/")
 async def root():

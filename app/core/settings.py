@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ROOT_PATH: str = ""
     # URL pública cuando la API está detrás de proxy (ej. https://apibras.finzeler.com)
     PUBLIC_URL: str = ""
+    # URL del frontend para redirigir tras login OAuth (opcional)
+    FRONTEND_URL: Optional[str] = None
     # Token Encryption
     TOKEN_EXPIRATION_MINUTES: int = 1440  # 24 horas por defecto
     TOKEN_REFRESH_EXPIRATION_MINUTES: int = 2880  # 48 horas por defecto

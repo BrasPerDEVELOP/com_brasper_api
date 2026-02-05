@@ -17,4 +17,7 @@ from app.modules.coin.domain.models import TaxRate, TaxRateTrial, Commission
 # Transaction models
 from app.modules.transactions.domain.models import Transaction, Bank, BankAccount, Coupon
 
+# Integration models
+from app.modules.integraciones.domain.models import Integration, SocialAccount
+
 print("  All SQLAlchemy models imported and registered successfully")
