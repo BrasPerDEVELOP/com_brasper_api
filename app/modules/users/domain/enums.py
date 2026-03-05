@@ -17,6 +17,7 @@ class DocumentType(str, enum.Enum):
     """Tipo de documento de identidad."""
     dni = "dni"
     ce = "ce"           # Cédula de extranjería
+    cpf = "cpf"         # Cédula de identidad de Brasil
     ruc = "ruc"
     passport = "passport"
     other = "other"
