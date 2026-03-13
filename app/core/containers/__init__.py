@@ -12,6 +12,7 @@ from app.core.containers.users import (
     list_user_name_uc,
     list_users_uc,
     list_users_with_details_uc,
+    list_sales_user_ids_uc,
     update_user_uc,
     delete_user_uc,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "list_user_name_uc",
     "list_users_uc",
     "list_users_with_details_uc",
+    "list_sales_user_ids_uc",
     "update_user_uc",
     "delete_user_uc",
     "get_tax_rate_repository",

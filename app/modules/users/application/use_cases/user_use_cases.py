@@ -238,6 +238,22 @@ class ListUserUseCase:
             raise e
 
 
+class ListSalesUserIdsUseCase:
+    """Devuelve los IDs de usuarios con rol sales."""
+
+    def __init__(self, repo: UserRepositoryInterface):
+        self.repo = repo
+
+    async def execute(self) -> List[UUID]:
+        try:
+            query_filter = _build_user_query_filter(role="sales")
+            users = await self.repo.list(query_filter=query_filter)
+            return [user.id for user in users]
+        except Exception as e:
+            await self.repo.rollback()
+            raise e
+
+
 class ListUserNameUseCase:
     def __init__(self, repo: UserRepositoryInterface):
         self.repo = repo

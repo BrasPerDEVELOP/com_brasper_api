@@ -15,6 +15,7 @@ class TransactionStatus(str, enum.Enum):
     pending = "pending"
     completed = "completed"
     failed = "failed"
+    checked = "checked"  # Solo cuando checked=True (checklist)
 
 
 class BankCountry(str, enum.Enum):

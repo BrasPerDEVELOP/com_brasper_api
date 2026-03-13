@@ -80,7 +80,7 @@ async def _apply_vouchers(
 @router.get("/", response_model=List[TransactionReadDTO])
 async def list_transactions(
     use_case: ListTransactionsUseCaseDep,
-    status: Optional[TransactionStatus] = Query(None, description="Filtro por estado (pending, completed, failed)"),
+    status: Optional[TransactionStatus] = Query(None, description="Filtro por estado (pending, completed, failed, checked)"),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     bank_account_origin_id: Optional[UUID] = Query(None, description="Filtro por cuenta origen"),
     bank_account_destination_id: Optional[UUID] = Query(None, description="Filtro por cuenta destino"),
@@ -96,6 +96,31 @@ async def list_transactions(
         created_at_from=created_at_from,
         created_at_to=created_at_to,
     )
+
+
+@router.post(
+    "/import/",
+    response_model=ImportResponseDTO,
+    status_code=status.HTTP_201_CREATED,
+    summary="Importar datos (JSON)",
+    responses={
+        201: {"description": "Importación completada"},
+        400: {"description": "Datos inválidos"},
+    },
+)
+async def import_data(use_case: ImportTransactionsUseCaseDep, body: ImportRequestCmd):
+    """Recibe JSON con datos parseados. El frontend parsea el archivo localmente y envía los datos."""
+    try:
+        return await use_case.execute(body)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors())
+    except IntegrityError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Referencia inválida en los datos importados",
+        )
 
 
 @router.get("/{transaction_id}", response_model=TransactionReadDTO)
@@ -168,28 +193,3 @@ async def update_transaction(request: Request, use_case: UpdateTransactionUseCas
 async def delete_transaction(transaction_id: UUID, use_case: DeleteTransactionUseCaseDep):
     """Elimina una transacción por ID."""
     await use_case.execute(transaction_id)
-
-
-@router.post(
-    "/import/",
-    response_model=ImportResponseDTO,
-    status_code=status.HTTP_201_CREATED,
-    summary="Importar datos (JSON)",
-    responses={
-        201: {"description": "Importación completada"},
-        400: {"description": "Datos inválidos"},
-    },
-)
-async def import_data(use_case: ImportTransactionsUseCaseDep, body: ImportRequestCmd):
-    """Recibe JSON con datos parseados. El frontend parsea el archivo localmente y envía los datos."""
-    try:
-        return await use_case.execute(body)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except ValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors())
-    except IntegrityError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Referencia inválida en los datos importados",
-        )

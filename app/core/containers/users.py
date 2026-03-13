@@ -17,6 +17,7 @@ from app.modules.users.application.use_cases import (
     ListUserUseCase,
     ListUserNameUseCase,
     ListUsersWithDetailsUseCase,
+    ListSalesUserIdsUseCase,
 )
 from app.core.containers.common import get_security_utils
 from app.core.containers.unit_of_work import get_unit_of_work
@@ -54,6 +55,10 @@ def list_users_uc(db: AsyncSession = Depends(get_db)) -> ListUserUseCase:
 
 def list_users_with_details_uc(db: AsyncSession = Depends(get_db)) -> ListUsersWithDetailsUseCase:
     return ListUsersWithDetailsUseCase(get_user_repository(db))
+
+
+def list_sales_user_ids_uc(db: AsyncSession = Depends(get_db)) -> ListSalesUserIdsUseCase:
+    return ListSalesUserIdsUseCase(get_user_repository(db))
 
 
 # --- Casos de uso escritura (usan Unit of Work) ---

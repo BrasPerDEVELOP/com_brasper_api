@@ -103,6 +103,9 @@ class CreateTransactionUseCase:
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
+        # Si checked=True, status pasa a "checked"
+        if entity_data.get("checked") is True:
+            entity_data["status"] = TransactionStatus.checked
         entity = Transaction(**entity_data)
         saved = await self.repo.add(entity)
         await self.repo.commit()
@@ -120,6 +123,11 @@ class UpdateTransactionUseCase:
             return None
 
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        # No actualizar checked si es None (el modelo requiere bool)
+        updates = {k: v for k, v in updates.items() if k != "checked" or v is not None}
+        # Si checked=True, status pasa a "checked"
+        if updates.get("checked") is True:
+            updates["status"] = TransactionStatus.checked
         for attr, value in updates.items():
             setattr(entity, attr, value)
 

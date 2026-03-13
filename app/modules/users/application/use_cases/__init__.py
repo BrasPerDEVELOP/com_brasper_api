@@ -9,6 +9,7 @@ from app.modules.users.application.use_cases.user_use_cases import (
     ListUserUseCase,
     ListUserNameUseCase,
     ListUsersWithDetailsUseCase,
+    ListSalesUserIdsUseCase,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "ListUserUseCase",
     "ListUserNameUseCase",
     "ListUsersWithDetailsUseCase",
+    "ListSalesUserIdsUseCase",
 ]

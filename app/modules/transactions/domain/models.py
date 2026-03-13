@@ -82,6 +82,9 @@ class Transaction(ORMBaseModel):
     send_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     payment_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Checklist
+    checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+
     # Relaciones
     bank_account_origin: Mapped["BankAccount"] = relationship(
         "BankAccount",

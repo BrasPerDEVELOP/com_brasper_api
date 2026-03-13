@@ -135,7 +135,11 @@ async def login(
         if content_type.startswith("application/x-www-form-urlencoded"):
             from fastapi.responses import JSONResponse
             return JSONResponse(
-                content={"access_token": result.token, "token_type": "bearer"}
+                content={
+                    "access_token": result.token,
+                    "token_type": "bearer",
+                    "user": result.user.model_dump(mode="json"),
+                }
             )
         return result
     except ValueError as e:

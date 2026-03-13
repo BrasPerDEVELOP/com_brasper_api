@@ -20,6 +20,7 @@ from app.modules.users.application.user_service import (
     ListUserNameUseCase,
     ListUserUseCase,
     ListUsersWithDetailsUseCase,
+    ListSalesUserIdsUseCase,
     UpdateUserUseCase,
     DeleteUserUseCase,
 )
@@ -30,6 +31,7 @@ from app.core.container import (
     list_user_name_uc,
     list_users_uc,
     list_users_with_details_uc,
+    list_sales_user_ids_uc,
     update_user_uc,
     delete_user_uc,
 )
@@ -87,6 +89,14 @@ async def delete_user(
     use_case: DeleteUserUseCase = Depends(delete_user_uc),
 ):
     await use_case.execute(user_id)
+
+
+@router.get("/sales-ids/", response_model=List[UUID])
+async def list_sales_user_ids(
+    use_case: ListSalesUserIdsUseCase = Depends(list_sales_user_ids_uc),
+):
+    """Devuelve los IDs de usuarios con rol sales."""
+    return await use_case.execute()
 
 
 @router.get("/detail/", response_model=List[UserInfoDTO])

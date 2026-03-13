@@ -38,6 +38,13 @@ def _parse_optional_uuid(v: Optional[str]) -> Optional[UUID]:
         return None
 
 
+def _parse_checked(v: Any) -> Optional[bool]:
+    """Parse checkbox value to bool or None if not provided."""
+    if v is None or (isinstance(v, str) and v.strip() == ""):
+        return None
+    return str(v).lower() in ("true", "1", "yes", "on")
+
+
 class TransactionCreateCmd(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -94,6 +101,7 @@ class TransactionCreateCmd(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked: bool = False
 
     @classmethod
     def from_form(
@@ -114,6 +122,7 @@ class TransactionCreateCmd(BaseModel):
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
+        checked: bool = Form(False),
     ) -> tuple["TransactionCreateCmd", Optional[UploadFile], Optional[UploadFile]]:
         cmd = cls(
             bank_account_origin=UUID(bank_account_origin),
@@ -132,6 +141,7 @@ class TransactionCreateCmd(BaseModel):
             payment_date=_parse_optional_datetime(payment_date),
             send_voucher=None,  # se llenará en la ruta tras guardar
             payment_voucher=None,
+            checked=checked,
         )
         return cmd, send_voucher, payment_voucher
 
@@ -162,6 +172,7 @@ class TransactionCreateCmd(BaseModel):
             payment_date=_parse_optional_datetime(_get("payment_date")),
             send_voucher=None,
             payment_voucher=None,
+            checked=_get("checked", "false").lower() in ("true", "1", "yes"),
         )
         send_f = form.get("send_voucher") if "send_voucher" in form else None
         pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
@@ -196,6 +207,7 @@ class TransactionUpdateCmd(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked: Optional[bool] = None
 
     @classmethod
     def from_form(
@@ -217,6 +229,7 @@ class TransactionUpdateCmd(BaseModel):
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
+        checked: Optional[str] = Form(None),
     ) -> tuple["TransactionUpdateCmd", Optional[UploadFile], Optional[UploadFile]]:
         cmd = cls(
             id=UUID(id),
@@ -236,6 +249,7 @@ class TransactionUpdateCmd(BaseModel):
             payment_date=_parse_optional_datetime(payment_date),
             send_voucher=None,
             payment_voucher=None,
+            checked=_parse_checked(checked),
         )
         return cmd, send_voucher, payment_voucher
 
@@ -267,6 +281,7 @@ class TransactionUpdateCmd(BaseModel):
             payment_date=_parse_optional_datetime(_get("payment_date")),
             send_voucher=None,
             payment_voucher=None,
+            checked=_parse_checked(_get("checked")),
         )
         send_f = form.get("send_voucher") if "send_voucher" in form else None
         pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
@@ -295,6 +310,7 @@ class TransactionReadDTO(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked: bool = False
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
