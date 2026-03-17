@@ -1,6 +1,7 @@
 # app/core/settings.py
 import os
 from typing import Optional, List
+from urllib.parse import quote
 from pydantic_settings import BaseSettings
 from aiocache import caches
 
@@ -31,7 +32,9 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        # URL-encode password to handle special chars like @, #, etc.
+        password = quote(self.POSTGRES_PASSWORD, safe="")
+        return f"postgresql://{self.POSTGRES_USER}:{password}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     def configure_cache(self):
         """Configura cache (sin Redis, usando memoria)"""

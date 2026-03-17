@@ -29,7 +29,8 @@ fileConfig(env_config.config_file_name)
 db_url = settings.database_url
 # Reemplazar postgresql+asyncpg:// por postgresql:// o postgresql+psycopg2://
 db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-env_config.set_main_option("sqlalchemy.url", db_url)
+# Escapar % para ConfigParser (interpreta % como interpolación)
+env_config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 # Metadata objetivo para las migraciones
 target_metadata = ORMBase.metadata
