@@ -53,14 +53,12 @@ class Transaction(ORMBaseModel):
         nullable=False,
         index=True,
     )
-
     status: Mapped[TransactionStatus] = mapped_column(
         Enum(TransactionStatus, schema="transaction", name="transaction_status"),
         nullable=False,
-        default=TransactionStatus.pending,
+        default=TransactionStatus.verification,
         index=True,
     )
-
     # Montos y código
     origin_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     destination_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
@@ -73,7 +71,6 @@ class Transaction(ORMBaseModel):
         nullable=True,
         index=True,
     )
-
     # Fechas
     send_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     payment_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

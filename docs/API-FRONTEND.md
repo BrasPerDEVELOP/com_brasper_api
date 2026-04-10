@@ -90,14 +90,48 @@ Prefijo: `/transactions`
 
 ### Estados (TransactionStatus)
 
-| Valor      | Descripción                          |
-|-----------|--------------------------------------|
-| `pending` | Pendiente                            |
-| `completed` | Completada                         |
-| `failed`  | Fallida                              |
-| `checked` | Verificada (checklist marcado)       |
+| Valor | Significado en UI (sugerido) | Cuándo lo pone el backend |
+|-------|------------------------------|---------------------------|
+| `verification` | En verificación | Alta nueva: checklist desmarcado (`checked: false`). Es el estado por defecto al crear. |
+| `verified` | Verificado (checklist OK, datos incompletos) | `checked: true` pero aún faltan campos para cerrar la operación (ver tabla de completitud abajo). |
+| `completed` | Finalizada / completada | `checked: true` **y** todos los campos de cierre están presentes (misma tabla). |
+| `failed` | Fallida | Error o flujo marcado como fallido; **no** se recalcula automáticamente con el checklist. |
+| `pending` | (Legado) | Puede aparecer en datos antiguos; las **nuevas** altas usan `verification`. |
+| `checked` | (Legado) | Valor antiguo equivalente a “verificado”; en datos migrados puede haberse normalizado a `verified`. |
 
-**Nota:** El estado `checked` se asigna automáticamente cuando `checked: true` en POST o PUT.
+**Migración de API:** conviene mostrar `verification` / `verified` / `completed` / `failed` en filtros y badges. Mantener compatibilidad leyendo `pending` / `checked` si hace falta en histórico.
+
+---
+
+### Flujo checklist ↔ `status` (obligatorio para el front)
+
+1. **Crear transacción (POST)**  
+   - El backend **fuerza** `checked: false` y `status: "verification"` aunque el cliente envíe otro valor.  
+   - El usuario **no** puede dejar el checklist activo en el alta; se completa después con PUT.
+   - **`send_date`:** se guarda **automáticamente** con la fecha y hora UTC del momento de creación (el cliente no necesita enviarla; si la envía, el servidor la sobrescribe en el alta).
+
+2. **Actualizar (PUT)**  
+   - Tras guardar, el backend **recalcula** `status` según `checked` y los demás campos (salvo que `status` sea `failed`).  
+   - No confiar en un `status` enviado manualmente para simular el flujo: el servidor puede sobrescribirlo según la regla siguiente.
+
+3. **Regla de derivación** (resumen):
+
+   - `checked === false` → `status = "verification"`  
+   - `checked === true` y **falta** algún campo de la lista de completitud → `status = "verified"`  
+   - `checked === true` y **todos** los campos de completitud están presentes → `status = "completed"`  
+   - `status === "failed"` → no se altera por el checklist
+
+4. **Campos que deben estar completos para pasar a `completed`** (todos a la vez, con checklist en `true`):
+
+   - `commission_result` (no `null`)
+   - `total_to_send` (no `null`)
+   - `send_date` (no `null`; en la práctica ya viene del alta automática)
+   - `send_voucher` (string no vacío; típicamente path/URL tras subir archivo)
+   - `payment_voucher` (string no vacío)
+
+5. **`payment_date`:** el backend la asigna **solo** cuando la transacción pasa a `status: "completed"` (primera vez que queda finalizada): fecha y hora **UTC** de ese momento. No hace falta enviarla para cumplir la regla de completitud.
+
+El front puede usar `status` para badges y `checked` para el control del checklist; si muestran “progreso hacia completada”, basta con comprobar los campos anteriores (sin contar `payment_date` hasta que el estado sea `completed`).
 
 ---
 
@@ -108,7 +142,7 @@ Prefijo: `/transactions`
 **Query params:**
 | Parámetro | Tipo | Descripción |
 |-----------|------|-------------|
-| `status` | string | `pending`, `completed`, `failed`, `checked` |
+| `status` | string | Ej.: `verification`, `verified`, `completed`, `failed`, `pending`, `checked` (según enum actual) |
 | `user_id` | UUID | Filtro por usuario |
 | `bank_account_origin_id` | UUID | Cuenta origen |
 | `bank_account_destination_id` | UUID | Cuenta destino |
@@ -139,7 +173,7 @@ Prefijo: `/transactions`
   "user_id": "uuid",
   "tax_rate_id": "uuid",
   "commission_id": "uuid",
-  "status": "pending",
+  "status": "verification",
   "origin_amount": 1000,
   "destination_amount": 950,
   "code": "TXN-ABC123",
@@ -149,9 +183,12 @@ Prefijo: `/transactions`
 }
 ```
 
-**Lógica `checked`:**
-- Si `checked: true` → el backend asigna `status: "checked"` automáticamente.
-- Si `checked: false` → se usa el `status` enviado.
+**Comportamiento en POST (importante):**
+
+- El backend **ignora** `checked: true` en creación: siempre guarda `checked: false` y `status: "verification"`.
+- El `status` enviado en el body también se normaliza a `verification` en el alta.
+- **`send_date`** se fija en servidor al instante de creación (UTC).
+- El checklist se marca solo en **actualizaciones** (PUT) cuando corresponda.
 
 ---
 
@@ -159,17 +196,23 @@ Prefijo: `/transactions`
 
 **Actualiza transacción.** Todos los campos opcionales (solo los enviados se actualizan).
 
-**Request (JSON):**
+**Request (JSON) ejemplo (marcar checklist y completar datos):**
 ```json
 {
   "id": "uuid-transaccion",
-  "status": "completed",
-  "checked": true
+  "checked": true,
+  "commission_result": 50,
+  "total_to_send": 1000,
+  "send_voucher": "vouchers/send/xxx.jpg",
+  "payment_voucher": "vouchers/payment/yyy.jpg"
 }
 ```
 
-**Lógica `checked`:**
-- Si `checked: true` → el backend asigna `status: "checked"` automáticamente.
+**Comportamiento en PUT:**
+
+- Tras aplicar los cambios, el backend recalcula `status` (`verification` / `verified` / `completed`) según `checked` y la completitud de campos, **excepto** si la transacción está en `failed`.
+- Al quedar `completed`, el servidor asigna **`payment_date`** (UTC) en ese momento.
+- Enviar `status: "completed"` manualmente no garantiza que quede así: debe cumplirse la regla de completitud + `checked: true`.
 
 ---
 
@@ -219,6 +262,8 @@ Prefijo: `/transactions`
 }
 ```
 
+Cada transacción creada por importación queda con `checked: false` y `status: "verification"` (mismo criterio que POST). El código `code` se genera en servidor con formato secuencial por par de monedas según la tasa (`tax_rate_id`).
+
 Ver `docs/guia-frontend-importacion-excel.md` para mapeo Excel → JSON.
 
 ---
@@ -228,6 +273,14 @@ Ver `docs/guia-frontend-importacion-excel.md` para mapeo Excel → JSON.
 ### TransactionReadDTO
 
 ```typescript
+type TransactionStatus =
+  | "verification"
+  | "verified"
+  | "completed"
+  | "failed"
+  | "pending"   // legado
+  | "checked";  // legado
+
 interface TransactionReadDTO {
   id: string;
   bank_account_origin_id: string;
@@ -235,7 +288,7 @@ interface TransactionReadDTO {
   user_id: string;
   tax_rate_id: string;
   commission_id: string;
-  status: "pending" | "completed" | "failed" | "checked";
+  status: TransactionStatus;
   origin_amount: number;
   destination_amount: number;
   code: string;
@@ -253,12 +306,11 @@ interface TransactionReadDTO {
 }
 ```
 
-### Checklist y status
+### Checklist y `status`
 
-- `checked`: boolean del checklist (UI).
-- `status`: estado de la transacción.
-- Cuando el usuario marca el checklist (`checked: true`), el backend asigna `status: "checked"`.
-- En listados y detalle, usar ambos campos para mostrar estado y checkbox.
+- **`checked`:** control del checklist en UI; en **POST** el servidor siempre lo deja en `false`.
+- **`status`:** derivado en servidor según el flujo descrito arriba (`verification` → `verified` → `completed`).
+- Para **filtros y etiquetas**, usar `status`; para el **checkbox**, usar `checked` y reflejar en PUT los cambios del usuario.
 
 ---
 

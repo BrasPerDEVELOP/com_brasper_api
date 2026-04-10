@@ -9,6 +9,8 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
+from app.modules.coin.adapters.dependencies.coin_dependencies import get_tax_rate_repository
+from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
 from app.modules.transactions.interfaces.bank_repository import BankRepositoryInterface
 from app.modules.transactions.interfaces.bank_account_repository import BankAccountRepositoryInterface
@@ -196,11 +198,19 @@ def import_transactions_uc(
     create_transaction: Annotated[CreateTransactionUseCase, Depends(create_transaction_uc)],
     create_user: Annotated["CreateUserUseCase", Depends(create_user_uc)],
     create_bank_account: Annotated[CreateBankAccountUseCase, Depends(create_bank_account_uc)],
+    transaction_repo: Annotated[
+        TransactionRepositoryInterface, Depends(get_transaction_repository)
+    ],
+    tax_rate_repo: Annotated[
+        TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
+    ],
 ) -> ImportTransactionsUseCase:
     return ImportTransactionsUseCase(
         create_transaction_uc=create_transaction,
         create_user_uc=create_user,
         create_bank_account_uc=create_bank_account,
+        transaction_repo=transaction_repo,
+        tax_rate_repo=tax_rate_repo,
     )
 
 

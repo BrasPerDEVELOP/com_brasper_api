@@ -54,7 +54,7 @@ class TransactionCreateCmd(BaseModel):
                 "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "tax_rate_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "commission_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "status": "pending",
+                "status": "verification",
                 "origin_amount": 100.0,
                 "destination_amount": 95.0,
                 "code": "TXN-001",
@@ -84,7 +84,7 @@ class TransactionCreateCmd(BaseModel):
     user_id: UUID
     tax_rate_id: UUID
     commission_id: UUID
-    status: TransactionStatus = TransactionStatus.pending
+    status: TransactionStatus = TransactionStatus.verification
     origin_amount: float
     destination_amount: float
     code: str
@@ -111,7 +111,10 @@ class TransactionCreateCmd(BaseModel):
         user_id: str = Form(..., description="UUID de usuario"),
         tax_rate_id: str = Form(..., description="UUID de tasa"),
         commission_id: str = Form(..., description="UUID de comisión"),
-        status: str = Form("pending", description="Estado: pending, completed, failed"),
+        status: str = Form(
+            "verification",
+            description="Estado: verification, verified, completed, failed, pending, …",
+        ),
         origin_amount: str = Form(..., description="Monto origen"),
         destination_amount: str = Form(..., description="Monto destino"),
         code: str = Form(..., description="Código de transacción"),
@@ -130,7 +133,7 @@ class TransactionCreateCmd(BaseModel):
             user_id=UUID(user_id),
             tax_rate_id=UUID(tax_rate_id),
             commission_id=UUID(commission_id),
-            status=TransactionStatus(status) if status else TransactionStatus.pending,
+            status=TransactionStatus(status) if status else TransactionStatus.verification,
             origin_amount=float(origin_amount),
             destination_amount=float(destination_amount),
             code=code,
@@ -157,7 +160,7 @@ class TransactionCreateCmd(BaseModel):
             user_id=UUID(_get("user_id", "")),
             tax_rate_id=UUID(_get("tax_rate_id", "")),
             commission_id=UUID(_get("commission_id", "")),
-            status=TransactionStatus(_get("status", "pending") or "pending"),
+            status=TransactionStatus(_get("status", "verification") or "verification"),
             origin_amount=float(_get("origin_amount", 0)),
             destination_amount=float(_get("destination_amount", 0)),
             code=_get("code", ""),
@@ -347,7 +350,7 @@ class TransactionImportPayload(BaseModel):
 
     tax_rate_id: UUID
     commission_id: UUID
-    status: TransactionStatus = TransactionStatus.pending
+    status: TransactionStatus = TransactionStatus.verification
     origin_amount: float
     destination_amount: float
     commission_result: Optional[float] = Field(

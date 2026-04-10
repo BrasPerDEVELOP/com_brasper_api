@@ -18,7 +18,7 @@ def test_post_transaction_json_creates_success(client, valid_transaction_payload
     assert data["code"] == valid_transaction_payload["code"]
     assert data["origin_amount"] == valid_transaction_payload["origin_amount"]
     assert data["destination_amount"] == valid_transaction_payload["destination_amount"]
-    assert data["status"] == TransactionStatus.pending.value
+    assert data["status"] == TransactionStatus.verification.value
     assert data["commission_result"] == valid_transaction_payload["commission_result"]
     assert data["total_to_send"] == valid_transaction_payload["total_to_send"]
 

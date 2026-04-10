@@ -12,10 +12,12 @@ class TransactionType(str, enum.Enum):
 
 class TransactionStatus(str, enum.Enum):
     """Estado de la transacción."""
-    pending = "pending"
-    completed = "completed"
+    pending = "pending"  # legado; nuevas altas usan verification
+    verification = "verification"  # en verificación (checklist sin marcar)
+    verified = "verified"  # checklist marcado; faltan datos para cerrar
+    completed = "completed"  # finalizada: checklist + datos completos
     failed = "failed"
-    checked = "checked"  # Solo cuando checked=True (checklist)
+    checked = "checked"  # legado (equivalente a verified); preferir verified
 
 
 class BankCountry(str, enum.Enum):

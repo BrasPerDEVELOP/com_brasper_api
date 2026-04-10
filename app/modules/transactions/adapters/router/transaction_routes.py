@@ -80,7 +80,10 @@ async def _apply_vouchers(
 @router.get("/", response_model=List[TransactionReadDTO])
 async def list_transactions(
     use_case: ListTransactionsUseCaseDep,
-    status: Optional[TransactionStatus] = Query(None, description="Filtro por estado (pending, completed, failed, checked)"),
+    status: Optional[TransactionStatus] = Query(
+        None,
+        description="Filtro por estado (verification, verified, completed, failed, pending, checked, …)",
+    ),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     bank_account_origin_id: Optional[UUID] = Query(None, description="Filtro por cuenta origen"),
     bank_account_destination_id: Optional[UUID] = Query(None, description="Filtro por cuenta destino"),

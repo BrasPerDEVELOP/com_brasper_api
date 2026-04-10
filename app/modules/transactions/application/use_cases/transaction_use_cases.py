@@ -2,8 +2,8 @@
 """Casos de uso CRUD para Transaction."""
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID, uuid4
+from datetime import datetime, timezone
+from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -11,9 +11,12 @@ if TYPE_CHECKING:
     from app.modules.transactions.application.use_cases.bank_account_use_cases import CreateBankAccountUseCase
 
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
+from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.domain.models import Transaction
 from app.modules.transactions.domain.enums import TransactionStatus
-from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
+from app.modules.transactions.interfaces.transaction_repository import (
+    TransactionRepositoryInterface,
+)
 from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
@@ -27,6 +30,40 @@ _CMD_TO_ENTITY = {
     "bank_account_origin": "bank_account_origin_id",
     "bank_account_destination": "bank_account_destination_id",
 }
+
+
+def _non_empty_str(value: Optional[str]) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _is_transaction_pipeline_complete(entity: Transaction) -> bool:
+    """True si checklist y datos operativos (montos, send_date, vouchers) están completos.
+    `payment_date` no se exige aquí: se asigna en servidor al pasar a completed."""
+    return (
+        entity.checked is True
+        and entity.commission_result is not None
+        and entity.total_to_send is not None
+        and entity.send_date is not None
+        and _non_empty_str(entity.send_voucher)
+        and _non_empty_str(entity.payment_voucher)
+    )
+
+
+def sync_transaction_status_from_checklist(entity: Transaction) -> None:
+    """Asigna status según checklist y completitud; no modifica transacciones fallidas.
+    Al pasar a `completed` por primera vez, fija `payment_date` a ahora (UTC)."""
+    previous_status = entity.status
+    if entity.status == TransactionStatus.failed:
+        return
+    if not entity.checked:
+        entity.status = TransactionStatus.verification
+        return
+    if _is_transaction_pipeline_complete(entity):
+        if previous_status != TransactionStatus.completed:
+            entity.payment_date = datetime.now(timezone.utc)
+        entity.status = TransactionStatus.completed
+    else:
+        entity.status = TransactionStatus.verified
 
 
 def _build_transaction_query_filter(
@@ -103,10 +140,13 @@ class CreateTransactionUseCase:
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
-        # Si checked=True, status pasa a "checked"
-        if entity_data.get("checked") is True:
-            entity_data["status"] = TransactionStatus.checked
+        # Alta: sin checklist; estado en verificación (el cliente no puede activar el check al crear)
+        entity_data["checked"] = False
+        entity_data["status"] = TransactionStatus.verification
+        # Fecha/hora de creación de la operación (envío); no se toma del cliente
+        entity_data["send_date"] = datetime.now(timezone.utc)
         entity = Transaction(**entity_data)
+        sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
         await self.repo.commit()
         await self.repo.refresh(saved)
@@ -125,11 +165,10 @@ class UpdateTransactionUseCase:
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
         # No actualizar checked si es None (el modelo requiere bool)
         updates = {k: v for k, v in updates.items() if k != "checked" or v is not None}
-        # Si checked=True, status pasa a "checked"
-        if updates.get("checked") is True:
-            updates["status"] = TransactionStatus.checked
         for attr, value in updates.items():
             setattr(entity, attr, value)
+
+        sync_transaction_status_from_checklist(entity)
 
         await self.repo.update(entity)
         await self.repo.commit()
@@ -156,10 +195,14 @@ class ImportTransactionsUseCase:
         create_transaction_uc: "CreateTransactionUseCase",
         create_user_uc: "CreateUserUseCase",
         create_bank_account_uc: "CreateBankAccountUseCase",
+        transaction_repo: TransactionRepositoryInterface,
+        tax_rate_repo: TaxRateRepositoryInterface,
     ):
         self._create_transaction = create_transaction_uc
         self._create_user = create_user_uc
         self._create_bank_account = create_bank_account_uc
+        self._transaction_repo = transaction_repo
+        self._tax_rate_repo = tax_rate_repo
 
     async def execute(self, body: ImportRequestCmd) -> ImportResponseDTO:
         """Procesa la importación: por cada item crea user_origin+bank_account_origin, user_destination+bank_account_destination,
@@ -197,12 +240,21 @@ class ImportTransactionsUseCase:
             bank_dest_dto = await self._create_bank_account.execute(bank_dest_cmd)
             created_bank_accounts += 1
 
-            # Transaction: user_id = emisor, code = autogenerado
+            # Transaction: user_id = emisor, code = secuencial ORIGEN-DEST-0000000001 (según tasa/moneda)
+            tax_rate = await self._tax_rate_repo.get(item.transaction.tax_rate_id)
+            if not tax_rate:
+                raise ValueError(
+                    f"No existe tax_rate con id {item.transaction.tax_rate_id}"
+                )
+            code = await self._transaction_repo.next_sequential_transaction_code(
+                tax_rate.coin_a.value,
+                tax_rate.coin_b.value,
+            )
             txn_data = item.transaction.model_dump()
             txn_data["user_id"] = user_origin_id
             txn_data["bank_account_origin"] = bank_origin_dto.id
             txn_data["bank_account_destination"] = bank_dest_dto.id
-            txn_data["code"] = f"TXN-{uuid4().hex[:12].upper()}"
+            txn_data["code"] = code
             txn_cmd = TransactionCreateCmd.model_validate(txn_data)
             await self._create_transaction.execute(txn_cmd)
             created_transactions += 1

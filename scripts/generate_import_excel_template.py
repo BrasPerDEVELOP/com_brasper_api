@@ -180,7 +180,7 @@ def main():
         "",
         "",  # tax_rate_id
         "",  # commission_id
-        "pending",
+        "verification",
         "1000",
         "950",
         "50",
