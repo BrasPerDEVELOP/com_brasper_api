@@ -176,7 +176,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
   "status": "verification",
   "origin_amount": 1000,
   "destination_amount": 950,
-  "code": "TXN-ABC123",
+  "code": "",
   "commission_result": 50,
   "total_to_send": 1000,
   "checked": false
@@ -189,6 +189,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
 - El `status` enviado en el body también se normaliza a `verification` en el alta.
 - **`send_date`** se fija en servidor al instante de creación (UTC).
 - El checklist se marca solo en **actualizaciones** (PUT) cuando corresponda.
+- **`code`:** generado en servidor (no usar `TRX-…` ni códigos locales); ver formato en la sección de importación.
 
 ---
 
@@ -262,7 +263,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
 }
 ```
 
-Cada transacción creada por importación queda con `checked: false` y `status: "verification"` (mismo criterio que POST). El código `code` se genera en servidor con formato secuencial por par de monedas según la tasa (`tax_rate_id`).
+Cada transacción creada por importación queda con `checked: false` y `status: "verification"` (mismo criterio que POST). El **`code`** lo genera el servidor: formato **`{1ª letra origen}x{1ª letra destino}-{10 dígitos}`** según la tasa (ej. PEN→BRL: `PxB-0000000001`, BRL→PEN: `BxP-0000000001`, USD→BRL: `UxB-…`, BRL→USD: `BxU-…`). El cliente puede omitir `code` en POST o enviarlo vacío; el valor enviado no se usa.
 
 Ver `docs/guia-frontend-importacion-excel.md` para mapeo Excel → JSON.
 

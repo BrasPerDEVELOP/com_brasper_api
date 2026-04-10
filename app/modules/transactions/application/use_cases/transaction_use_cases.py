@@ -135,11 +135,23 @@ class ListTransactionsUseCase:
 
 
 class CreateTransactionUseCase:
-    def __init__(self, repo: TransactionRepositoryInterface):
+    def __init__(
+        self,
+        repo: TransactionRepositoryInterface,
+        tax_rate_repo: TaxRateRepositoryInterface,
+    ):
         self.repo = repo
+        self._tax_rate_repo = tax_rate_repo
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
+        tax_rate = await self._tax_rate_repo.get(cmd.tax_rate_id)
+        if not tax_rate:
+            raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
+        entity_data["code"] = await self.repo.next_sequential_transaction_code(
+            tax_rate.coin_a.value,
+            tax_rate.coin_b.value,
+        )
         # Alta: sin checklist; estado en verificación (el cliente no puede activar el check al crear)
         entity_data["checked"] = False
         entity_data["status"] = TransactionStatus.verification
@@ -240,7 +252,7 @@ class ImportTransactionsUseCase:
             bank_dest_dto = await self._create_bank_account.execute(bank_dest_cmd)
             created_bank_accounts += 1
 
-            # Transaction: user_id = emisor, code = secuencial ORIGEN-DEST-0000000001 (según tasa/moneda)
+            # Transaction: user_id = emisor, code = secuencial PxB-0000000001 (según tasa/moneda)
             tax_rate = await self._tax_rate_repo.get(item.transaction.tax_rate_id)
             if not tax_rate:
                 raise ValueError(

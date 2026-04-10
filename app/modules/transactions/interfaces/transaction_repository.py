@@ -12,4 +12,4 @@ class TransactionRepositoryInterface(BaseRepositoryInterface[Transaction]):
     async def next_sequential_transaction_code(
         self, origin_currency_code: str, destination_currency_code: str
     ) -> str:
-        """Siguiente código `ORIGEN-DEST-0000000001` para el par de monedas (orden global en BD)."""
+        """Siguiente código `PxB-0000000001` (1ª letra origen + x + 1ª letra destino + secuencia)."""

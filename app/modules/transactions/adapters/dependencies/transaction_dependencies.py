@@ -67,8 +67,11 @@ def list_transactions_uc(
 
 def create_transaction_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
+    tax_rate_repo: Annotated[
+        TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
+    ],
 ) -> CreateTransactionUseCase:
-    return CreateTransactionUseCase(repo)
+    return CreateTransactionUseCase(repo, tax_rate_repo)
 
 
 def update_transaction_uc(

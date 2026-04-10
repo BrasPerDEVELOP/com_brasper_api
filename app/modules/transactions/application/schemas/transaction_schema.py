@@ -57,7 +57,7 @@ class TransactionCreateCmd(BaseModel):
                 "status": "verification",
                 "origin_amount": 100.0,
                 "destination_amount": 95.0,
-                "code": "TXN-001",
+                "code": "",
                 "commission_result": 5.0,
                 "total_to_send": 100.0,
             }
@@ -87,7 +87,10 @@ class TransactionCreateCmd(BaseModel):
     status: TransactionStatus = TransactionStatus.verification
     origin_amount: float
     destination_amount: float
-    code: str
+    code: str = Field(
+        default="",
+        description="Generado en servidor (p. ej. PxB-0000000001); el valor enviado se ignora",
+    )
     commission_result: Optional[float] = Field(
         default=None,
         validation_alias=AliasChoices("commission_result", "resultado_comision"),
@@ -117,7 +120,7 @@ class TransactionCreateCmd(BaseModel):
         ),
         origin_amount: str = Form(..., description="Monto origen"),
         destination_amount: str = Form(..., description="Monto destino"),
-        code: str = Form(..., description="Código de transacción"),
+        code: str = Form("", description="Opcional; el servidor genera el código (PxB-…)"),
         commission_result: Optional[str] = Form(None),
         total_to_send: Optional[str] = Form(None),
         coupon_id: Optional[str] = Form(None),
