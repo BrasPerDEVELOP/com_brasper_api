@@ -4,7 +4,7 @@ from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import File, Form, UploadFile
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 
 from app.modules.transactions.domain.enums import AccountFlowType, BankCountry, SocialActor, TransactionStatus
 
@@ -335,6 +335,12 @@ class TransactionUpdateCmd(BaseModel):
         return cmd, send_f, pay_f, checked_img_f
 
 
+class TransactionUserRef(BaseModel):
+    """Referencia mínima al usuario de la transacción (mismo id que `user_id`)."""
+
+    id: UUID
+
+
 class TransactionReadDTO(BaseModel):
     id: UUID
     bank_account_origin_id: UUID
@@ -360,6 +366,11 @@ class TransactionReadDTO(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def user(self) -> TransactionUserRef:
+        return TransactionUserRef(id=self.user_id)
 
 
 class BankAccountImportPayload(BaseModel):
