@@ -1,12 +1,15 @@
 # app/modules/users/domain/models.py
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import uuid
 
 from sqlalchemy import String, Boolean, BigInteger
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.model_base import ORMBaseModel
+
+if TYPE_CHECKING:
+    from app.modules.transactions.domain.models import Transaction
 
 
 class User(ORMBaseModel):
@@ -24,3 +27,9 @@ class User(ORMBaseModel):
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UserRole enum value
     phone: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # hasta 15 dígitos
     code_phone: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # PhoneCode enum value (ej. +51)
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        back_populates="user",
+        lazy="noload",
+    )

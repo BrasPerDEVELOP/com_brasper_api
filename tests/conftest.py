@@ -34,6 +34,8 @@ def mock_create_transaction_uc():
         payment_date=None,
         send_voucher=None,
         payment_voucher=None,
+        checked_image=None,
+        checked=False,
         created_at=datetime.now(timezone.utc),
         created_by=None,
         updated_at=datetime.now(timezone.utc),

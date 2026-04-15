@@ -104,6 +104,10 @@ class TransactionCreateCmd(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked_image: Optional[str] = Field(
+        default=None,
+        description="Ruta relativa de imagen asociada al checklist (multipart: campo checked_image)",
+    )
     checked: bool = False
 
     @classmethod
@@ -128,8 +132,14 @@ class TransactionCreateCmd(BaseModel):
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
+        checked_image: Optional[UploadFile] = File(None),
         checked: bool = Form(False),
-    ) -> tuple["TransactionCreateCmd", Optional[UploadFile], Optional[UploadFile]]:
+    ) -> Tuple[
+        "TransactionCreateCmd",
+        Optional[UploadFile],
+        Optional[UploadFile],
+        Optional[UploadFile],
+    ]:
         cmd = cls(
             bank_account_origin=UUID(bank_account_origin),
             bank_account_destination=UUID(bank_account_destination),
@@ -147,15 +157,21 @@ class TransactionCreateCmd(BaseModel):
             payment_date=_parse_optional_datetime(payment_date),
             send_voucher=None,  # se llenará en la ruta tras guardar
             payment_voucher=None,
+            checked_image=None,
             checked=checked,
         )
-        return cmd, send_voucher, payment_voucher
+        return cmd, send_voucher, payment_voucher, checked_image
 
     @classmethod
     def from_form_data(
         cls, form: Any
-    ) -> Tuple["TransactionCreateCmd", Optional[UploadFile], Optional[UploadFile]]:
-        """Construye cmd desde form-data (dict-like). Retorna (cmd, send_voucher, payment_voucher)."""
+    ) -> Tuple[
+        "TransactionCreateCmd",
+        Optional[UploadFile],
+        Optional[UploadFile],
+        Optional[UploadFile],
+    ]:
+        """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d="": form.get(k, d) if hasattr(form, "get") else d
         cmd = cls(
             bank_account_origin=UUID(_get("bank_account_origin", "")),
@@ -178,15 +194,19 @@ class TransactionCreateCmd(BaseModel):
             payment_date=_parse_optional_datetime(_get("payment_date")),
             send_voucher=None,
             payment_voucher=None,
+            checked_image=None,
             checked=_get("checked", "false").lower() in ("true", "1", "yes"),
         )
         send_f = form.get("send_voucher") if "send_voucher" in form else None
         pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
+        checked_img_f = form.get("checked_image") if "checked_image" in form else None
         if send_f and not getattr(send_f, "filename", True):
             send_f = None
         if pay_f and not getattr(pay_f, "filename", True):
             pay_f = None
-        return cmd, send_f, pay_f
+        if checked_img_f and not getattr(checked_img_f, "filename", True):
+            checked_img_f = None
+        return cmd, send_f, pay_f, checked_img_f
 
 
 class TransactionUpdateCmd(BaseModel):
@@ -213,6 +233,7 @@ class TransactionUpdateCmd(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked_image: Optional[str] = None
     checked: Optional[bool] = None
 
     @classmethod
@@ -235,8 +256,14 @@ class TransactionUpdateCmd(BaseModel):
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
+        checked_image: Optional[UploadFile] = File(None),
         checked: Optional[str] = Form(None),
-    ) -> tuple["TransactionUpdateCmd", Optional[UploadFile], Optional[UploadFile]]:
+    ) -> Tuple[
+        "TransactionUpdateCmd",
+        Optional[UploadFile],
+        Optional[UploadFile],
+        Optional[UploadFile],
+    ]:
         cmd = cls(
             id=UUID(id),
             bank_account_origin=_parse_optional_uuid(bank_account_origin),
@@ -255,15 +282,21 @@ class TransactionUpdateCmd(BaseModel):
             payment_date=_parse_optional_datetime(payment_date),
             send_voucher=None,
             payment_voucher=None,
+            checked_image=None,
             checked=_parse_checked(checked),
         )
-        return cmd, send_voucher, payment_voucher
+        return cmd, send_voucher, payment_voucher, checked_image
 
     @classmethod
     def from_form_data(
         cls, form: Any
-    ) -> Tuple["TransactionUpdateCmd", Optional[UploadFile], Optional[UploadFile]]:
-        """Construye cmd desde form-data (dict-like). Retorna (cmd, send_voucher, payment_voucher)."""
+    ) -> Tuple[
+        "TransactionUpdateCmd",
+        Optional[UploadFile],
+        Optional[UploadFile],
+        Optional[UploadFile],
+    ]:
+        """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d=None: form.get(k, d) if hasattr(form, "get") else d
         cmd = cls(
             id=UUID(_get("id", "")),
@@ -287,15 +320,19 @@ class TransactionUpdateCmd(BaseModel):
             payment_date=_parse_optional_datetime(_get("payment_date")),
             send_voucher=None,
             payment_voucher=None,
+            checked_image=None,
             checked=_parse_checked(_get("checked")),
         )
         send_f = form.get("send_voucher") if "send_voucher" in form else None
         pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
+        checked_img_f = form.get("checked_image") if "checked_image" in form else None
         if send_f and not getattr(send_f, "filename", True):
             send_f = None
         if pay_f and not getattr(pay_f, "filename", True):
             pay_f = None
-        return cmd, send_f, pay_f
+        if checked_img_f and not getattr(checked_img_f, "filename", True):
+            checked_img_f = None
+        return cmd, send_f, pay_f, checked_img_f
 
 
 class TransactionReadDTO(BaseModel):
@@ -316,6 +353,7 @@ class TransactionReadDTO(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked_image: Optional[str] = None
     checked: bool = False
     created_at: datetime
     created_by: Optional[str] = None
@@ -369,6 +407,7 @@ class TransactionImportPayload(BaseModel):
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
+    checked_image: Optional[str] = None
 
 
 class UserWithBankAccount(BaseModel):

@@ -1,7 +1,10 @@
 # app/modules/transactions/domain/models.py
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.modules.users.domain.models import User
 
 from sqlalchemy import BigInteger, Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -78,6 +81,7 @@ class Transaction(ORMBaseModel):
     # Vouchers (imagen: path o URL)
     send_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     payment_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    checked_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Checklist
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
@@ -95,6 +99,7 @@ class Transaction(ORMBaseModel):
         back_populates="transactions_as_destination",
         lazy="noload",
     )
+    user: Mapped["User"] = relationship("User", back_populates="transactions", lazy="noload")
 
 
 class Bank(ORMBaseModel):

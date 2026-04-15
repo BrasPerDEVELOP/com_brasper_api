@@ -40,36 +40,49 @@ def _is_form_request(content_type: str) -> bool:
 
 async def _parse_create_request(
     request: Request,
-) -> Tuple[TransactionCreateCmd, Optional[UploadFile], Optional[UploadFile]]:
-    """Parsea el request y retorna (cmd, send_voucher, payment_voucher)."""
+) -> Tuple[
+    TransactionCreateCmd,
+    Optional[UploadFile],
+    Optional[UploadFile],
+    Optional[UploadFile],
+]:
+    """Parsea el request y retorna (cmd, send_voucher, payment_voucher, checked_image)."""
     if _is_form_request(request.headers.get("content-type", "")):
         form = await request.form()
         return TransactionCreateCmd.from_form_data(form)
     body = await request.json()
-    return TransactionCreateCmd.model_validate(body), None, None
+    return TransactionCreateCmd.model_validate(body), None, None, None
 
 
 async def _parse_update_request(
     request: Request,
-) -> Tuple[TransactionUpdateCmd, Optional[UploadFile], Optional[UploadFile]]:
-    """Parsea el request y retorna (cmd, send_voucher, payment_voucher)."""
+) -> Tuple[
+    TransactionUpdateCmd,
+    Optional[UploadFile],
+    Optional[UploadFile],
+    Optional[UploadFile],
+]:
+    """Parsea el request y retorna (cmd, send_voucher, payment_voucher, checked_image)."""
     if _is_form_request(request.headers.get("content-type", "")):
         form = await request.form()
         return TransactionUpdateCmd.from_form_data(form)
     body = await request.json()
-    return TransactionUpdateCmd.model_validate(body), None, None
+    return TransactionUpdateCmd.model_validate(body), None, None, None
 
 
-async def _apply_vouchers(
+async def _apply_transaction_uploads(
     cmd: Union[TransactionCreateCmd, TransactionUpdateCmd],
     send_file: Optional[UploadFile],
     payment_file: Optional[UploadFile],
+    checked_image_file: Optional[UploadFile],
 ) -> None:
-    """Guarda los vouchers y asigna las rutas al cmd."""
+    """Guarda vouchers e imagen de checklist; asigna rutas relativas al cmd."""
     if send_file and send_file.filename:
         cmd.send_voucher = await save_transaction_voucher(send_file, "send")
     if payment_file and payment_file.filename:
         cmd.payment_voucher = await save_transaction_voucher(payment_file, "payment")
+    if checked_image_file and checked_image_file.filename:
+        cmd.checked_image = await save_transaction_voucher(checked_image_file, "checked")
 
 
 # =============================================================================
@@ -150,8 +163,8 @@ async def get_transaction_by_id(transaction_id: UUID, use_case: GetTransactionBy
 async def create_transaction(request: Request, use_case: CreateTransactionUseCaseDep):
     """Crea transacción. Acepta JSON o form-data (multipart)."""
     try:
-        cmd, send_voucher_file, payment_voucher_file = await _parse_create_request(request)
-        await _apply_vouchers(cmd, send_voucher_file, payment_voucher_file)
+        cmd, send_f, pay_f, checked_img_f = await _parse_create_request(request)
+        await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
         return await use_case.execute(cmd)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
@@ -178,8 +191,8 @@ async def create_transaction(request: Request, use_case: CreateTransactionUseCas
 async def update_transaction(request: Request, use_case: UpdateTransactionUseCaseDep):
     """Actualiza transacción. Acepta JSON o form-data (multipart)."""
     try:
-        cmd, send_voucher_file, payment_voucher_file = await _parse_update_request(request)
-        await _apply_vouchers(cmd, send_voucher_file, payment_voucher_file)
+        cmd, send_f, pay_f, checked_img_f = await _parse_update_request(request)
+        await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
         entity = await use_case.execute(cmd)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
