@@ -180,8 +180,16 @@ class UpdateTransactionUseCase:
             return None
 
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        remove_send_voucher = updates.pop("remove_send_voucher", False)
+        remove_payment_voucher = updates.pop("remove_payment_voucher", False)
         # No actualizar checked si es None (el modelo requiere bool)
         updates = {k: v for k, v in updates.items() if k != "checked" or v is not None}
+
+        if remove_send_voucher:
+            updates["send_voucher"] = None
+        if remove_payment_voucher:
+            updates["payment_voucher"] = None
+
         for attr, value in updates.items():
             setattr(entity, attr, value)
 

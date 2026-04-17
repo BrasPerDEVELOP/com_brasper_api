@@ -38,6 +38,17 @@ def _is_form_request(content_type: str) -> bool:
     return "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type
 
 
+def _as_upload_file(value: object) -> Optional[UploadFile]:
+    """Retorna el archivo solo si realmente es un UploadFile válido."""
+    if value is None or isinstance(value, str):
+        return None
+    filename = getattr(value, "filename", None)
+    read = getattr(value, "read", None)
+    if filename and callable(read):
+        return value
+    return None
+
+
 async def _parse_create_request(
     request: Request,
 ) -> Tuple[
@@ -77,6 +88,10 @@ async def _apply_transaction_uploads(
     checked_image_file: Optional[UploadFile],
 ) -> None:
     """Guarda vouchers e imagen de checklist; asigna rutas relativas al cmd."""
+    send_file = _as_upload_file(send_file)
+    payment_file = _as_upload_file(payment_file)
+    checked_image_file = _as_upload_file(checked_image_file)
+
     if send_file and send_file.filename:
         cmd.send_voucher = await save_transaction_voucher(send_file, "send")
     if payment_file and payment_file.filename:

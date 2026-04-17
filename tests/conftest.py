@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.modules.transactions.application.use_cases import CreateTransactionUseCase
+from app.modules.transactions.application.use_cases import CreateTransactionUseCase, UpdateTransactionUseCase
 from app.modules.transactions.application.schemas import TransactionReadDTO, TransactionUserRef
 from app.modules.transactions.domain.enums import TransactionStatus
 
@@ -48,6 +48,41 @@ def mock_create_transaction_uc():
 
 
 @pytest.fixture
+def mock_update_transaction_uc():
+    """Mock de UpdateTransactionUseCase que retorna una transacción actualizada."""
+    use_case = AsyncMock(spec=UpdateTransactionUseCase)
+    uid = uuid4()
+    updated = TransactionReadDTO(
+        id=uuid4(),
+        bank_account_origin_id=uuid4(),
+        bank_account_destination_id=uuid4(),
+        user_id=uid,
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        status=TransactionStatus.verification,
+        origin_amount=100.0,
+        destination_amount=95.0,
+        code="TEST-001",
+        commission_result=5.0,
+        total_to_send=100.0,
+        tax_amount=None,
+        coupon_id=None,
+        send_date=None,
+        payment_date=None,
+        send_voucher=None,
+        payment_voucher=None,
+        checked_image=None,
+        checked=False,
+        created_at=datetime.now(timezone.utc),
+        created_by=None,
+        updated_at=datetime.now(timezone.utc),
+        user=TransactionUserRef(id=uid, role=None),
+    )
+    use_case.execute = AsyncMock(return_value=updated)
+    return use_case
+
+
+@pytest.fixture
 def override_create_uc(mock_create_transaction_uc):
     """Aplica override de CreateTransactionUseCase."""
     from app.modules.transactions.adapters.dependencies.transaction_dependencies import (
@@ -63,7 +98,22 @@ def override_create_uc(mock_create_transaction_uc):
 
 
 @pytest.fixture
-def client(override_create_uc):
+def override_update_uc(mock_update_transaction_uc):
+    """Aplica override de UpdateTransactionUseCase."""
+    from app.modules.transactions.adapters.dependencies.transaction_dependencies import (
+        update_transaction_uc,
+    )
+
+    app.dependency_overrides[update_transaction_uc] = lambda: mock_update_transaction_uc
+    yield
+    try:
+        app.dependency_overrides.pop(update_transaction_uc)
+    except KeyError:
+        pass
+
+
+@pytest.fixture
+def client(override_create_uc, override_update_uc):
     """Cliente HTTP para tests."""
     return TestClient(app)
 

@@ -46,6 +46,22 @@ def _parse_checked(v: Any) -> Optional[bool]:
     return str(v).lower() in ("true", "1", "yes", "on")
 
 
+def _field_present(value: Any) -> bool:
+    """Indica si un campo opcional fue enviado en el request."""
+    return value is not None
+
+
+def _as_upload_file(value: Any) -> Optional[UploadFile]:
+    """Retorna el archivo si el valor se comporta como UploadFile."""
+    if value is None or isinstance(value, str):
+        return None
+    filename = getattr(value, "filename", None)
+    read = getattr(value, "read", None)
+    if filename and callable(read):
+        return value
+    return None
+
+
 class TransactionCreateCmd(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -247,6 +263,8 @@ class TransactionUpdateCmd(BaseModel):
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
     checked: Optional[bool] = None
+    remove_send_voucher: Optional[bool] = None
+    remove_payment_voucher: Optional[bool] = None
 
     @classmethod
     def from_form(
@@ -272,35 +290,55 @@ class TransactionUpdateCmd(BaseModel):
         payment_voucher: Optional[UploadFile] = File(None),
         checked_image: Optional[UploadFile] = File(None),
         checked: Optional[str] = Form(None),
+        remove_send_voucher: Optional[str] = Form(None),
+        remove_payment_voucher: Optional[str] = Form(None),
     ) -> Tuple[
         "TransactionUpdateCmd",
         Optional[UploadFile],
         Optional[UploadFile],
         Optional[UploadFile],
     ]:
-        cmd = cls(
-            id=UUID(id),
-            bank_account_origin=_parse_optional_uuid(bank_account_origin),
-            bank_account_destination=_parse_optional_uuid(bank_account_destination),
-            user_id=_parse_optional_uuid(user_id),
-            agent_id=_parse_optional_uuid(agent_id),
-            tax_rate_id=_parse_optional_uuid(tax_rate_id),
-            commission_id=_parse_optional_uuid(commission_id),
-            status=TransactionStatus(status) if status else None,
-            origin_amount=_parse_optional_float(origin_amount),
-            destination_amount=_parse_optional_float(destination_amount),
-            code=code,
-            commission_result=_parse_optional_float(commission_result),
-            total_to_send=_parse_optional_float(total_to_send),
-            tax_amount=_parse_optional_float(tax_amount),
-            coupon_id=_parse_optional_uuid(coupon_id),
-            send_date=_parse_optional_datetime(send_date),
-            payment_date=_parse_optional_datetime(payment_date),
-            send_voucher=None,
-            payment_voucher=None,
-            checked_image=None,
-            checked=_parse_checked(checked),
-        )
+        payload = {"id": UUID(id)}
+        if _field_present(bank_account_origin):
+            payload["bank_account_origin"] = _parse_optional_uuid(bank_account_origin)
+        if _field_present(bank_account_destination):
+            payload["bank_account_destination"] = _parse_optional_uuid(bank_account_destination)
+        if _field_present(user_id):
+            payload["user_id"] = _parse_optional_uuid(user_id)
+        if _field_present(agent_id):
+            payload["agent_id"] = _parse_optional_uuid(agent_id)
+        if _field_present(tax_rate_id):
+            payload["tax_rate_id"] = _parse_optional_uuid(tax_rate_id)
+        if _field_present(commission_id):
+            payload["commission_id"] = _parse_optional_uuid(commission_id)
+        if _field_present(status):
+            payload["status"] = TransactionStatus(status) if status else None
+        if _field_present(origin_amount):
+            payload["origin_amount"] = _parse_optional_float(origin_amount)
+        if _field_present(destination_amount):
+            payload["destination_amount"] = _parse_optional_float(destination_amount)
+        if _field_present(code):
+            payload["code"] = code
+        if _field_present(commission_result):
+            payload["commission_result"] = _parse_optional_float(commission_result)
+        if _field_present(total_to_send):
+            payload["total_to_send"] = _parse_optional_float(total_to_send)
+        if _field_present(tax_amount):
+            payload["tax_amount"] = _parse_optional_float(tax_amount)
+        if _field_present(coupon_id):
+            payload["coupon_id"] = _parse_optional_uuid(coupon_id)
+        if _field_present(send_date):
+            payload["send_date"] = _parse_optional_datetime(send_date)
+        if _field_present(payment_date):
+            payload["payment_date"] = _parse_optional_datetime(payment_date)
+        if _field_present(checked):
+            payload["checked"] = _parse_checked(checked)
+        if _field_present(remove_send_voucher):
+            payload["remove_send_voucher"] = _parse_checked(remove_send_voucher)
+        if _field_present(remove_payment_voucher):
+            payload["remove_payment_voucher"] = _parse_checked(remove_payment_voucher)
+
+        cmd = cls(**payload)
         return cmd, send_voucher, payment_voucher, checked_image
 
     @classmethod
@@ -314,42 +352,54 @@ class TransactionUpdateCmd(BaseModel):
     ]:
         """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d=None: form.get(k, d) if hasattr(form, "get") else d
-        cmd = cls(
-            id=UUID(_get("id", "")),
-            bank_account_origin=_parse_optional_uuid(_get("bank_account_origin")),
-            bank_account_destination=_parse_optional_uuid(_get("bank_account_destination")),
-            user_id=_parse_optional_uuid(_get("user_id")),
-            agent_id=_parse_optional_uuid(_get("agent_id")),
-            tax_rate_id=_parse_optional_uuid(_get("tax_rate_id")),
-            commission_id=_parse_optional_uuid(_get("commission_id")),
-            status=TransactionStatus(_get("status")) if _get("status") else None,
-            origin_amount=_parse_optional_float(_get("origin_amount")),
-            destination_amount=_parse_optional_float(_get("destination_amount")),
-            code=_get("code"),
-            commission_result=_parse_optional_float(
+        payload = {"id": UUID(_get("id", ""))}
+        if "bank_account_origin" in form:
+            payload["bank_account_origin"] = _parse_optional_uuid(_get("bank_account_origin"))
+        if "bank_account_destination" in form:
+            payload["bank_account_destination"] = _parse_optional_uuid(_get("bank_account_destination"))
+        if "user_id" in form:
+            payload["user_id"] = _parse_optional_uuid(_get("user_id"))
+        if "agent_id" in form:
+            payload["agent_id"] = _parse_optional_uuid(_get("agent_id"))
+        if "tax_rate_id" in form:
+            payload["tax_rate_id"] = _parse_optional_uuid(_get("tax_rate_id"))
+        if "commission_id" in form:
+            payload["commission_id"] = _parse_optional_uuid(_get("commission_id"))
+        if "status" in form:
+            payload["status"] = TransactionStatus(_get("status")) if _get("status") else None
+        if "origin_amount" in form:
+            payload["origin_amount"] = _parse_optional_float(_get("origin_amount"))
+        if "destination_amount" in form:
+            payload["destination_amount"] = _parse_optional_float(_get("destination_amount"))
+        if "code" in form:
+            payload["code"] = _get("code")
+        if "commission_result" in form or "resultado_comision" in form:
+            payload["commission_result"] = _parse_optional_float(
                 _get("commission_result") or _get("resultado_comision")
-            ),
-            total_to_send=_parse_optional_float(
+            )
+        if "total_to_send" in form or "total_a_enviar" in form:
+            payload["total_to_send"] = _parse_optional_float(
                 _get("total_to_send") or _get("total_a_enviar")
-            ),
-            tax_amount=_parse_optional_float(_get("tax_amount")),
-            coupon_id=_parse_optional_uuid(_get("coupon_id")),
-            send_date=_parse_optional_datetime(_get("send_date")),
-            payment_date=_parse_optional_datetime(_get("payment_date")),
-            send_voucher=None,
-            payment_voucher=None,
-            checked_image=None,
-            checked=_parse_checked(_get("checked")),
-        )
-        send_f = form.get("send_voucher") if "send_voucher" in form else None
-        pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
-        checked_img_f = form.get("checked_image") if "checked_image" in form else None
-        if send_f and not getattr(send_f, "filename", True):
-            send_f = None
-        if pay_f and not getattr(pay_f, "filename", True):
-            pay_f = None
-        if checked_img_f and not getattr(checked_img_f, "filename", True):
-            checked_img_f = None
+            )
+        if "tax_amount" in form:
+            payload["tax_amount"] = _parse_optional_float(_get("tax_amount"))
+        if "coupon_id" in form:
+            payload["coupon_id"] = _parse_optional_uuid(_get("coupon_id"))
+        if "send_date" in form:
+            payload["send_date"] = _parse_optional_datetime(_get("send_date"))
+        if "payment_date" in form:
+            payload["payment_date"] = _parse_optional_datetime(_get("payment_date"))
+        if "checked" in form:
+            payload["checked"] = _parse_checked(_get("checked"))
+        if "remove_send_voucher" in form:
+            payload["remove_send_voucher"] = _parse_checked(_get("remove_send_voucher"))
+        if "remove_payment_voucher" in form:
+            payload["remove_payment_voucher"] = _parse_checked(_get("remove_payment_voucher"))
+
+        cmd = cls(**payload)
+        send_f = _as_upload_file(form.get("send_voucher")) if "send_voucher" in form else None
+        pay_f = _as_upload_file(form.get("payment_voucher")) if "payment_voucher" in form else None
+        checked_img_f = _as_upload_file(form.get("checked_image")) if "checked_image" in form else None
         return cmd, send_f, pay_f, checked_img_f
 
 

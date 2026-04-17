@@ -67,3 +67,56 @@ def test_post_transaction_json_missing_required_returns_error(client):
     }
     response = client.post("/transactions/", json=payload)
     assert response.status_code in (400, 422)
+
+
+def test_put_transaction_multipart_replacing_one_voucher_preserves_omitted_one(
+    client, mock_update_transaction_uc, monkeypatch
+):
+    """PUT /transactions/ acepta File + path existente sin 500 y conserva el voucher omitido."""
+
+    async def fake_save_transaction_voucher(file, prefix):
+        return f"transaction_vouchers/{prefix}_new.jpeg"
+
+    monkeypatch.setattr(
+        "app.modules.transactions.adapters.router.transaction_routes.save_transaction_voucher",
+        fake_save_transaction_voucher,
+    )
+
+    response = client.put(
+        "/transactions/",
+        data={
+            "id": str(uuid4()),
+            "payment_voucher": "transaction_vouchers/payment_existing.jpeg",
+        },
+        files={
+            "send_voucher": ("send.jpeg", b"fake-image", "image/jpeg"),
+        },
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+
+    assert updates["send_voucher"] == "transaction_vouchers/send_new.jpeg"
+    assert "payment_voucher" not in updates
+
+
+def test_put_transaction_json_remove_payment_voucher_sets_explicit_flag(
+    client, mock_update_transaction_uc
+):
+    """PUT /transactions/ permite borrar payment_voucher de forma explícita."""
+    response = client.put(
+        "/transactions/",
+        json={
+            "id": str(uuid4()),
+            "remove_payment_voucher": True,
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+
+    assert updates["remove_payment_voucher"] is True
+    assert "payment_voucher" not in updates
