@@ -44,10 +44,10 @@ class Transaction(ORMBaseModel):
         nullable=False,
         index=True,
     )
-    agent_id: Mapped[UUID] = mapped_column(
+    agent_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("user.user.id"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     tax_rate_id: Mapped[UUID] = mapped_column(

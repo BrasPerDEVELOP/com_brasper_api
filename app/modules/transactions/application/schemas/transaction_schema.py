@@ -53,6 +53,7 @@ class TransactionCreateCmd(BaseModel):
                 "bank_account_origin": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "bank_account_destination": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "agent_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "tax_rate_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "commission_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "status": "verification",
@@ -83,6 +84,7 @@ class TransactionCreateCmd(BaseModel):
     bank_account_origin: UUID
     bank_account_destination: UUID
     user_id: UUID
+    agent_id: Optional[UUID] = None
     tax_rate_id: UUID
     commission_id: UUID
     status: TransactionStatus = TransactionStatus.verification
@@ -118,6 +120,7 @@ class TransactionCreateCmd(BaseModel):
         bank_account_origin: str = Form(..., description="UUID cuenta origen"),
         bank_account_destination: str = Form(..., description="UUID cuenta destino"),
         user_id: str = Form(..., description="UUID de usuario"),
+        agent_id: Optional[str] = Form(None, description="UUID del agente asignado"),
         tax_rate_id: str = Form(..., description="UUID de tasa"),
         commission_id: str = Form(..., description="UUID de comisión"),
         status: str = Form(
@@ -147,6 +150,7 @@ class TransactionCreateCmd(BaseModel):
             bank_account_origin=UUID(bank_account_origin),
             bank_account_destination=UUID(bank_account_destination),
             user_id=UUID(user_id),
+            agent_id=_parse_optional_uuid(agent_id),
             tax_rate_id=UUID(tax_rate_id),
             commission_id=UUID(commission_id),
             status=TransactionStatus(status) if status else TransactionStatus.verification,
@@ -181,6 +185,7 @@ class TransactionCreateCmd(BaseModel):
             bank_account_origin=UUID(_get("bank_account_origin", "")),
             bank_account_destination=UUID(_get("bank_account_destination", "")),
             user_id=UUID(_get("user_id", "")),
+            agent_id=_parse_optional_uuid(_get("agent_id")),
             tax_rate_id=UUID(_get("tax_rate_id", "")),
             commission_id=UUID(_get("commission_id", "")),
             status=TransactionStatus(_get("status", "verification") or "verification"),
@@ -219,6 +224,7 @@ class TransactionUpdateCmd(BaseModel):
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: Optional[UUID] = None
     user_id: Optional[UUID] = None
+    agent_id: Optional[UUID] = None
     tax_rate_id: Optional[UUID] = None
     commission_id: Optional[UUID] = None
     status: Optional[TransactionStatus] = None
@@ -249,6 +255,7 @@ class TransactionUpdateCmd(BaseModel):
         bank_account_origin: Optional[str] = Form(None),
         bank_account_destination: Optional[str] = Form(None),
         user_id: Optional[str] = Form(None),
+        agent_id: Optional[str] = Form(None),
         tax_rate_id: Optional[str] = Form(None),
         commission_id: Optional[str] = Form(None),
         status: Optional[str] = Form(None),
@@ -276,6 +283,7 @@ class TransactionUpdateCmd(BaseModel):
             bank_account_origin=_parse_optional_uuid(bank_account_origin),
             bank_account_destination=_parse_optional_uuid(bank_account_destination),
             user_id=_parse_optional_uuid(user_id),
+            agent_id=_parse_optional_uuid(agent_id),
             tax_rate_id=_parse_optional_uuid(tax_rate_id),
             commission_id=_parse_optional_uuid(commission_id),
             status=TransactionStatus(status) if status else None,
@@ -311,6 +319,7 @@ class TransactionUpdateCmd(BaseModel):
             bank_account_origin=_parse_optional_uuid(_get("bank_account_origin")),
             bank_account_destination=_parse_optional_uuid(_get("bank_account_destination")),
             user_id=_parse_optional_uuid(_get("user_id")),
+            agent_id=_parse_optional_uuid(_get("agent_id")),
             tax_rate_id=_parse_optional_uuid(_get("tax_rate_id")),
             commission_id=_parse_optional_uuid(_get("commission_id")),
             status=TransactionStatus(_get("status")) if _get("status") else None,
@@ -368,6 +377,7 @@ class TransactionReadDTO(BaseModel):
     bank_account_origin_id: UUID
     bank_account_destination_id: UUID
     user_id: UUID
+    agent_id: Optional[UUID] = None
     tax_rate_id: UUID
     commission_id: UUID
     status: TransactionStatus
@@ -440,6 +450,7 @@ class BankAccountImportPayload(BaseModel):
 class TransactionImportPayload(BaseModel):
     """Campos de transacción para importación (sin user_id, cuentas ni code; se asignan/autogeneran al crear)."""
 
+    agent_id: Optional[UUID] = None
     tax_rate_id: UUID
     commission_id: UUID
     status: TransactionStatus = TransactionStatus.verification
