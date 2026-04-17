@@ -4,9 +4,10 @@ from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import File, Form, UploadFile
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.transactions.domain.enums import AccountFlowType, BankCountry, SocialActor, TransactionStatus
+from app.modules.users.domain.enums import UserRole
 
 
 
@@ -99,6 +100,7 @@ class TransactionCreateCmd(BaseModel):
         default=None,
         validation_alias=AliasChoices("total_to_send", "total_a_enviar"),
     )
+    tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
@@ -127,6 +129,7 @@ class TransactionCreateCmd(BaseModel):
         code: str = Form("", description="Opcional; el servidor genera el código (PxB-…)"),
         commission_result: Optional[str] = Form(None),
         total_to_send: Optional[str] = Form(None),
+        tax_amount: Optional[str] = Form(None),
         coupon_id: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
@@ -152,6 +155,7 @@ class TransactionCreateCmd(BaseModel):
             code=code,
             commission_result=_parse_optional_float(commission_result),
             total_to_send=_parse_optional_float(total_to_send),
+            tax_amount=_parse_optional_float(tax_amount),
             coupon_id=_parse_optional_uuid(coupon_id),
             send_date=_parse_optional_datetime(send_date),
             payment_date=_parse_optional_datetime(payment_date),
@@ -189,6 +193,7 @@ class TransactionCreateCmd(BaseModel):
             total_to_send=_parse_optional_float(
                 _get("total_to_send") or _get("total_a_enviar")
             ),
+            tax_amount=_parse_optional_float(_get("tax_amount")),
             coupon_id=_parse_optional_uuid(_get("coupon_id")),
             send_date=_parse_optional_datetime(_get("send_date")),
             payment_date=_parse_optional_datetime(_get("payment_date")),
@@ -228,6 +233,7 @@ class TransactionUpdateCmd(BaseModel):
         default=None,
         validation_alias=AliasChoices("total_to_send", "total_a_enviar"),
     )
+    tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
@@ -251,6 +257,7 @@ class TransactionUpdateCmd(BaseModel):
         code: Optional[str] = Form(None),
         commission_result: Optional[str] = Form(None),
         total_to_send: Optional[str] = Form(None),
+        tax_amount: Optional[str] = Form(None),
         coupon_id: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
@@ -277,6 +284,7 @@ class TransactionUpdateCmd(BaseModel):
             code=code,
             commission_result=_parse_optional_float(commission_result),
             total_to_send=_parse_optional_float(total_to_send),
+            tax_amount=_parse_optional_float(tax_amount),
             coupon_id=_parse_optional_uuid(coupon_id),
             send_date=_parse_optional_datetime(send_date),
             payment_date=_parse_optional_datetime(payment_date),
@@ -315,6 +323,7 @@ class TransactionUpdateCmd(BaseModel):
             total_to_send=_parse_optional_float(
                 _get("total_to_send") or _get("total_a_enviar")
             ),
+            tax_amount=_parse_optional_float(_get("tax_amount")),
             coupon_id=_parse_optional_uuid(_get("coupon_id")),
             send_date=_parse_optional_datetime(_get("send_date")),
             payment_date=_parse_optional_datetime(_get("payment_date")),
@@ -336,9 +345,22 @@ class TransactionUpdateCmd(BaseModel):
 
 
 class TransactionUserRef(BaseModel):
-    """Referencia mínima al usuario de la transacción (mismo id que `user_id`)."""
+    """Referencia al usuario de la transacción (mismo id que `user_id`)."""
 
     id: UUID
+    role: Optional[UserRole] = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _coerce_role(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return None
+        if isinstance(v, UserRole):
+            return v
+        try:
+            return UserRole(v)
+        except ValueError:
+            return None
 
 
 class TransactionReadDTO(BaseModel):
@@ -354,6 +376,7 @@ class TransactionReadDTO(BaseModel):
     code: str
     commission_result: Optional[float] = None
     total_to_send: Optional[float] = None
+    tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
@@ -364,13 +387,30 @@ class TransactionReadDTO(BaseModel):
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    user: TransactionUserRef
 
     model_config = ConfigDict(from_attributes=True)
 
-    @computed_field
-    @property
-    def user(self) -> TransactionUserRef:
-        return TransactionUserRef(id=self.user_id)
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_user_from_orm(cls, data: Any) -> Any:
+        from app.modules.transactions.domain.models import Transaction as TransactionModel
+
+        if isinstance(data, TransactionModel):
+            payload = {c.name: getattr(data, c.name) for c in data.__table__.columns}
+            u = getattr(data, "user", None)
+            payload["user"] = {
+                "id": data.user_id,
+                "role": u.role if u is not None else None,
+            }
+            return payload
+        if isinstance(data, dict) and "user_id" in data and "user" not in data:
+            uid = data["user_id"]
+            return {
+                **data,
+                "user": {"id": uid, "role": data.get("user_role")},
+            }
+        return data
 
 
 class BankAccountImportPayload(BaseModel):
@@ -413,6 +453,7 @@ class TransactionImportPayload(BaseModel):
         default=None,
         validation_alias=AliasChoices("total_to_send", "total_a_enviar"),
     )
+    tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None

@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
 
+from sqlalchemy.orm import selectinload
+
 if TYPE_CHECKING:
     from app.modules.users.application.use_cases import CreateUserUseCase
     from app.modules.transactions.application.use_cases.bank_account_use_cases import CreateBankAccountUseCase
@@ -100,12 +102,15 @@ def _cmd_to_entity_data(data: dict) -> dict:
     }
 
 
+_TXN_LOAD_USER = (selectinload(Transaction.user),)
+
+
 class GetTransactionByIdUseCase:
     def __init__(self, repo: TransactionRepositoryInterface):
         self.repo = repo
 
     async def execute(self, transaction_id: UUID) -> Optional[TransactionReadDTO]:
-        entity = await self.repo.get(transaction_id)
+        entity = await self.repo.get(transaction_id, eager_options=_TXN_LOAD_USER)
         return TransactionReadDTO.model_validate(entity) if entity else None
 
 
@@ -130,7 +135,7 @@ class ListTransactionsUseCase:
             created_at_from=created_at_from,
             created_at_to=created_at_to,
         )
-        items = await self.repo.list(query_filter=query_filter)
+        items = await self.repo.list(query_filter=query_filter, eager_options=_TXN_LOAD_USER)
         return [TransactionReadDTO.model_validate(x) for x in items]
 
 
@@ -161,7 +166,7 @@ class CreateTransactionUseCase:
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
         await self.repo.commit()
-        await self.repo.refresh(saved)
+        await self.repo.refresh(saved, load_noload_relations=["user"])
         return TransactionReadDTO.model_validate(saved)
 
 
@@ -170,7 +175,7 @@ class UpdateTransactionUseCase:
         self.repo = repo
 
     async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
-        entity = await self.repo.get(cmd.id)
+        entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
         if not entity:
             return None
 
@@ -184,7 +189,7 @@ class UpdateTransactionUseCase:
 
         await self.repo.update(entity)
         await self.repo.commit()
-        await self.repo.refresh(entity)
+        await self.repo.refresh(entity, load_noload_relations=["user"])
         return TransactionReadDTO.model_validate(entity)
 
 

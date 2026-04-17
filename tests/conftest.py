@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.transactions.application.use_cases import CreateTransactionUseCase
-from app.modules.transactions.application.schemas import TransactionReadDTO
+from app.modules.transactions.application.schemas import TransactionReadDTO, TransactionUserRef
 from app.modules.transactions.domain.enums import TransactionStatus
 
 
@@ -16,11 +16,12 @@ from app.modules.transactions.domain.enums import TransactionStatus
 def mock_create_transaction_uc():
     """Mock de CreateTransactionUseCase que retorna una transacción creada."""
     use_case = AsyncMock(spec=CreateTransactionUseCase)
+    uid = uuid4()
     created = TransactionReadDTO(
         id=uuid4(),
         bank_account_origin_id=uuid4(),
         bank_account_destination_id=uuid4(),
-        user_id=uuid4(),
+        user_id=uid,
         tax_rate_id=uuid4(),
         commission_id=uuid4(),
         status=TransactionStatus.verification,
@@ -29,6 +30,7 @@ def mock_create_transaction_uc():
         code="TEST-001",
         commission_result=5.0,
         total_to_send=100.0,
+        tax_amount=None,
         coupon_id=None,
         send_date=None,
         payment_date=None,
@@ -39,6 +41,7 @@ def mock_create_transaction_uc():
         created_at=datetime.now(timezone.utc),
         created_by=None,
         updated_at=datetime.now(timezone.utc),
+        user=TransactionUserRef(id=uid, role=None),
     )
     use_case.execute = AsyncMock(return_value=created)
     return use_case

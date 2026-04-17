@@ -44,6 +44,12 @@ class Transaction(ORMBaseModel):
         nullable=False,
         index=True,
     )
+    agent_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.user.id"),
+        nullable=False,
+        index=True,
+    )
     tax_rate_id: Mapped[UUID] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("coin.tax_rate.id"),
@@ -66,14 +72,17 @@ class Transaction(ORMBaseModel):
     origin_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     destination_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    # datos calculadora
     commission_result: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     total_to_send: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    tax_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     coupon_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("transaction.coupons.id"),
         nullable=True,
         index=True,
     )
+
     # Fechas
     send_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     payment_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
