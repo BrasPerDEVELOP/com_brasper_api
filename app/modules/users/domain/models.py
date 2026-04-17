@@ -30,6 +30,7 @@ class User(ORMBaseModel):
 
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",
+        foreign_keys="Transaction.user_id",
         back_populates="user",
         lazy="noload",
     )

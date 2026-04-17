@@ -108,7 +108,12 @@ class Transaction(ORMBaseModel):
         back_populates="transactions_as_destination",
         lazy="noload",
     )
-    user: Mapped["User"] = relationship("User", back_populates="transactions", lazy="noload")
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="transactions",
+        lazy="noload",
+    )
 
 
 class Bank(ORMBaseModel):
