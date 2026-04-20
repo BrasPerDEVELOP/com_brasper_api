@@ -9,6 +9,7 @@ from app.modules.home_image.application.schemas.home_banner_schema import (
     HomeBannerUpdateCmd,
     HomeBannerReadDTO,
 )
+from app.shared.services.file_service import delete_home_banner_image
 
 
 class GetHomeBannerByIdUseCase:
@@ -56,6 +57,10 @@ class UpdateHomeBannerUseCase:
         entity = await self.repo.get(cmd.id)
         if not entity:
             return None
+        previous_banner_es = entity.banner_es
+        previous_banner_pr = entity.banner_pr
+        previous_banner_en = entity.banner_en
+
         if cmd.banner_es is not None:
             entity.banner_es = cmd.banner_es
         if cmd.banner_pr is not None:
@@ -67,4 +72,12 @@ class UpdateHomeBannerUseCase:
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity)
+
+        if cmd.banner_es is not None and previous_banner_es and previous_banner_es != entity.banner_es:
+            await delete_home_banner_image(previous_banner_es)
+        if cmd.banner_pr is not None and previous_banner_pr and previous_banner_pr != entity.banner_pr:
+            await delete_home_banner_image(previous_banner_pr)
+        if cmd.banner_en is not None and previous_banner_en and previous_banner_en != entity.banner_en:
+            await delete_home_banner_image(previous_banner_en)
+
         return HomeBannerReadDTO.model_validate(entity)
