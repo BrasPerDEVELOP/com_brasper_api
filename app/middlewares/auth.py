@@ -130,6 +130,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
             "/health",
+            "/brasper/",
             "/",
         ]
         return any(path.startswith(p) for p in public_paths)

@@ -209,6 +209,10 @@ async def update_transaction(request: Request, use_case: UpdateTransactionUseCas
         cmd, send_f, pay_f, checked_img_f = await _parse_update_request(request)
         await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
         entity = await use_case.execute(cmd)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors())
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not entity:

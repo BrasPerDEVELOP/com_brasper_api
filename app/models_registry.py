@@ -28,4 +28,7 @@ from app.modules.integraciones.domain.models import Integration, SocialAccount
 # Home image models
 from app.modules.home_image.domain.models import HomeBanner, HomePopup
 
+# Brasper
+from app.modules.brasper.domain.models import ContacForm
+
 print("  All SQLAlchemy models imported and registered successfully")

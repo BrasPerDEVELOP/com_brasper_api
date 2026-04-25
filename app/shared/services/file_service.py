@@ -32,6 +32,10 @@ class FileType(Enum):
 
 # Extensiones permitidas para imágenes
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".odt"}
+ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS = (
+    ALLOWED_IMAGE_EXTENSIONS | ALLOWED_DOCUMENT_EXTENSIONS
+)
 
 
 class FileService:
@@ -214,7 +218,7 @@ async def save_transaction_voucher(
     voucher_file: Optional[UploadFile],
     prefix: str = "voucher",
 ) -> Optional[str]:
-    """Guarda voucher de transacción (send/payment). Retorna ruta relativa."""
+    """Guarda adjunto de transacción (voucher/checklist). Retorna ruta relativa."""
     if not voucher_file or not voucher_file.filename:
         return None
 
@@ -223,10 +227,10 @@ async def save_transaction_voucher(
         return None
 
     ext = Path(voucher_file.filename).suffix.lower()
-    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+    if ext not in ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS:
         raise ValueError(
-            f"Extensión '{ext}' no permitida para voucher. "
-            f"Permitidas: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
+            f"Extensión '{ext}' no permitida para adjuntos de transacción. "
+            f"Permitidas: {', '.join(sorted(ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS))}"
         )
 
     return await file_service.save_file(
@@ -234,5 +238,5 @@ async def save_transaction_voucher(
         original_filename=voucher_file.filename,
         file_type=FileType.TRANSACTION_VOUCHER,
         custom_prefix=prefix,
-        allowed_extensions=ALLOWED_IMAGE_EXTENSIONS,
+        allowed_extensions=ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS,
     )

@@ -120,3 +120,33 @@ def test_put_transaction_json_remove_payment_voucher_sets_explicit_flag(
 
     assert updates["remove_payment_voucher"] is True
     assert "payment_voucher" not in updates
+
+
+def test_put_transaction_multipart_accepts_pdf_checked_image(
+    client, mock_update_transaction_uc, monkeypatch
+):
+    """PUT /transactions/ acepta checked_image como documento PDF."""
+
+    async def fake_save_transaction_voucher(file, prefix):
+        return f"transaction_vouchers/{prefix}_new.pdf"
+
+    monkeypatch.setattr(
+        "app.modules.transactions.adapters.router.transaction_routes.save_transaction_voucher",
+        fake_save_transaction_voucher,
+    )
+
+    response = client.put(
+        "/transactions/",
+        data={
+            "id": str(uuid4()),
+        },
+        files={
+            "checked_image": ("checklist.pdf", b"%PDF-1.4 fake", "application/pdf"),
+        },
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+
+    assert updates["checked_image"] == "transaction_vouchers/checked_new.pdf"

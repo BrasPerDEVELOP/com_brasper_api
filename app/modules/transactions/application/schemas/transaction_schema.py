@@ -126,7 +126,7 @@ class TransactionCreateCmd(BaseModel):
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = Field(
         default=None,
-        description="Ruta relativa de imagen asociada al checklist (multipart: campo checked_image)",
+        description="Ruta relativa de archivo asociado al checklist; acepta imagen o documento (multipart: campo checked_image)",
     )
     checked: bool = False
 
