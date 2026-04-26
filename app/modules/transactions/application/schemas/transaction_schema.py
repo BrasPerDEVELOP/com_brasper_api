@@ -97,7 +97,7 @@ class TransactionCreateCmd(BaseModel):
             },
         }
 
-    bank_account_origin: UUID
+    bank_account_origin: Optional[UUID] = None
     bank_account_destination: UUID
     user_id: UUID
     agent_id: Optional[UUID] = None
@@ -133,7 +133,7 @@ class TransactionCreateCmd(BaseModel):
     @classmethod
     def from_form(
         cls,
-        bank_account_origin: str = Form(..., description="UUID cuenta origen"),
+        bank_account_origin: Optional[str] = Form(None, description="UUID cuenta origen (opcional)"),
         bank_account_destination: str = Form(..., description="UUID cuenta destino"),
         user_id: str = Form(..., description="UUID de usuario"),
         agent_id: Optional[str] = Form(None, description="UUID del agente asignado"),
@@ -163,7 +163,7 @@ class TransactionCreateCmd(BaseModel):
         Optional[UploadFile],
     ]:
         cmd = cls(
-            bank_account_origin=UUID(bank_account_origin),
+            bank_account_origin=_parse_optional_uuid(bank_account_origin),
             bank_account_destination=UUID(bank_account_destination),
             user_id=UUID(user_id),
             agent_id=_parse_optional_uuid(agent_id),
@@ -198,7 +198,7 @@ class TransactionCreateCmd(BaseModel):
         """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d="": form.get(k, d) if hasattr(form, "get") else d
         cmd = cls(
-            bank_account_origin=UUID(_get("bank_account_origin", "")),
+            bank_account_origin=_parse_optional_uuid(_get("bank_account_origin")),
             bank_account_destination=UUID(_get("bank_account_destination", "")),
             user_id=UUID(_get("user_id", "")),
             agent_id=_parse_optional_uuid(_get("agent_id")),
@@ -265,6 +265,7 @@ class TransactionUpdateCmd(BaseModel):
     checked: Optional[bool] = None
     remove_send_voucher: Optional[bool] = None
     remove_payment_voucher: Optional[bool] = None
+    remove_checked_image: Optional[bool] = None
 
     @classmethod
     def from_form(
@@ -292,6 +293,7 @@ class TransactionUpdateCmd(BaseModel):
         checked: Optional[str] = Form(None),
         remove_send_voucher: Optional[str] = Form(None),
         remove_payment_voucher: Optional[str] = Form(None),
+        remove_checked_image: Optional[str] = Form(None),
     ) -> Tuple[
         "TransactionUpdateCmd",
         Optional[UploadFile],
@@ -337,6 +339,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["remove_send_voucher"] = _parse_checked(remove_send_voucher)
         if _field_present(remove_payment_voucher):
             payload["remove_payment_voucher"] = _parse_checked(remove_payment_voucher)
+        if _field_present(remove_checked_image):
+            payload["remove_checked_image"] = _parse_checked(remove_checked_image)
 
         cmd = cls(**payload)
         return cmd, send_voucher, payment_voucher, checked_image
@@ -395,6 +399,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["remove_send_voucher"] = _parse_checked(_get("remove_send_voucher"))
         if "remove_payment_voucher" in form:
             payload["remove_payment_voucher"] = _parse_checked(_get("remove_payment_voucher"))
+        if "remove_checked_image" in form:
+            payload["remove_checked_image"] = _parse_checked(_get("remove_checked_image"))
 
         cmd = cls(**payload)
         send_f = _as_upload_file(form.get("send_voucher")) if "send_voucher" in form else None
@@ -424,7 +430,7 @@ class TransactionUserRef(BaseModel):
 
 class TransactionReadDTO(BaseModel):
     id: UUID
-    bank_account_origin_id: UUID
+    bank_account_origin_id: Optional[UUID] = None
     bank_account_destination_id: UUID
     user_id: UUID
     agent_id: Optional[UUID] = None

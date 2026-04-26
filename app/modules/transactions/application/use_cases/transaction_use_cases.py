@@ -2,6 +2,7 @@
 """Casos de uso CRUD para Transaction."""
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
@@ -16,6 +17,8 @@ from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.domain.models import Transaction
 from app.modules.transactions.domain.enums import TransactionStatus
+from app.modules.users.domain.enums import UserRole
+from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import (
     TransactionRepositoryInterface,
 )
@@ -32,6 +35,21 @@ _CMD_TO_ENTITY = {
     "bank_account_origin": "bank_account_origin_id",
     "bank_account_destination": "bank_account_destination_id",
 }
+
+# Roles elegibles para asignación automática de agente al crear transacción (sin agent_id explícito).
+_TRANSACTION_AGENT_ROLES = (UserRole.admin.value, UserRole.sales.value)
+
+
+async def _resolve_agent_id_for_create(
+    user_repo: UserRepositoryInterface,
+    explicit_agent_id: Optional[UUID],
+) -> Optional[UUID]:
+    if explicit_agent_id is not None:
+        return explicit_agent_id
+    candidates = await user_repo.list_ids_by_roles(_TRANSACTION_AGENT_ROLES)
+    if not candidates:
+        return None
+    return secrets.choice(candidates)
 
 
 def _non_empty_str(value: Optional[str]) -> bool:
@@ -102,6 +120,21 @@ def _cmd_to_entity_data(data: dict) -> dict:
     }
 
 
+def _drop_null_voucher_paths_unless_remove(
+    updates: dict,
+    remove_send: bool,
+    remove_payment: bool,
+    remove_checked: bool,
+) -> None:
+    """Evita que `null` o defaults en el payload borren archivos; solo aplica con remove_*_voucher o remove_checked_image."""
+    if not remove_send and updates.get("send_voucher") is None:
+        updates.pop("send_voucher", None)
+    if not remove_payment and updates.get("payment_voucher") is None:
+        updates.pop("payment_voucher", None)
+    if not remove_checked and updates.get("checked_image") is None:
+        updates.pop("checked_image", None)
+
+
 _TXN_LOAD_USER = (selectinload(Transaction.user),)
 
 
@@ -144,12 +177,18 @@ class CreateTransactionUseCase:
         self,
         repo: TransactionRepositoryInterface,
         tax_rate_repo: TaxRateRepositoryInterface,
+        user_repo: UserRepositoryInterface,
     ):
         self.repo = repo
         self._tax_rate_repo = tax_rate_repo
+        self._user_repo = user_repo
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
+        entity_data["agent_id"] = await _resolve_agent_id_for_create(
+            self._user_repo,
+            entity_data.get("agent_id"),
+        )
         tax_rate = await self._tax_rate_repo.get(cmd.tax_rate_id)
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
@@ -180,8 +219,14 @@ class UpdateTransactionUseCase:
             return None
 
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
-        remove_send_voucher = updates.pop("remove_send_voucher", False)
-        remove_payment_voucher = updates.pop("remove_payment_voucher", False)
+        remove_send_voucher = bool(updates.pop("remove_send_voucher", None))
+        remove_payment_voucher = bool(updates.pop("remove_payment_voucher", None))
+        remove_checked_image = bool(updates.pop("remove_checked_image", None))
+        # No escribir NULL en rutas de archivo por "null" en JSON u objeto reenviado: solo
+        # se borra con remove_*; actualizar un voucher no afecta a los demás.
+        _drop_null_voucher_paths_unless_remove(
+            updates, remove_send_voucher, remove_payment_voucher, remove_checked_image
+        )
         # No actualizar checked si es None (el modelo requiere bool)
         updates = {k: v for k, v in updates.items() if k != "checked" or v is not None}
 
@@ -189,6 +234,8 @@ class UpdateTransactionUseCase:
             updates["send_voucher"] = None
         if remove_payment_voucher:
             updates["payment_voucher"] = None
+        if remove_checked_image:
+            updates["checked_image"] = None
 
         for attr, value in updates.items():
             setattr(entity, attr, value)

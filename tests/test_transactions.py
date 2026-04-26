@@ -1,8 +1,19 @@
 """Tests para el endpoint POST /transactions/."""
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+from app.modules.coin.domain.enums import Currency
 from app.modules.transactions.domain.enums import TransactionStatus
+from app.modules.transactions.application.schemas.transaction_schema import (
+    TransactionCreateCmd,
+    TransactionReadDTO,
+)
+from app.modules.transactions.application.use_cases import transaction_use_cases
+from app.modules.transactions.application.use_cases.transaction_use_cases import (
+    CreateTransactionUseCase,
+)
+from app.modules.users.domain.enums import UserRole
 
 
 def test_post_transaction_json_creates_success(client, valid_transaction_payload):
@@ -21,6 +32,130 @@ def test_post_transaction_json_creates_success(client, valid_transaction_payload
     assert data["status"] == TransactionStatus.verification.value
     assert data["commission_result"] == valid_transaction_payload["commission_result"]
     assert data["total_to_send"] == valid_transaction_payload["total_to_send"]
+
+
+def test_update_payload_strips_null_voucher_paths_without_remove_flags():
+    """PUT: `null` en un voucher no borra al actualizar otra ruta (p. ej. reenviar GET + un campo)."""
+    u = {
+        "send_voucher": None,
+        "payment_voucher": None,
+        "checked_image": "transaction_vouchers/only_new.pdf",
+    }
+    transaction_use_cases._drop_null_voucher_paths_unless_remove(
+        u, remove_send=False, remove_payment=False, remove_checked=False
+    )
+    assert "send_voucher" not in u
+    assert "payment_voucher" not in u
+    assert u["checked_image"] == "transaction_vouchers/only_new.pdf"
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_id_for_create_keeps_explicit():
+    repo = AsyncMock()
+    repo.list_ids_by_roles = AsyncMock()
+    explicit = uuid4()
+    got = await transaction_use_cases._resolve_agent_id_for_create(repo, explicit)
+    assert got == explicit
+    repo.list_ids_by_roles.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_id_for_create_uses_pool_when_none():
+    repo = AsyncMock()
+    a, b = uuid4(), uuid4()
+    repo.list_ids_by_roles = AsyncMock(return_value=[a, b])
+    got = await transaction_use_cases._resolve_agent_id_for_create(repo, None)
+    assert got in (a, b)
+    repo.list_ids_by_roles.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_use_case_assigns_agent_from_admin_sales_pool(monkeypatch):
+    """CreateTransactionUseCase: sin agent_id pide candidatos admin/sales y persiste uno de ellos."""
+    assigned_id = uuid4()
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock(return_value=[assigned_id])
+
+    tax = MagicMock()
+    tax.coin_a = Currency.pen
+    tax.coin_b = Currency.brl
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+
+    captured: dict = {}
+
+    async def capture_add(entity):
+        captured["agent_id"] = entity.agent_id
+        return entity
+
+    txn_repo = AsyncMock()
+    txn_repo.add = AsyncMock(side_effect=capture_add)
+    txn_repo.commit = AsyncMock()
+    txn_repo.refresh = AsyncMock()
+    txn_repo.next_sequential_transaction_code = AsyncMock(return_value="PxB-TEST-001")
+
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo)
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=1.0,
+        destination_amount=1.0,
+        code="",
+    )
+    await uc.execute(cmd)
+
+    user_repo.list_ids_by_roles.assert_awaited_once()
+    roles_arg = user_repo.list_ids_by_roles.await_args.args[0]
+    assert tuple(roles_arg) == (UserRole.admin.value, UserRole.sales.value)
+    assert captured["agent_id"] == assigned_id
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_use_case_keeps_explicit_agent_id(monkeypatch):
+    """CreateTransactionUseCase: con agent_id en el cmd no consulta el pool."""
+    explicit = uuid4()
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock()
+
+    tax = MagicMock()
+    tax.coin_a = Currency.pen
+    tax.coin_b = Currency.brl
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+
+    captured: dict = {}
+
+    async def capture_add(entity):
+        captured["agent_id"] = entity.agent_id
+        return entity
+
+    txn_repo = AsyncMock()
+    txn_repo.add = AsyncMock(side_effect=capture_add)
+    txn_repo.commit = AsyncMock()
+    txn_repo.refresh = AsyncMock()
+    txn_repo.next_sequential_transaction_code = AsyncMock(return_value="PxB-TEST-002")
+
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo)
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        agent_id=explicit,
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=1.0,
+        destination_amount=1.0,
+        code="",
+    )
+    await uc.execute(cmd)
+
+    user_repo.list_ids_by_roles.assert_not_called()
+    assert captured["agent_id"] == explicit
 
 
 def test_post_transaction_json_minimal_payload(client):

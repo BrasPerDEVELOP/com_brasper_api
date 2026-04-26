@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Sequence
 from uuid import UUID
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from app.modules.users.domain.models import User
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
@@ -26,3 +26,15 @@ class SQLAlchemyUserRepository(BaseAsyncRepository[User], UserRepositoryInterfac
         stmt = select(User).where(User.auth_id == auth_id, User.deleted.is_(False))
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    async def list_ids_by_roles(self, roles: Sequence[str]) -> List[UUID]:
+        role_values = tuple(r for r in roles if r and str(r).strip())
+        if not role_values:
+            return []
+        stmt = select(User.id).where(
+            User.role.in_(role_values),
+            User.deleted.is_(False),
+            User.enable.is_(True),
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

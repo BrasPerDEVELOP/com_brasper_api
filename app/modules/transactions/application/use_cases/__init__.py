@@ -1,4 +1,6 @@
 # app/modules/transactions/application/use_cases
+from . import transaction_use_cases
+
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
     GetTransactionByIdUseCase,
     ListTransactionsUseCase,

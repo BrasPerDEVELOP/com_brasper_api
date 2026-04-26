@@ -21,15 +21,15 @@ from app.shared.model_base import ORMBaseModel
 
 
 class Transaction(ORMBaseModel):
-    """Transacción: bank_account_origin, bank_account_destination, user, tax_rate, commission, montos, code, fechas, vouchers."""
+    """Transacción: bank_account_origin, bank_account_destination, user, agent (opcional; asignación al crear v. use case), tax_rate, commission, montos, code, fechas, vouchers."""
     __tablename__ = "transactions"
     __table_args__ = {"schema": "transaction"}
 
     # FKs
-    bank_account_origin_id: Mapped[UUID] = mapped_column(
+    bank_account_origin_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("transaction.bank_accounts.id"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     bank_account_destination_id: Mapped[UUID] = mapped_column(
@@ -96,7 +96,7 @@ class Transaction(ORMBaseModel):
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
 
     # Relaciones
-    bank_account_origin: Mapped["BankAccount"] = relationship(
+    bank_account_origin: Mapped[Optional["BankAccount"]] = relationship(
         "BankAccount",
         foreign_keys=[bank_account_origin_id],
         back_populates="transactions_as_origin",

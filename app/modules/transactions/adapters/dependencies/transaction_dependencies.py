@@ -19,7 +19,8 @@ from app.modules.transactions.infrastructure.repository import SQLAlchemyTransac
 from app.modules.transactions.infrastructure.bank_repository import SQLAlchemyBankRepository
 from app.modules.transactions.infrastructure.bank_account_repository import SQLAlchemyBankAccountRepository
 from app.modules.transactions.infrastructure.coupon_repository import SQLAlchemyCouponRepository
-from app.core.containers.users import create_user_uc
+from app.core.containers.users import create_user_uc, get_user_repository
+from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.application.use_cases import (
     GetTransactionByIdUseCase,
     ListTransactionsUseCase,
@@ -70,8 +71,9 @@ def create_transaction_uc(
     tax_rate_repo: Annotated[
         TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
     ],
+    user_repo: Annotated[UserRepositoryInterface, Depends(get_user_repository)],
 ) -> CreateTransactionUseCase:
-    return CreateTransactionUseCase(repo, tax_rate_repo)
+    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo)
 
 
 def update_transaction_uc(
