@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.modules.brasper.interfaces.contact_form_repository import ContactFormRepositoryInterface
 from app.modules.brasper.infrastructure.repository import SQLAlchemyContactFormRepository
-from app.modules.brasper.application.use_cases import CreateContactFormUseCase
+from app.modules.brasper.application.use_cases import CreateContactFormUseCase, ListContactFormsUseCase
 
 
 def get_contact_form_repository(
@@ -23,3 +23,12 @@ def create_contact_form_uc(
 
 
 CreateContactFormUseCaseDep = Annotated[CreateContactFormUseCase, Depends(create_contact_form_uc)]
+
+
+def list_contact_forms_uc(
+    repo: Annotated[ContactFormRepositoryInterface, Depends(get_contact_form_repository)],
+) -> ListContactFormsUseCase:
+    return ListContactFormsUseCase(repo)
+
+
+ListContactFormsUseCaseDep = Annotated[ListContactFormsUseCase, Depends(list_contact_forms_uc)]

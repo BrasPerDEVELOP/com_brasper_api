@@ -36,3 +36,12 @@ class ContactFormReadDTO(BaseModel):
     updated_at: datetime = Field(serialization_alias="updatedAt")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ContactFormListPage(BaseModel):
+    items: list[ContactFormReadDTO]
+    total: int
+    skip: int
+    limit: int
+    has_next: bool
+    has_previous: bool
