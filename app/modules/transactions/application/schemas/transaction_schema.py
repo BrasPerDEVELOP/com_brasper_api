@@ -110,6 +110,11 @@ class TransactionCreateCmd(BaseModel):
         default="",
         description="Generado en servidor (p. ej. PxB-0000000001); el valor enviado se ignora",
     )
+    operation_number: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("operation_number", "numero_operacion"),
+        description="Número de operación asignado al editar/verificar la transacción",
+    )
     commission_result: Optional[float] = Field(
         default=None,
         validation_alias=AliasChoices("commission_result", "resultado_comision"),
@@ -146,6 +151,7 @@ class TransactionCreateCmd(BaseModel):
         origin_amount: str = Form(..., description="Monto origen"),
         destination_amount: str = Form(..., description="Monto destino"),
         code: str = Form("", description="Opcional; el servidor genera el código (PxB-…)"),
+        operation_number: Optional[str] = Form(None),
         commission_result: Optional[str] = Form(None),
         total_to_send: Optional[str] = Form(None),
         tax_amount: Optional[str] = Form(None),
@@ -173,6 +179,11 @@ class TransactionCreateCmd(BaseModel):
             origin_amount=float(origin_amount),
             destination_amount=float(destination_amount),
             code=code,
+            operation_number=(
+                operation_number.strip()
+                if operation_number and operation_number.strip()
+                else None
+            ),
             commission_result=_parse_optional_float(commission_result),
             total_to_send=_parse_optional_float(total_to_send),
             tax_amount=_parse_optional_float(tax_amount),
@@ -208,6 +219,9 @@ class TransactionCreateCmd(BaseModel):
             origin_amount=float(_get("origin_amount", 0)),
             destination_amount=float(_get("destination_amount", 0)),
             code=_get("code", ""),
+            operation_number=(
+                str(_get("operation_number") or _get("numero_operacion") or "").strip() or None
+            ),
             commission_result=_parse_optional_float(
                 _get("commission_result") or _get("resultado_comision")
             ),
@@ -247,6 +261,10 @@ class TransactionUpdateCmd(BaseModel):
     origin_amount: Optional[float] = None
     destination_amount: Optional[float] = None
     code: Optional[str] = None
+    operation_number: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("operation_number", "numero_operacion"),
+    )
     commission_result: Optional[float] = Field(
         default=None,
         validation_alias=AliasChoices("commission_result", "resultado_comision"),
@@ -281,6 +299,7 @@ class TransactionUpdateCmd(BaseModel):
         origin_amount: Optional[str] = Form(None),
         destination_amount: Optional[str] = Form(None),
         code: Optional[str] = Form(None),
+        operation_number: Optional[str] = Form(None),
         commission_result: Optional[str] = Form(None),
         total_to_send: Optional[str] = Form(None),
         tax_amount: Optional[str] = Form(None),
@@ -321,6 +340,12 @@ class TransactionUpdateCmd(BaseModel):
             payload["destination_amount"] = _parse_optional_float(destination_amount)
         if _field_present(code):
             payload["code"] = code
+        if _field_present(operation_number):
+            payload["operation_number"] = (
+                operation_number.strip()
+                if operation_number and operation_number.strip()
+                else None
+            )
         if _field_present(commission_result):
             payload["commission_result"] = _parse_optional_float(commission_result)
         if _field_present(total_to_send):
@@ -377,6 +402,13 @@ class TransactionUpdateCmd(BaseModel):
             payload["destination_amount"] = _parse_optional_float(_get("destination_amount"))
         if "code" in form:
             payload["code"] = _get("code")
+        if "operation_number" in form or "numero_operacion" in form:
+            raw_operation_number = _get("operation_number") or _get("numero_operacion")
+            payload["operation_number"] = (
+                str(raw_operation_number).strip()
+                if raw_operation_number and str(raw_operation_number).strip()
+                else None
+            )
         if "commission_result" in form or "resultado_comision" in form:
             payload["commission_result"] = _parse_optional_float(
                 _get("commission_result") or _get("resultado_comision")
@@ -440,6 +472,7 @@ class TransactionReadDTO(BaseModel):
     origin_amount: float
     destination_amount: float
     code: str
+    operation_number: Optional[str] = None
     commission_result: Optional[float] = None
     total_to_send: Optional[float] = None
     tax_amount: Optional[float] = None
@@ -512,6 +545,10 @@ class TransactionImportPayload(BaseModel):
     status: TransactionStatus = TransactionStatus.verification
     origin_amount: float
     destination_amount: float
+    operation_number: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("operation_number", "numero_operacion"),
+    )
     commission_result: Optional[float] = Field(
         default=None,
         validation_alias=AliasChoices("commission_result", "resultado_comision"),

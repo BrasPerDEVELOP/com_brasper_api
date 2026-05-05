@@ -72,6 +72,9 @@ class Transaction(ORMBaseModel):
     origin_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     destination_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     code: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    operation_number: Mapped[Optional[str]] = mapped_column(
+        String(120), nullable=True, index=True
+    )
     # datos calculadora
     commission_result: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     total_to_send: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
@@ -223,5 +226,3 @@ class Coupon(ORMBaseModel):
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
-
-

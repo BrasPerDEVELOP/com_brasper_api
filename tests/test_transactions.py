@@ -1,4 +1,6 @@
 """Tests para el endpoint POST /transactions/."""
+import importlib
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -212,8 +214,12 @@ def test_put_transaction_multipart_replacing_one_voucher_preserves_omitted_one(
     async def fake_save_transaction_voucher(file, prefix):
         return f"transaction_vouchers/{prefix}_new.jpeg"
 
+    transaction_routes = importlib.import_module(
+        "app.modules.transactions.adapters.router.transaction_routes"
+    )
     monkeypatch.setattr(
-        "app.modules.transactions.adapters.router.transaction_routes.save_transaction_voucher",
+        transaction_routes,
+        "save_transaction_voucher",
         fake_save_transaction_voucher,
     )
 
@@ -257,6 +263,26 @@ def test_put_transaction_json_remove_payment_voucher_sets_explicit_flag(
     assert "payment_voucher" not in updates
 
 
+def test_put_transaction_json_accepts_operation_number_alias(
+    client, mock_update_transaction_uc
+):
+    """PUT /transactions/ acepta numero_operacion y lo normaliza a operation_number."""
+    response = client.put(
+        "/transactions/",
+        json={
+            "id": str(uuid4()),
+            "numero_operacion": "OP-778899",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+
+    assert updates["operation_number"] == "OP-778899"
+
+
 def test_put_transaction_multipart_accepts_pdf_checked_image(
     client, mock_update_transaction_uc, monkeypatch
 ):
@@ -265,8 +291,12 @@ def test_put_transaction_multipart_accepts_pdf_checked_image(
     async def fake_save_transaction_voucher(file, prefix):
         return f"transaction_vouchers/{prefix}_new.pdf"
 
+    transaction_routes = importlib.import_module(
+        "app.modules.transactions.adapters.router.transaction_routes"
+    )
     monkeypatch.setattr(
-        "app.modules.transactions.adapters.router.transaction_routes.save_transaction_voucher",
+        transaction_routes,
+        "save_transaction_voucher",
         fake_save_transaction_voucher,
     )
 
