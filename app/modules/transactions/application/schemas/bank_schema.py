@@ -27,7 +27,7 @@ class BankCreateCmd(BaseModel):
     pix: Optional[str] = None
     company: str
     currency: Currency
-    image: str
+    image: Optional[str] = None
     country: BankCountry
     social_actor: Optional[SocialActor] = None
 
@@ -52,7 +52,7 @@ class BankReadDTO(BaseModel):
     company: str
     currency: Currency
     currency_display: str = ""
-    image: str
+    image: Optional[str] = None
     country: BankCountry
     social_actor: Optional[SocialActor] = None
     created_at: datetime
@@ -97,7 +97,7 @@ class BankItemDTO(BaseModel):
     pix: Optional[str] = None
     company: str
     currency: str
-    image: str
+    image: Optional[str] = None
     social_actor: Optional[SocialActor] = None
 
     model_config = ConfigDict(from_attributes=True)

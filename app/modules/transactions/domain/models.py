@@ -85,6 +85,13 @@ class Transaction(ORMBaseModel):
         nullable=True,
         index=True,
     )
+    # datos calculadora cupon
+    coupon_discount_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    coupon_origin_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    coupon_destination_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    coupon_discount_percentage: Mapped[Optional[float]] = mapped_column(Numeric(10, 4), nullable=True)
+    coupon_discount_commission: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    coupon_discount_total_to_send: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
 
     # Fechas
     send_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -117,6 +124,12 @@ class Transaction(ORMBaseModel):
         back_populates="transactions",
         lazy="noload",
     )
+    coupon: Mapped["Coupon"] = relationship(
+        "Coupon",
+        foreign_keys=[coupon_id],
+        back_populates="transactions",
+        lazy="noload",
+    )
 
 
 class Bank(ORMBaseModel):
@@ -129,7 +142,7 @@ class Bank(ORMBaseModel):
     pix: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     company: Mapped[str] = mapped_column(String(200), nullable=False)
     currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
-    image: Mapped[str] = mapped_column(String(255), nullable=False)
+    image: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     country: Mapped[BankCountry] = mapped_column(
         Enum(BankCountry, schema="transaction", name="bank_country"), nullable=False, index=True
     )
@@ -226,3 +239,9 @@ class Coupon(ORMBaseModel):
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        back_populates="coupon",
+        lazy="noload",
+    )

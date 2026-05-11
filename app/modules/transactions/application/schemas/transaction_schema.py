@@ -78,6 +78,12 @@ class TransactionCreateCmd(BaseModel):
                 "code": "",
                 "commission_result": 5.0,
                 "total_to_send": 100.0,
+                "coupon_discount_code": "SUMMER10",
+                "coupon_origin_amount": 100.0,
+                "coupon_destination_amount": 90.0,
+                "coupon_discount_percentage": 10.0,
+                "coupon_discount_commission": 0.5,
+                "coupon_discount_total_to_send": 99.5,
             }
         }
     )
@@ -125,6 +131,12 @@ class TransactionCreateCmd(BaseModel):
     )
     tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
+    coupon_discount_code: Optional[str] = None
+    coupon_origin_amount: Optional[float] = None
+    coupon_destination_amount: Optional[float] = None
+    coupon_discount_percentage: Optional[float] = None
+    coupon_discount_commission: Optional[float] = None
+    coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
@@ -156,6 +168,12 @@ class TransactionCreateCmd(BaseModel):
         total_to_send: Optional[str] = Form(None),
         tax_amount: Optional[str] = Form(None),
         coupon_id: Optional[str] = Form(None),
+        coupon_discount_code: Optional[str] = Form(None),
+        coupon_origin_amount: Optional[str] = Form(None),
+        coupon_destination_amount: Optional[str] = Form(None),
+        coupon_discount_percentage: Optional[str] = Form(None),
+        coupon_discount_commission: Optional[str] = Form(None),
+        coupon_discount_total_to_send: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
@@ -188,6 +206,16 @@ class TransactionCreateCmd(BaseModel):
             total_to_send=_parse_optional_float(total_to_send),
             tax_amount=_parse_optional_float(tax_amount),
             coupon_id=_parse_optional_uuid(coupon_id),
+            coupon_discount_code=(
+                coupon_discount_code.strip()
+                if coupon_discount_code and coupon_discount_code.strip()
+                else None
+            ),
+            coupon_origin_amount=_parse_optional_float(coupon_origin_amount),
+            coupon_destination_amount=_parse_optional_float(coupon_destination_amount),
+            coupon_discount_percentage=_parse_optional_float(coupon_discount_percentage),
+            coupon_discount_commission=_parse_optional_float(coupon_discount_commission),
+            coupon_discount_total_to_send=_parse_optional_float(coupon_discount_total_to_send),
             send_date=_parse_optional_datetime(send_date),
             payment_date=_parse_optional_datetime(payment_date),
             send_voucher=None,  # se llenará en la ruta tras guardar
@@ -230,6 +258,16 @@ class TransactionCreateCmd(BaseModel):
             ),
             tax_amount=_parse_optional_float(_get("tax_amount")),
             coupon_id=_parse_optional_uuid(_get("coupon_id")),
+            coupon_discount_code=(
+                str(_get("coupon_discount_code") or "").strip() or None
+            ),
+            coupon_origin_amount=_parse_optional_float(_get("coupon_origin_amount")),
+            coupon_destination_amount=_parse_optional_float(_get("coupon_destination_amount")),
+            coupon_discount_percentage=_parse_optional_float(_get("coupon_discount_percentage")),
+            coupon_discount_commission=_parse_optional_float(_get("coupon_discount_commission")),
+            coupon_discount_total_to_send=_parse_optional_float(
+                _get("coupon_discount_total_to_send")
+            ),
             send_date=_parse_optional_datetime(_get("send_date")),
             payment_date=_parse_optional_datetime(_get("payment_date")),
             send_voucher=None,
@@ -275,6 +313,12 @@ class TransactionUpdateCmd(BaseModel):
     )
     tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
+    coupon_discount_code: Optional[str] = None
+    coupon_origin_amount: Optional[float] = None
+    coupon_destination_amount: Optional[float] = None
+    coupon_discount_percentage: Optional[float] = None
+    coupon_discount_commission: Optional[float] = None
+    coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
@@ -304,6 +348,12 @@ class TransactionUpdateCmd(BaseModel):
         total_to_send: Optional[str] = Form(None),
         tax_amount: Optional[str] = Form(None),
         coupon_id: Optional[str] = Form(None),
+        coupon_discount_code: Optional[str] = Form(None),
+        coupon_origin_amount: Optional[str] = Form(None),
+        coupon_destination_amount: Optional[str] = Form(None),
+        coupon_discount_percentage: Optional[str] = Form(None),
+        coupon_discount_commission: Optional[str] = Form(None),
+        coupon_discount_total_to_send: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
@@ -354,6 +404,24 @@ class TransactionUpdateCmd(BaseModel):
             payload["tax_amount"] = _parse_optional_float(tax_amount)
         if _field_present(coupon_id):
             payload["coupon_id"] = _parse_optional_uuid(coupon_id)
+        if _field_present(coupon_discount_code):
+            payload["coupon_discount_code"] = (
+                coupon_discount_code.strip()
+                if coupon_discount_code and coupon_discount_code.strip()
+                else None
+            )
+        if _field_present(coupon_origin_amount):
+            payload["coupon_origin_amount"] = _parse_optional_float(coupon_origin_amount)
+        if _field_present(coupon_destination_amount):
+            payload["coupon_destination_amount"] = _parse_optional_float(coupon_destination_amount)
+        if _field_present(coupon_discount_percentage):
+            payload["coupon_discount_percentage"] = _parse_optional_float(coupon_discount_percentage)
+        if _field_present(coupon_discount_commission):
+            payload["coupon_discount_commission"] = _parse_optional_float(coupon_discount_commission)
+        if _field_present(coupon_discount_total_to_send):
+            payload["coupon_discount_total_to_send"] = _parse_optional_float(
+                coupon_discount_total_to_send
+            )
         if _field_present(send_date):
             payload["send_date"] = _parse_optional_datetime(send_date)
         if _field_present(payment_date):
@@ -421,6 +489,28 @@ class TransactionUpdateCmd(BaseModel):
             payload["tax_amount"] = _parse_optional_float(_get("tax_amount"))
         if "coupon_id" in form:
             payload["coupon_id"] = _parse_optional_uuid(_get("coupon_id"))
+        if "coupon_discount_code" in form:
+            payload["coupon_discount_code"] = (
+                str(_get("coupon_discount_code") or "").strip() or None
+            )
+        if "coupon_origin_amount" in form:
+            payload["coupon_origin_amount"] = _parse_optional_float(_get("coupon_origin_amount"))
+        if "coupon_destination_amount" in form:
+            payload["coupon_destination_amount"] = _parse_optional_float(
+                _get("coupon_destination_amount")
+            )
+        if "coupon_discount_percentage" in form:
+            payload["coupon_discount_percentage"] = _parse_optional_float(
+                _get("coupon_discount_percentage")
+            )
+        if "coupon_discount_commission" in form:
+            payload["coupon_discount_commission"] = _parse_optional_float(
+                _get("coupon_discount_commission")
+            )
+        if "coupon_discount_total_to_send" in form:
+            payload["coupon_discount_total_to_send"] = _parse_optional_float(
+                _get("coupon_discount_total_to_send")
+            )
         if "send_date" in form:
             payload["send_date"] = _parse_optional_datetime(_get("send_date"))
         if "payment_date" in form:
@@ -477,6 +567,12 @@ class TransactionReadDTO(BaseModel):
     total_to_send: Optional[float] = None
     tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
+    coupon_discount_code: Optional[str] = None
+    coupon_origin_amount: Optional[float] = None
+    coupon_destination_amount: Optional[float] = None
+    coupon_discount_percentage: Optional[float] = None
+    coupon_discount_commission: Optional[float] = None
+    coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
@@ -559,6 +655,12 @@ class TransactionImportPayload(BaseModel):
     )
     tax_amount: Optional[float] = None
     coupon_id: Optional[UUID] = None
+    coupon_discount_code: Optional[str] = None
+    coupon_origin_amount: Optional[float] = None
+    coupon_destination_amount: Optional[float] = None
+    coupon_discount_percentage: Optional[float] = None
+    coupon_discount_commission: Optional[float] = None
+    coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
