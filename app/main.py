@@ -96,7 +96,13 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Configurar CORS
+# Middleware de auth (interno): debe ir antes que CORS en el registro.
+# CORS se registra después para quedar en el borde del stack: así las respuestas
+# cortas (p. ej. 401 sin token válido) siguen pasando por CORSMiddleware.
+from app.middlewares.auth import TokenAuthMiddleware
+
+app.add_middleware(TokenAuthMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -104,10 +110,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Middleware de auth: valida token Bearer y establece current_user
-from app.middlewares.auth import TokenAuthMiddleware
-app.add_middleware(TokenAuthMiddleware)
 
 # Archivos estáticos (imágenes, etc.)
 from pathlib import Path
