@@ -5,7 +5,8 @@ from typing import Annotated, List, Optional
 
 from app.shared.services.file_service import save_profile_image
 
-from app.modules.auth.application.schemas.auth_schema import UserInfoDTO
+from app.modules.auth.application.schemas.auth_schema import AdminResetPasswordRequest, UserInfoDTO
+from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.users.application.schemas.user_schema import (
     UserCreateCmd,
     UserNameDTO,
@@ -34,6 +35,7 @@ from app.core.container import (
     list_sales_user_ids_uc,
     update_user_uc,
     delete_user_uc,
+    get_auth_service,
 )
 
 router = APIRouter(prefix="/user", tags=["user"])
@@ -43,6 +45,7 @@ router = APIRouter(prefix="/user", tags=["user"])
 async def get_user_by_email(
     email: str,
     use_case: GetUserByEmailUseCase = Depends(get_user_by_email_uc),
+    _permissions=Depends(require_permission("users.view")),
 ):
     user = await use_case.execute(email)
     if not user:
@@ -54,6 +57,7 @@ async def get_user_by_email(
 async def get_user_by_auth_id(
     auth_id: UUID,
     use_case: GetUserByAuthIdUseCase = Depends(get_user_by_auth_id_uc),
+    _permissions=Depends(require_permission("users.view")),
 ):
     user = await use_case.execute(auth_id)
     if not user:
@@ -65,6 +69,7 @@ async def get_user_by_auth_id(
 async def create_user(
     form_data: Annotated[tuple[UserCreateCmd, Optional[UploadFile]], Depends(UserCreateCmd.from_form)],
     use_case: CreateUserUseCase = Depends(create_user_uc),
+    _permissions=Depends(require_permission("users.create")),
 ):
     cmd, image = form_data
     return await use_case.execute(cmd, image)
@@ -74,6 +79,7 @@ async def create_user(
 async def update_user(
     form_data: Annotated[tuple[UserUpdateCmd, Optional[UploadFile]], Depends(UserUpdateCmd.from_form)],
     use_case: UpdateUserUseCase = Depends(update_user_uc),
+    _permissions=Depends(require_permission("users.update")),
 ):
     cmd, profile_image_file = form_data
     if profile_image_file and profile_image_file.filename:
@@ -87,13 +93,29 @@ async def update_user(
 async def delete_user(
     user_id: UUID,
     use_case: DeleteUserUseCase = Depends(delete_user_uc),
+    _permissions=Depends(require_permission("users.delete")),
 ):
     await use_case.execute(user_id)
+
+
+@router.post("/{user_id}/reset-password/", response_model=dict)
+async def reset_user_password(
+    user_id: UUID,
+    request: AdminResetPasswordRequest,
+    _permissions=Depends(require_permission("users.reset_password")),
+    auth_service=Depends(get_auth_service),
+):
+    try:
+        await auth_service.admin_reset_password(user_id, request.new_password)
+        return {"message": "Temporary password assigned successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/sales-ids/", response_model=List[UUID])
 async def list_sales_user_ids(
     use_case: ListSalesUserIdsUseCase = Depends(list_sales_user_ids_uc),
+    _permissions=Depends(require_permission("users.view")),
 ):
     """Devuelve los IDs de usuarios con rol sales."""
     return await use_case.execute()
@@ -104,6 +126,7 @@ async def list_users_with_details(
     use_case: ListUsersWithDetailsUseCase = Depends(list_users_with_details_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     role: Optional[str] = Query(None, description="Filtro por rol (user, sales, admin, client, etc.)"),
+    _permissions=Depends(require_permission("users.view")),
 ):
     """Lista usuarios con detalles. Filtros: user_id, role."""
     return await use_case.execute(user_id=user_id, role=role)
@@ -114,6 +137,7 @@ async def list_users(
     use_case: ListUserUseCase = Depends(list_users_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     role: Optional[str] = Query(None, description="Filtro por rol (user, sales, admin, client, etc.)"),
+    _permissions=Depends(require_permission("users.view")),
 ):
     """Lista usuarios. Filtros: user_id, role. Si user_id no existe → 404."""
     users = await use_case.execute(user_id=user_id, role=role)
@@ -127,6 +151,7 @@ async def list_user_name(
     use_case: ListUserNameUseCase = Depends(list_user_name_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     role: Optional[str] = Query(None, description="Filtro por rol"),
+    _permissions=Depends(require_permission("users.view")),
 ):
     """Lista usuarios con id, names, lastnames. Filtros: user_id, role."""
     return await use_case.execute(user_id=user_id, role=role)

@@ -11,6 +11,7 @@ from app.shared.services.file_service import save_profile_image
 from app.modules.auth.application.use_cases import LoginUseCase, VerifyCredentialsUseCase
 from app.modules.auth.application.schemas.auth_schema import (
     AuthCreateCmd,
+    ChangePasswordRequest,
     PasswordResetRequest,
     PasswordResetConfirmRequest,
 )
@@ -18,6 +19,7 @@ from app.modules.auth.infrastructure.dependencies import (
     get_security_utils,
     get_auth_repository,
     get_current_user,
+    require_permission,
 )
 from app.modules.auth.interfaces.auth_repository import AuthRepositoryInterface
 from app.modules.users.application.schemas.user_schema import (
@@ -52,6 +54,7 @@ async def get_login_data(
 @router.get("/me/", response_model=UserReadDTO)
 async def get_current_user_profile(
     current_user: dict = Depends(get_current_user),
+    permissions=Depends(require_permission("profile.view")),
     use_case=Depends(get_user_by_id_uc),
 ):
     """Obtiene el perfil del usuario autenticado. Alternativa: GET /user/{user_id}."""
@@ -65,10 +68,11 @@ async def get_current_user_profile(
     result = await use_case.execute(UUID(user_id))
     if not result:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    result.permissions = permissions
     return result
 
 
-async def _update_me(cmd: UpdateCurrentUserCmd, current_user: dict, use_case):
+async def _update_me(cmd: UpdateCurrentUserCmd, current_user: dict, use_case, permissions: list[str]):
     """Lógica común para POST y PUT /auth/me/."""
     user_id = current_user.get("user_id")
     if not user_id:
@@ -81,6 +85,7 @@ async def _update_me(cmd: UpdateCurrentUserCmd, current_user: dict, use_case):
     result = await use_case.execute(update_cmd)
     if not result:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    result.permissions = permissions
     return result
 
 
@@ -88,26 +93,29 @@ async def _update_me(cmd: UpdateCurrentUserCmd, current_user: dict, use_case):
 async def create_or_update_current_user(
     cmd: UpdateCurrentUserCmd,
     current_user: dict = Depends(get_current_user),
+    permissions=Depends(require_permission("profile.update")),
     use_case=Depends(update_user_uc),
 ):
     """Crea o actualiza el perfil del usuario autenticado. Todos los campos opcionales."""
-    return await _update_me(cmd, current_user, use_case)
+    return await _update_me(cmd, current_user, use_case, permissions)
 
 
 @router.put("/me/", response_model=UserReadDTO)
 async def update_current_user(
     cmd: UpdateCurrentUserCmd,
     current_user: dict = Depends(get_current_user),
+    permissions=Depends(require_permission("profile.update")),
     use_case=Depends(update_user_uc),
 ):
     """Actualiza el perfil del usuario autenticado. Todos los campos opcionales."""
-    return await _update_me(cmd, current_user, use_case)
+    return await _update_me(cmd, current_user, use_case, permissions)
 
 
 @router.post("/me/profile-image")
 async def upload_profile_image(
     profile_image: UploadFile = File(..., description="Imagen de perfil (.png, .jpg, .jpeg, .webp, .gif)"),
     current_user: dict = Depends(get_current_user),
+    _permissions=Depends(require_permission("profile.update")),
 ):
     """Sube imagen de perfil. Retorna la ruta para usar en PUT /auth/me/ (campo profile_image)."""
     if not current_user.get("user_id"):
@@ -169,6 +177,27 @@ async def verify_credentials(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal error",
         )
+
+
+@router.post("/change-password/", response_model=dict)
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    _permissions=Depends(require_permission("profile.change_password")),
+    auth_service=Depends(get_auth_service),
+):
+    user_id = current_user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    try:
+        await auth_service.change_password(
+            UUID(user_id),
+            request.current_password,
+            request.new_password,
+        )
+        return {"message": "Password changed successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/logout", response_model=dict)

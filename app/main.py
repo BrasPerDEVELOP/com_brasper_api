@@ -14,6 +14,7 @@ from app.core.settings import get_settings
 # Auth, User, Coin, Transactions, Integraciones
 from app.modules.auth.adapters.router import router as auth_router
 from app.modules.users.adapters.router import router as user_router
+from app.modules.users.adapters.router.role_permission_routes import router as role_router
 from app.modules.coin.adapters.router import router as coin_router
 from app.modules.transactions.adapters.router import router as transaction_router
 from app.modules.integraciones.adapters.router import router as integraciones_router
@@ -158,6 +159,7 @@ async def serve_media(file_path: str):
 # Incluir routers
 app.include_router(auth_router)
 app.include_router(user_router)
+app.include_router(role_router)
 app.include_router(coin_router)
 app.include_router(transaction_router)
 app.include_router(integraciones_router)

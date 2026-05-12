@@ -5,6 +5,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.modules.auth.application.schemas.auth_schema import AuthCreateCmd
+from app.modules.auth.domain.permissions import default_permissions_for_role
 from app.modules.users.domain.enums import UserRole, DocumentType, PhoneCode
 
 # Máximo 15 dígitos para teléfono
@@ -163,6 +164,8 @@ class UserReadDTO(BaseModel):
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    permissions: list[str] = []
+    must_change_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -174,6 +177,12 @@ class UserReadDTO(BaseModel):
             object.__setattr__(self, "document_type", DocumentType[DEFAULT_DOCUMENT_TYPE])
         if self.code_phone is None:
             object.__setattr__(self, "code_phone", PhoneCode[DEFAULT_CODE_PHONE])
+        if not self.permissions:
+            object.__setattr__(
+                self,
+                "permissions",
+                default_permissions_for_role(self.role.value if self.role else None),
+            )
         return self
 
 
@@ -193,6 +202,8 @@ class UserReadGeneralDTO(BaseModel):
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    permissions: list[str] = []
+    must_change_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -204,6 +215,12 @@ class UserReadGeneralDTO(BaseModel):
             object.__setattr__(self, "document_type", DocumentType[DEFAULT_DOCUMENT_TYPE])
         if self.code_phone is None:
             object.__setattr__(self, "code_phone", PhoneCode[DEFAULT_CODE_PHONE])
+        if not self.permissions:
+            object.__setattr__(
+                self,
+                "permissions",
+                default_permissions_for_role(self.role.value if self.role else None),
+            )
         return self
 
 

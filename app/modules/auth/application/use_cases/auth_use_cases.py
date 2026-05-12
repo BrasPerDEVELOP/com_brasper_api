@@ -12,6 +12,8 @@ from app.modules.auth.application.schemas.auth_schema import (
     TokenInfoDTO,
     UserInfoDTO,
 )
+from app.modules.auth.domain.permissions import default_permissions_for_role
+from app.modules.auth.domain.models import RolePermissionModel
 from app.modules.auth.domain.credentials import Credentials
 from app.modules.auth.infrastructure.dependencies import get_auth_repository, get_security_utils
 from app.modules.auth.interfaces.auth_repository import AuthRepositoryInterface
@@ -59,9 +61,26 @@ class LoginUseCase:
         await self._uow.commit()
 
         logger.info(f"Login successful for user: {credentials.username} - New session created")
+        user_info = UserInfoDTO.model_validate(user)
+        permissions = default_permissions_for_role(user.role)
+        if user.role:
+            from sqlalchemy import select
+
+            result = await self._uow.session.execute(
+                select(RolePermissionModel).where(
+                    RolePermissionModel.role == user.role,
+                    RolePermissionModel.deleted.is_(False),
+                    RolePermissionModel.enable.is_(True),
+                )
+            )
+            role_permissions = result.scalars().first()
+            if role_permissions and role_permissions.permissions:
+                permissions = list(role_permissions.permissions)
+        user_info.permissions = permissions
+        user_info.must_change_password = credentials.must_change_password
         return TokenInfoDTO(
             token=access_token,
-            user=UserInfoDTO.model_validate(user),
+            user=user_info,
         )
 
 

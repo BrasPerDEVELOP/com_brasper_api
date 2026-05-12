@@ -121,8 +121,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     
     def _is_public_path(self, path: str) -> bool:
         """Define rutas públicas que no requieren autenticación"""
-        # /auth/me requiere token (no es pública)
-        if path.startswith("/auth/me"):
+        # Estas rutas /auth requieren token; el resto de /auth se mantiene público.
+        if path.startswith("/auth/me") or path.startswith("/auth/change-password"):
             return False
         public_paths = [
             "/auth/",

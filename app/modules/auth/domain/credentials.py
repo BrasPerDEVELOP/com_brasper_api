@@ -11,6 +11,7 @@ class Credentials(BaseModel):
     password: str
     recovery_code: Optional[str] = None
     token: Optional[str] = None
+    must_change_password: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

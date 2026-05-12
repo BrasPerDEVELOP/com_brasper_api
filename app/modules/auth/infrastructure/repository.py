@@ -31,6 +31,7 @@ class SQLAlchemyAuthRepository(AuthRepositoryInterface):
                 password=auth_model.password,
                 recovery_code=auth_model.recovery_code,
                 token=auth_model.token,
+                must_change_password=auth_model.must_change_password,
                 created_at=auth_model.created_at,
                 updated_at=auth_model.updated_at
             )
@@ -55,6 +56,7 @@ class SQLAlchemyAuthRepository(AuthRepositoryInterface):
                 password=auth_model.password,
                 recovery_code=auth_model.recovery_code,
                 token=auth_model.token,
+                must_change_password=auth_model.must_change_password,
                 created_at=auth_model.created_at,
                 updated_at=auth_model.updated_at
             )
@@ -80,6 +82,7 @@ class SQLAlchemyAuthRepository(AuthRepositoryInterface):
             password=auth_model.password,
             recovery_code=auth_model.recovery_code,
             token=auth_model.token,
+            must_change_password=auth_model.must_change_password,
             created_at=auth_model.created_at,
             updated_at=auth_model.updated_at,
         )
@@ -110,6 +113,7 @@ class SQLAlchemyAuthRepository(AuthRepositoryInterface):
                 password=auth_model.password,
                 recovery_code=auth_model.recovery_code,
                 token=auth_model.token,
+                must_change_password=auth_model.must_change_password,
                 created_at=auth_model.created_at,
                 updated_at=auth_model.updated_at
             )
@@ -117,12 +121,21 @@ class SQLAlchemyAuthRepository(AuthRepositoryInterface):
             logger.error(f"Error in get_by_token: {str(e)}")
             raise
     
-    async def update_password(self, auth_id: UUID, hashed_password: str) -> bool:
+    async def update_password(
+        self,
+        auth_id: UUID,
+        hashed_password: str,
+        *,
+        must_change_password: bool = False,
+    ) -> bool:
         """Actualiza contraseña. Commit lo gestiona el Unit of Work."""
         stmt = (
             update(AuthModel)
             .where(AuthModel.id == auth_id)
-            .values(password=hashed_password)
+            .values(
+                password=hashed_password,
+                must_change_password=must_change_password,
+            )
         )
         result = await self.session.execute(stmt)
         return result.rowcount > 0

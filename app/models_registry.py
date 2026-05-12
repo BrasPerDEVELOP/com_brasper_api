@@ -6,7 +6,7 @@ in the SQLAlchemy registry before any other modules try to use them.
 """
 
 # Auth models
-from app.modules.auth.domain.models import AuthModel
+from app.modules.auth.domain.models import AuthModel, RolePermissionModel
 
 # User models
 from app.modules.users.domain.models import User

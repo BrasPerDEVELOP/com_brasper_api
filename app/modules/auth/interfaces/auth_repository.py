@@ -27,7 +27,13 @@ class AuthRepositoryInterface(ABC):
         pass
     
     @abstractmethod
-    async def update_password(self, auth_id: UUID, hashed_password: str) -> bool:
+    async def update_password(
+        self,
+        auth_id: UUID,
+        hashed_password: str,
+        *,
+        must_change_password: bool = False,
+    ) -> bool:
         pass
     
     @abstractmethod
