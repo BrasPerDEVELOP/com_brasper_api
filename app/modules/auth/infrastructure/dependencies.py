@@ -102,3 +102,17 @@ def require_permission(permission: str):
         return permissions
 
     return dependency
+
+
+def require_any_permission(*required_permissions: str):
+    async def dependency(
+        permissions: list[str] = Depends(get_current_user_permissions),
+    ) -> list[str]:
+        if not any(permission in permissions for permission in required_permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permiso requerido: {' o '.join(required_permissions)}",
+            )
+        return permissions
+
+    return dependency

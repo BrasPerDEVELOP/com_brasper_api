@@ -6,7 +6,7 @@ from typing import Annotated, List, Optional
 from app.shared.services.file_service import save_profile_image
 
 from app.modules.auth.application.schemas.auth_schema import AdminResetPasswordRequest, UserInfoDTO
-from app.modules.auth.infrastructure.dependencies import require_permission
+from app.modules.auth.infrastructure.dependencies import require_any_permission, require_permission
 from app.modules.users.application.schemas.user_schema import (
     UserCreateCmd,
     UserNameDTO,
@@ -115,7 +115,7 @@ async def reset_user_password(
 @router.get("/sales-ids/", response_model=List[UUID])
 async def list_sales_user_ids(
     use_case: ListSalesUserIdsUseCase = Depends(list_sales_user_ids_uc),
-    _permissions=Depends(require_permission("users.view")),
+    _permissions=Depends(require_any_permission("users.view", "transactions.view", "transactions.create")),
 ):
     """Devuelve los IDs de usuarios con rol sales."""
     return await use_case.execute()
@@ -151,7 +151,7 @@ async def list_user_name(
     use_case: ListUserNameUseCase = Depends(list_user_name_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     role: Optional[str] = Query(None, description="Filtro por rol"),
-    _permissions=Depends(require_permission("users.view")),
+    _permissions=Depends(require_any_permission("users.view", "transactions.view", "transactions.create")),
 ):
     """Lista usuarios con id, names, lastnames. Filtros: user_id, role."""
     return await use_case.execute(user_id=user_id, role=role)

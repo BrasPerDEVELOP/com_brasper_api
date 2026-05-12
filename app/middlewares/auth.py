@@ -124,6 +124,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # Estas rutas /auth requieren token; el resto de /auth se mantiene público.
         if path.startswith("/auth/me") or path.startswith("/auth/change-password"):
             return False
+        if path == "/":
+            return True
         public_paths = [
             "/auth/",
             "/docs",
@@ -131,6 +133,5 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
             "/health",
             "/brasper/",
-            "/",
         ]
         return any(path.startswith(p) for p in public_paths)
