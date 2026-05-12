@@ -22,6 +22,9 @@ from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import (
     TransactionRepositoryInterface,
 )
+from app.modules.transactions.interfaces.bank_account_repository import (
+    BankAccountRepositoryInterface,
+)
 from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
@@ -120,6 +123,32 @@ def _cmd_to_entity_data(data: dict) -> dict:
     }
 
 
+async def _hydrate_bank_snapshot_from_destination(
+    bank_account_repo: BankAccountRepositoryInterface,
+    *,
+    bank_account_destination_id: UUID,
+    entity_data: dict,
+) -> None:
+    """Rellena bank_id, bank_name y company_name desde la cuenta destino y su Bank."""
+    from sqlalchemy.orm import selectinload
+
+    from app.modules.transactions.domain.models import BankAccount
+
+    acc = await bank_account_repo.get(
+        bank_account_destination_id,
+        eager_options=(selectinload(BankAccount.bank),),
+    )
+    if not acc:
+        raise ValueError(
+            f"No existe cuenta bancaria destino con id {bank_account_destination_id}"
+        )
+    entity_data["bank_id"] = acc.bank_id
+    b = acc.bank
+    if b is not None:
+        entity_data["bank_name"] = b.bank
+        entity_data["company_name"] = b.company
+
+
 def _drop_null_voucher_paths_unless_remove(
     updates: dict,
     remove_send: bool,
@@ -178,10 +207,12 @@ class CreateTransactionUseCase:
         repo: TransactionRepositoryInterface,
         tax_rate_repo: TaxRateRepositoryInterface,
         user_repo: UserRepositoryInterface,
+        bank_account_repo: BankAccountRepositoryInterface,
     ):
         self.repo = repo
         self._tax_rate_repo = tax_rate_repo
         self._user_repo = user_repo
+        self._bank_account_repo = bank_account_repo
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
@@ -189,6 +220,22 @@ class CreateTransactionUseCase:
             self._user_repo,
             entity_data.get("agent_id"),
         )
+        await _hydrate_bank_snapshot_from_destination(
+            self._bank_account_repo,
+            bank_account_destination_id=entity_data["bank_account_destination_id"],
+            entity_data=entity_data,
+        )
+        reserved_bank_id = entity_data.get("bank_id")
+        bank_overrides = cmd.model_dump(
+            exclude_unset=True,
+            include={"bank_id", "bank_name", "company_name"},
+        )
+        if bank_overrides.get("bank_id") is not None:
+            if bank_overrides["bank_id"] != reserved_bank_id:
+                raise ValueError("bank_id no coincide con el banco de la cuenta destino")
+        for key, val in bank_overrides.items():
+            if val is not None:
+                entity_data[key] = val
         tax_rate = await self._tax_rate_repo.get(cmd.tax_rate_id)
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
@@ -210,8 +257,13 @@ class CreateTransactionUseCase:
 
 
 class UpdateTransactionUseCase:
-    def __init__(self, repo: TransactionRepositoryInterface):
+    def __init__(
+        self,
+        repo: TransactionRepositoryInterface,
+        bank_account_repo: BankAccountRepositoryInterface,
+    ):
         self.repo = repo
+        self._bank_account_repo = bank_account_repo
 
     async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
@@ -236,6 +288,18 @@ class UpdateTransactionUseCase:
             updates["payment_voucher"] = None
         if remove_checked_image:
             updates["checked_image"] = None
+
+        dest_id = updates.get("bank_account_destination_id")
+        if dest_id is not None:
+            snap: dict = {}
+            await _hydrate_bank_snapshot_from_destination(
+                self._bank_account_repo,
+                bank_account_destination_id=dest_id,
+                entity_data=snap,
+            )
+            updates["bank_id"] = snap.get("bank_id")
+            updates["bank_name"] = snap.get("bank_name")
+            updates["company_name"] = snap.get("company_name")
 
         for attr, value in updates.items():
             setattr(entity, attr, value)

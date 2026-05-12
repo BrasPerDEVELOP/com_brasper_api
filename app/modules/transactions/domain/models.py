@@ -21,7 +21,7 @@ from app.shared.model_base import ORMBaseModel
 
 
 class Transaction(ORMBaseModel):
-    """Transacción: bank_account_origin, bank_account_destination, user, agent (opcional; asignación al crear v. use case), tax_rate, commission, montos, code, fechas, vouchers."""
+    """Transacción: cuentas origen/destino, user, agent, tax_rate, commission, montos, code, fechas, vouchers; bank_id y snapshot bank_name/company_name del Bank de la cuenta destino."""
     __tablename__ = "transactions"
     __table_args__ = {"schema": "transaction"}
 
@@ -62,6 +62,14 @@ class Transaction(ORMBaseModel):
         nullable=False,
         index=True,
     )
+    bank_id: Mapped[Optional[UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.banks.id"),
+        nullable=True,
+        index=True,
+    )
+    bank_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    company_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     status: Mapped[TransactionStatus] = mapped_column(
         Enum(TransactionStatus, schema="transaction", name="transaction_status"),
         nullable=False,
@@ -130,6 +138,12 @@ class Transaction(ORMBaseModel):
         back_populates="transactions",
         lazy="noload",
     )
+    bank: Mapped[Optional["Bank"]] = relationship(
+        "Bank",
+        foreign_keys=[bank_id],
+        back_populates="transactions",
+        lazy="noload",
+    )
 
 
 class Bank(ORMBaseModel):
@@ -154,6 +168,12 @@ class Bank(ORMBaseModel):
 
     bank_accounts: Mapped[list["BankAccount"]] = relationship(
         "BankAccount", back_populates="bank", lazy="noload"
+    )
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        foreign_keys="[Transaction.bank_id]",
+        back_populates="bank",
+        lazy="noload",
     )
 
 

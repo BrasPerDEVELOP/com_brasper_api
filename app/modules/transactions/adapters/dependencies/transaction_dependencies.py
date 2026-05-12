@@ -54,6 +54,12 @@ def get_transaction_repository(
     return SQLAlchemyTransactionRepository(db)
 
 
+def get_bank_account_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> BankAccountRepositoryInterface:
+    return SQLAlchemyBankAccountRepository(db)
+
+
 def get_transaction_by_id_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
 ) -> GetTransactionByIdUseCase:
@@ -72,14 +78,20 @@ def create_transaction_uc(
         TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
     ],
     user_repo: Annotated[UserRepositoryInterface, Depends(get_user_repository)],
+    bank_account_repo: Annotated[
+        BankAccountRepositoryInterface, Depends(get_bank_account_repository)
+    ],
 ) -> CreateTransactionUseCase:
-    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo)
+    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo, bank_account_repo)
 
 
 def update_transaction_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
+    bank_account_repo: Annotated[
+        BankAccountRepositoryInterface, Depends(get_bank_account_repository)
+    ],
 ) -> UpdateTransactionUseCase:
-    return UpdateTransactionUseCase(repo)
+    return UpdateTransactionUseCase(repo, bank_account_repo)
 
 
 def delete_transaction_uc(
@@ -154,12 +166,6 @@ DeleteBankUseCaseDep = Annotated[DeleteBankUseCase, Depends(delete_bank_uc)]
 
 
 # BankAccount
-def get_bank_account_repository(
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> BankAccountRepositoryInterface:
-    return SQLAlchemyBankAccountRepository(db)
-
-
 def get_bank_account_by_id_uc(
     repo: Annotated[BankAccountRepositoryInterface, Depends(get_bank_account_repository)],
 ) -> GetBankAccountByIdUseCase:

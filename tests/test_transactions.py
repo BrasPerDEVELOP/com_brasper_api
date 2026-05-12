@@ -98,7 +98,16 @@ async def test_create_transaction_use_case_assigns_agent_from_admin_sales_pool(m
 
     monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
 
-    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo)
+    bank = MagicMock()
+    bank.bank = "Banco X"
+    bank.company = "Empresa Y"
+    dest_acc = MagicMock()
+    dest_acc.bank_id = uuid4()
+    dest_acc.bank = bank
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=dest_acc)
+
+    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo, bank_account_repo)
     cmd = TransactionCreateCmd(
         bank_account_destination=uuid4(),
         user_id=uuid4(),
@@ -143,7 +152,16 @@ async def test_create_transaction_use_case_keeps_explicit_agent_id(monkeypatch):
 
     monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
 
-    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo)
+    bank = MagicMock()
+    bank.bank = "Banco X"
+    bank.company = "Empresa Y"
+    dest_acc = MagicMock()
+    dest_acc.bank_id = uuid4()
+    dest_acc.bank = bank
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=dest_acc)
+
+    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo, bank_account_repo)
     cmd = TransactionCreateCmd(
         bank_account_destination=uuid4(),
         user_id=uuid4(),

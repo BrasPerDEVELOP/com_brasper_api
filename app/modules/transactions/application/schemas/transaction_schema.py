@@ -78,6 +78,9 @@ class TransactionCreateCmd(BaseModel):
                 "code": "",
                 "commission_result": 5.0,
                 "total_to_send": 100.0,
+                "bank_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "bank_name": "Banco ejemplo",
+                "company_name": "Empresa ejemplo",
                 "coupon_discount_code": "SUMMER10",
                 "coupon_origin_amount": 100.0,
                 "coupon_destination_amount": 90.0,
@@ -109,6 +112,20 @@ class TransactionCreateCmd(BaseModel):
     agent_id: Optional[UUID] = None
     tax_rate_id: UUID
     commission_id: UUID
+    bank_id: Optional[UUID] = Field(
+        default=None,
+        description="Opcional; debe coincidir con el banco de la cuenta destino. Si se omite, se asigna desde el servidor.",
+    )
+    bank_name: Optional[str] = Field(
+        default=None,
+        max_length=120,
+        description="Opcional; snapshot del nombre del banco (Bank.bank). Si se omite, se rellena desde la cuenta destino.",
+    )
+    company_name: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Opcional; snapshot de la empresa (Bank.company). Si se omite, se rellena desde la cuenta destino.",
+    )
     status: TransactionStatus = TransactionStatus.verification
     origin_amount: float
     destination_amount: float
@@ -156,6 +173,9 @@ class TransactionCreateCmd(BaseModel):
         agent_id: Optional[str] = Form(None, description="UUID del agente asignado"),
         tax_rate_id: str = Form(..., description="UUID de tasa"),
         commission_id: str = Form(..., description="UUID de comisión"),
+        bank_id: Optional[str] = Form(None, description="UUID del banco (opcional; debe coincidir con cuenta destino)"),
+        bank_name: Optional[str] = Form(None, description="Nombre del banco (opcional; snapshot)"),
+        company_name: Optional[str] = Form(None, description="Nombre de empresa (opcional; snapshot)"),
         status: str = Form(
             "verification",
             description="Estado: verification, verified, completed, failed, pending, …",
@@ -193,6 +213,9 @@ class TransactionCreateCmd(BaseModel):
             agent_id=_parse_optional_uuid(agent_id),
             tax_rate_id=UUID(tax_rate_id),
             commission_id=UUID(commission_id),
+            bank_id=_parse_optional_uuid(bank_id),
+            bank_name=bank_name.strip() if bank_name and bank_name.strip() else None,
+            company_name=company_name.strip() if company_name and company_name.strip() else None,
             status=TransactionStatus(status) if status else TransactionStatus.verification,
             origin_amount=float(origin_amount),
             destination_amount=float(destination_amount),
@@ -243,6 +266,13 @@ class TransactionCreateCmd(BaseModel):
             agent_id=_parse_optional_uuid(_get("agent_id")),
             tax_rate_id=UUID(_get("tax_rate_id", "")),
             commission_id=UUID(_get("commission_id", "")),
+            bank_id=_parse_optional_uuid(_get("bank_id")),
+            bank_name=(
+                str(_get("bank_name") or "").strip() or None
+            ),
+            company_name=(
+                str(_get("company_name") or "").strip() or None
+            ),
             status=TransactionStatus(_get("status", "verification") or "verification"),
             origin_amount=float(_get("origin_amount", 0)),
             destination_amount=float(_get("destination_amount", 0)),
@@ -554,6 +584,9 @@ class TransactionReadDTO(BaseModel):
     id: UUID
     bank_account_origin_id: Optional[UUID] = None
     bank_account_destination_id: UUID
+    bank_id: Optional[UUID] = None
+    bank_name: Optional[str] = None
+    company_name: Optional[str] = None
     user_id: UUID
     agent_id: Optional[UUID] = None
     tax_rate_id: UUID
