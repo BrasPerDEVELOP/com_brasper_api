@@ -20,6 +20,7 @@ from app.modules.transactions.adapters.router import router as transaction_route
 from app.modules.integraciones.adapters.router import router as integraciones_router
 from app.modules.home_image.adapters.router import router as home_banner_router
 from app.modules.brasper.adapters.router import router as brasper_router
+from app.modules.blog.adapters.router import router as blog_router
 
 settings = get_settings()
 
@@ -167,6 +168,7 @@ app.include_router(transaction_router)
 app.include_router(integraciones_router)
 app.include_router(home_banner_router)
 app.include_router(brasper_router)
+app.include_router(blog_router)
 
 @app.get("/")
 async def root():

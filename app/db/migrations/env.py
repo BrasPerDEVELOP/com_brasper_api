@@ -17,6 +17,7 @@ from app.modules.auth.domain.models import AuthModel
 from app.modules.users.domain.models import User
 from app.modules.coin.domain.models import TaxRate, TaxRateTrial, Commission
 from app.modules.transactions.domain.models import Transaction
+from app.modules.blog.domain.models import Blog
 
 # Obtiene la configuración de la base de datos
 settings = get_settings()
@@ -72,7 +73,7 @@ def run_migrations_online():
 
     with connectable.connect() as connection:
         # Crea los esquemas necesarios si no existen
-        for sch in ("user",):
+        for sch in ("user", "blog"):
             quoted = sch if sch != "user" else '"user"'
             connection.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {quoted}")
 
@@ -88,7 +89,7 @@ def run_migrations_online():
 
         # Establece el search_path para los esquemas
         connection.exec_driver_sql(
-            'SET search_path TO public, "user"'
+            'SET search_path TO public, "user", "blog"'
         )
 
         # Configura Alembic con opciones para esquemas múltiples
