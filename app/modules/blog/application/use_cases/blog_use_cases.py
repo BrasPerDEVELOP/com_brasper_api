@@ -39,8 +39,22 @@ class ListBlogsUseCase:
     def __init__(self, repo: BlogRepositoryInterface):
         self.repo = repo
 
-    async def execute(self, *, limit: int, skip: int) -> BlogListPage:
-        raw = await self.repo.list(limit=limit, offset=skip)
+    async def execute(
+        self,
+        *,
+        limit: int,
+        skip: int,
+        search: str | None = None,
+        category: str | None = None,
+        enable: bool | None = None,
+    ) -> BlogListPage:
+        raw = await self.repo.list_filtered(
+            limit=limit,
+            offset=skip,
+            search=search,
+            category=category,
+            enable=enable,
+        )
         if isinstance(raw, PaginatedResult):
             items = [BlogReadDTO.model_validate(x) for x in raw.items]
             return BlogListPage(

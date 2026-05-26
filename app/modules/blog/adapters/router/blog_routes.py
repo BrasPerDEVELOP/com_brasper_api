@@ -26,8 +26,17 @@ async def list_blogs(
     use_case: ListBlogsUseCaseDep,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, min_length=1),
+    category: str | None = Query(None, min_length=1),
+    enable: bool | None = Query(None),
 ):
-    return await use_case.execute(limit=limit, skip=skip)
+    return await use_case.execute(
+        limit=limit,
+        skip=skip,
+        search=search,
+        category=category,
+        enable=enable,
+    )
 
 
 @router.get("/{blog_id}", response_model=BlogReadDTO)
