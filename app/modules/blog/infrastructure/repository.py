@@ -68,7 +68,7 @@ class SQLAlchemyBlogRepository(BaseAsyncRepository[Blog], BlogRepositoryInterfac
         if enable is not None:
             stmt = stmt.where(Blog.enable.is_(enable))
 
-        stmt = stmt.order_by(Blog.created_at.desc())
+        stmt = stmt.order_by(Blog.date.desc().nullslast(), Blog.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = (await self.session.execute(count_stmt)).scalar_one()
 
