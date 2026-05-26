@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import load_only
 
 from app.core.pagination.offset import PaginatedResult, PageParams
 from app.modules.blog.domain.models import Blog
@@ -26,7 +27,27 @@ class SQLAlchemyBlogRepository(BaseAsyncRepository[Blog], BlogRepositoryInterfac
         pagination = PageParams(skip=offset, limit=limit)
         pagination.validate_limit()
 
-        stmt = select(Blog).where(Blog.deleted.is_(False))
+        stmt = (
+            select(Blog)
+            .options(
+                load_only(
+                    Blog.id,
+                    Blog.title,
+                    Blog.slug,
+                    Blog.excerpt,
+                    Blog.category,
+                    Blog.public_id,
+                    Blog.read_time,
+                    Blog.date,
+                    Blog.language,
+                    Blog.enable,
+                    Blog.created_at,
+                    Blog.created_by,
+                    Blog.updated_at,
+                )
+            )
+            .where(Blog.deleted.is_(False))
+        )
 
         normalized_search = search.strip() if search else ""
         if normalized_search:

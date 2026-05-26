@@ -52,8 +52,26 @@ class BlogReadDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BlogListItemDTO(BaseModel):
+    id: UUID
+    title: str
+    slug: str
+    excerpt: Optional[str] = None
+    category: Optional[str] = None
+    public_id: Optional[str] = None
+    read_time: Optional[int] = None
+    date: Optional[datetime] = None
+    language: str
+    enable: bool
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BlogListPage(BaseModel):
-    items: list[BlogReadDTO]
+    items: list[BlogListItemDTO]
     total: int
     skip: int
     limit: int

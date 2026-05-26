@@ -7,6 +7,7 @@ from app.modules.blog.domain.models import Blog
 from app.modules.blog.interfaces.blog_repository import BlogRepositoryInterface
 from app.modules.blog.application.schemas.blog_schema import (
     BlogCreateCmd,
+    BlogListItemDTO,
     BlogUpdateCmd,
     BlogReadDTO,
     BlogListPage,
@@ -56,7 +57,7 @@ class ListBlogsUseCase:
             enable=enable,
         )
         if isinstance(raw, PaginatedResult):
-            items = [BlogReadDTO.model_validate(x) for x in raw.items]
+            items = [BlogListItemDTO.model_validate(x) for x in raw.items]
             return BlogListPage(
                 items=items,
                 total=raw.total,
@@ -65,7 +66,7 @@ class ListBlogsUseCase:
                 has_next=raw.has_next,
                 has_previous=raw.has_previous,
             )
-        items = [BlogReadDTO.model_validate(x) for x in raw]
+        items = [BlogListItemDTO.model_validate(x) for x in raw]
         return BlogListPage(
             items=items,
             total=len(items),

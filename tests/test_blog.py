@@ -222,6 +222,42 @@ def test_list_blogs(blog_client, mock_list_blogs_uc):
     assert data["total"] == 1
     assert len(data["items"]) == 1
     assert data["items"][0]["slug"] == "test-blog-title"
+    assert "content" not in data["items"][0]
+    mock_list_blogs_uc.execute.assert_called_once_with(
+        limit=20,
+        skip=0,
+        search=None,
+        category=None,
+        enable=None,
+    )
+
+
+def test_list_blogs_with_filters(blog_client, mock_list_blogs_uc):
+    mock_list_page = BlogListPage(
+        items=[],
+        total=0,
+        skip=10,
+        limit=10,
+        has_next=False,
+        has_previous=True,
+    )
+    mock_list_blogs_uc.execute.return_value = mock_list_page
+
+    response = blog_client.get(
+        "/blog/?skip=10&limit=10&search=remesas&category=Finanzas&enable=true"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["items"] == []
+    assert data["total"] == 0
+    mock_list_blogs_uc.execute.assert_called_once_with(
+        limit=10,
+        skip=10,
+        search="remesas",
+        category="Finanzas",
+        enable=True,
+    )
 
 
 def test_update_blog(blog_client, mock_update_blog_uc):
