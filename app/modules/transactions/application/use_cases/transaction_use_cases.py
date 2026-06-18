@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.users.application.use_cases import CreateUserUseCase
@@ -15,7 +17,9 @@ if TYPE_CHECKING:
 
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
-from app.modules.transactions.domain.models import Transaction
+from app.modules.transactions.domain.models import Coupon, Transaction
+from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
+from app.modules.world_cup.models import CouponRedemption
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.users.domain.enums import UserRole
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
@@ -208,11 +212,77 @@ class CreateTransactionUseCase:
         tax_rate_repo: TaxRateRepositoryInterface,
         user_repo: UserRepositoryInterface,
         bank_account_repo: BankAccountRepositoryInterface,
+        commission_repo: Optional[CommissionRepositoryInterface] = None,
+        session: Optional[AsyncSession] = None,
     ):
         self.repo = repo
         self._tax_rate_repo = tax_rate_repo
         self._user_repo = user_repo
         self._bank_account_repo = bank_account_repo
+        self._commission_repo = commission_repo
+        self._session = session
+
+    async def _apply_server_financials(self, cmd, tax_rate, entity_data) -> Optional[Coupon]:
+        """Recalcula los importes y reserva el cupón; el guard permite tests/consumidores legacy."""
+        if self._commission_repo is None or self._session is None:
+            return None
+        commission = await self._commission_repo.get(cmd.commission_id)
+        if not commission:
+            raise ValueError(f"No existe commission con id {cmd.commission_id}")
+        if commission.coin_a != tax_rate.coin_a or commission.coin_b != tax_rate.coin_b:
+            raise ValueError("La comisión no corresponde al par de monedas de la tasa")
+        amount = float(cmd.origin_amount)
+        if amount <= 0:
+            raise ValueError("El monto de origen debe ser mayor que cero")
+        if commission.min_amount is not None and amount < float(commission.min_amount):
+            raise ValueError("El monto está por debajo del rango de comisión")
+        if commission.max_amount is not None and amount > float(commission.max_amount):
+            raise ValueError("El monto supera el rango de comisión")
+        base_commission = round(amount * float(commission.percentage) / 100, 2)
+        coupon = None
+        discount = 0.0
+        if cmd.coupon_id:
+            coupon = (await self._session.execute(
+                select(Coupon).where(Coupon.id == cmd.coupon_id, Coupon.deleted.is_(False)).with_for_update()
+            )).scalar_one_or_none()
+            if not coupon or not coupon.is_active or coupon.lifecycle_status != "ACTIVE":
+                raise ValueError("El cupón no está activo")
+            now = datetime.now(timezone.utc)
+            if (coupon.start_date and coupon.start_date > now) or (coupon.end_date and coupon.end_date < now):
+                raise ValueError("El cupón no está vigente")
+            if (
+                coupon.origin_currency is not None and coupon.origin_currency != tax_rate.coin_a
+            ) or (
+                coupon.destination_currency is not None and coupon.destination_currency != tax_rate.coin_b
+            ):
+                raise ValueError("El cupón no corresponde al par de monedas")
+            if coupon.used_count >= coupon.max_uses:
+                raise ValueError("El cupón agotó sus usos")
+            if coupon.per_user_limit:
+                used_by_user = await self._session.scalar(select(func.count(CouponRedemption.id)).where(
+                    CouponRedemption.coupon_id == coupon.id,
+                    CouponRedemption.user_id == cmd.user_id,
+                    CouponRedemption.deleted.is_(False),
+                ))
+                if int(used_by_user or 0) >= coupon.per_user_limit:
+                    raise ValueError("Ya alcanzaste el límite de uso de este cupón")
+            discount = round(min(base_commission * float(coupon.discount_percentage) / 100, base_commission), 2)
+            coupon.used_count += 1
+        effective_commission = round(base_commission - discount, 2)
+        total_to_send = round(amount - effective_commission, 2)
+        destination_amount = round(total_to_send * float(tax_rate.tax), 2)
+        entity_data.update({
+            "commission_result": effective_commission,
+            "total_to_send": total_to_send,
+            "destination_amount": destination_amount,
+            "coupon_discount_code": coupon.code if coupon else None,
+            "coupon_origin_amount": amount if coupon else None,
+            "coupon_destination_amount": destination_amount if coupon else None,
+            "coupon_discount_percentage": float(coupon.discount_percentage) if coupon else None,
+            "coupon_discount_commission": discount if coupon else None,
+            "coupon_discount_total_to_send": total_to_send if coupon else None,
+        })
+        return coupon
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
@@ -239,6 +309,7 @@ class CreateTransactionUseCase:
         tax_rate = await self._tax_rate_repo.get(cmd.tax_rate_id)
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
+        coupon = await self._apply_server_financials(cmd, tax_rate, entity_data)
         entity_data["code"] = await self.repo.next_sequential_transaction_code(
             tax_rate.coin_a.value,
             tax_rate.coin_b.value,
@@ -251,6 +322,8 @@ class CreateTransactionUseCase:
         entity = Transaction(**entity_data)
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
+        if coupon and self._session is not None:
+            self._session.add(CouponRedemption(coupon_id=coupon.id, user_id=cmd.user_id, transaction_id=saved.id))
         await self.repo.commit()
         await self.repo.refresh(saved, load_noload_relations=["user"])
         return TransactionReadDTO.model_validate(saved)
@@ -313,10 +386,20 @@ class UpdateTransactionUseCase:
 
 
 class DeleteTransactionUseCase:
-    def __init__(self, repo: TransactionRepositoryInterface):
+    def __init__(self, repo: TransactionRepositoryInterface, session: Optional[AsyncSession] = None):
         self.repo = repo
+        self._session = session
 
     async def execute(self, transaction_id: UUID) -> None:
+        if self._session is not None:
+            transaction = await self._session.get(Transaction, transaction_id)
+            if transaction and transaction.coupon_id:
+                coupon = (await self._session.execute(select(Coupon).where(Coupon.id == transaction.coupon_id).with_for_update())).scalar_one_or_none()
+                redemptions = (await self._session.execute(select(CouponRedemption).where(CouponRedemption.transaction_id == transaction_id, CouponRedemption.deleted.is_(False)))).scalars().all()
+                for redemption in redemptions:
+                    redemption.deleted = True
+                if coupon and redemptions:
+                    coupon.used_count = max(coupon.used_count - len(redemptions), 0)
         await self.repo.delete(transaction_id)
         await self.repo.commit()
 

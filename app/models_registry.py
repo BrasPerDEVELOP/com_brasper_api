@@ -27,6 +27,7 @@ from app.modules.integraciones.domain.models import Integration, SocialAccount
 
 # Home image models
 from app.modules.home_image.domain.models import HomeBanner, HomePopup
+from app.modules.world_cup.models import WorldCupMatch, WorldCupCampaign, CouponRedemption, AdminNotification
 
 # Brasper
 from app.modules.brasper.domain.models import ContacForm

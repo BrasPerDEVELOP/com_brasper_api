@@ -17,6 +17,10 @@ class CouponCreateCmd(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: bool = True
+    coupon_type: str = "STANDARD"
+    lifecycle_status: str = "ACTIVE"
+    per_user_limit: Optional[int] = None
+    match_id: Optional[UUID] = None
 
 
 class CouponUpdateCmd(BaseModel):
@@ -29,6 +33,8 @@ class CouponUpdateCmd(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: Optional[bool] = None
+    lifecycle_status: Optional[str] = None
+    per_user_limit: Optional[int] = None
 
 
 class CouponReadDTO(BaseModel):
@@ -36,13 +42,18 @@ class CouponReadDTO(BaseModel):
     code: str
     discount_percentage: float
     max_uses: int
-    origin_currency: Currency
-    destination_currency: Currency
+    origin_currency: Optional[Currency]
+    destination_currency: Optional[Currency]
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: bool
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    coupon_type: str = "STANDARD"
+    lifecycle_status: str = "ACTIVE"
+    used_count: int = 0
+    per_user_limit: Optional[int] = None
+    match_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)

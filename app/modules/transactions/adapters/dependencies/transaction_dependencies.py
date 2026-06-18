@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.modules.coin.adapters.dependencies.coin_dependencies import get_tax_rate_repository
+from app.modules.coin.adapters.dependencies.coin_dependencies import get_commission_repository, get_tax_rate_repository
+from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
 from app.modules.transactions.interfaces.bank_repository import BankRepositoryInterface
@@ -81,8 +82,10 @@ def create_transaction_uc(
     bank_account_repo: Annotated[
         BankAccountRepositoryInterface, Depends(get_bank_account_repository)
     ],
+    commission_repo: Annotated[CommissionRepositoryInterface, Depends(get_commission_repository)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CreateTransactionUseCase:
-    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo, bank_account_repo)
+    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo, bank_account_repo, commission_repo, db)
 
 
 def update_transaction_uc(
@@ -96,8 +99,9 @@ def update_transaction_uc(
 
 def delete_transaction_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DeleteTransactionUseCase:
-    return DeleteTransactionUseCase(repo)
+    return DeleteTransactionUseCase(repo, db)
 
 
 GetTransactionByIdUseCaseDep = Annotated[GetTransactionByIdUseCase, Depends(get_transaction_by_id_uc)]

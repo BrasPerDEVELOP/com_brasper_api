@@ -42,6 +42,11 @@ class CreateHomeBannerUseCase:
             banner_pr=cmd.banner_pr,
             banner_en=cmd.banner_en,
             enable=cmd.enable,
+            content=cmd.content,
+            indicators=cmd.indicators,
+            appearance=cmd.appearance,
+            show_image=cmd.show_image,
+            show_indicators=cmd.show_indicators,
         )
         saved = await self.repo.add(entity)
         await self.repo.commit()
@@ -69,6 +74,10 @@ class UpdateHomeBannerUseCase:
             entity.banner_en = cmd.banner_en
         if cmd.enable is not None:
             entity.enable = cmd.enable
+        for field in ("content", "indicators", "appearance", "show_image", "show_indicators"):
+            value = getattr(cmd, field)
+            if value is not None:
+                setattr(entity, field, value)
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity)
