@@ -91,8 +91,12 @@ def start_scheduler() -> AsyncIOScheduler | None:
     if not get_settings().WORLD_CUP_SCHEDULER_ENABLED:
         return None
     _scheduler = AsyncIOScheduler(timezone="UTC")
-    _scheduler.add_job(_run_locked, "interval", minutes=1, args=[True], id="world-cup-live", max_instances=1, coalesce=True)
+    # Partidos en vivo: cada 5 min. Activa el cupón al detectar LIVE y lo apaga
+    # al detectar FINISHED, con un retraso máximo de ~5 min tras el pitazo final.
+    _scheduler.add_job(_run_locked, "interval", minutes=5, args=[True], id="world-cup-live", max_instances=1, coalesce=True)
+    # Próximos partidos (detección de inicio / reprogramaciones): cada 15 min.
     _scheduler.add_job(_run_locked, "interval", minutes=15, args=[False], id="world-cup-upcoming", max_instances=1, coalesce=True)
+    # Calendario completo: cada 6 h.
     _scheduler.add_job(_run_locked, "interval", hours=6, args=[False], id="world-cup-fixtures", max_instances=1, coalesce=True)
     _scheduler.start()
     return _scheduler
