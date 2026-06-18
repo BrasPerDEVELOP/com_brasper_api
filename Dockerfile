@@ -19,8 +19,9 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Puerto de la API (8590 para coincidir con el host)
+# Puerto de la API (configurable con API_PORT en .env / docker-compose)
+ENV API_PORT=8590
 EXPOSE 8590
 
-# Migraciones + servidor (migrar al arrancar, luego uvicorn en 8590)
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8590"]
+# Migraciones + servidor (migrar al arrancar, luego uvicorn)
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${API_PORT}"]
