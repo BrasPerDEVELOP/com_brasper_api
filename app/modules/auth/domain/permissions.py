@@ -6,6 +6,14 @@ from app.modules.users.domain.enums import UserRole
 
 
 PERMISSION_MODULES: tuple[dict[str, object], ...] = (
+    {
+        "key": "world_cup",
+        "permissions": (
+            "world_cup.view",
+            "world_cup.manage",
+            "world_cup.approve",
+        ),
+    },
     {"key": "dashboard", "permissions": ("dashboard.view",)},
     {
         "key": "users",
@@ -130,6 +138,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "coupons.update",
         "home_banner.view",
         "home_banner.update",
+        "world_cup.view",
+        "world_cup.manage",
+        "world_cup.approve",
         "blog.view",
         "blog.create",
         "blog.update",
