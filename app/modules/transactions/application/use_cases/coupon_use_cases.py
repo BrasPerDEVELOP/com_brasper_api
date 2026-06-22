@@ -49,6 +49,8 @@ class ListCouponsUseCase:
                     continue
                 if x.end_date and x.end_date < now:
                     continue
+                if x.lifecycle_status != "ACTIVE" or x.used_count >= x.max_uses:
+                    continue
                 result.append(CouponReadDTO.model_validate(x))
             return result
         items = await self.repo.list()
@@ -69,6 +71,10 @@ class CreateCouponUseCase:
             start_date=cmd.start_date,
             end_date=cmd.end_date,
             is_active=cmd.is_active,
+            coupon_type=cmd.coupon_type,
+            lifecycle_status=cmd.lifecycle_status,
+            per_user_limit=cmd.per_user_limit,
+            match_id=cmd.match_id,
         )
         saved = await self.repo.add(entity)
         await self.repo.commit()
@@ -100,6 +106,10 @@ class UpdateCouponUseCase:
             entity.end_date = cmd.end_date
         if cmd.is_active is not None:
             entity.is_active = cmd.is_active
+        if cmd.lifecycle_status is not None:
+            entity.lifecycle_status = cmd.lifecycle_status
+        if cmd.per_user_limit is not None:
+            entity.per_user_limit = cmd.per_user_limit
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity)

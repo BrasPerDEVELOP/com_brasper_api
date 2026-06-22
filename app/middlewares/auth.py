@@ -133,5 +133,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
             "/health",
             "/brasper/",
+            "/world-cup/public/",
+            "/coin/",
+            "/transactions/coupons/automatic/",
         ]
         return any(path.startswith(p) for p in public_paths)

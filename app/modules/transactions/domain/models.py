@@ -254,11 +254,18 @@ class Coupon(ORMBaseModel):
     code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     discount_percentage: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False)
-    origin_currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
-    destination_currency: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
+    origin_currency: Mapped[Optional[Currency]] = mapped_column(CurrencyEnumType, nullable=True, index=True)
+    destination_currency: Mapped[Optional[Currency]] = mapped_column(CurrencyEnumType, nullable=True, index=True)
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    coupon_type: Mapped[str] = mapped_column(String(20), nullable=False, default="STANDARD", index=True)
+    lifecycle_status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE", index=True)
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    per_user_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    match_id: Mapped[Optional[UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("world_cup.matches.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",

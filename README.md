@@ -112,6 +112,25 @@ Cada módulo sigue **hexagonal**: `domain/`, `application/` (schemas, use cases)
 | Users       | `/user`                               |
 | Coin        | `/coin` (currencies, tax-rate, commission) |
 | Transactions| `/transactions` (transactions, banks, bank-accounts, coupons) |
+| Mundial 2026 | `/world-cup` (campaña, partidos, aprobación y alertas) |
+
+## Campaña Mundial 2026
+
+La campaña arranca deshabilitada y en modo `REVIEW`. Antes de activarla, aplica la migración `050` y configura:
+
+```env
+SPORTMONKS_API_TOKEN=
+SPORTMONKS_WORLD_CUP_LEAGUE_ID=
+WORLD_CUP_SCHEDULER_ENABLED=true
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=
+SMTP_USE_TLS=true
+```
+
+Sin credenciales, el resto de la API y la home continúan funcionando; la sincronización manual devuelve un error controlado. El scheduler usa un bloqueo PostgreSQL para que solo una réplica procese cada ciclo.
 
 ## Seguridad
 

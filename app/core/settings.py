@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     SECRET_KEY: str  # Clave secreta para encriptación AES-256 (mínimo 32 caracteres recomendado)
 
     TIMEZONE: str = "America/Lima"
+    FOOTBALL_DATA_API_TOKEN: str = ""
+    FOOTBALL_DATA_COMPETITION_CODE: str = "WC"
+    # Configuración anterior conservada para tolerar despliegues con variables antiguas.
+    SPORTMONKS_API_TOKEN: str = ""
+    SPORTMONKS_WORLD_CUP_LEAGUE_ID: str = ""
+    WORLD_CUP_SCHEDULER_ENABLED: bool = True
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_USE_TLS: bool = True
 
     @property
     def database_url(self) -> str:
