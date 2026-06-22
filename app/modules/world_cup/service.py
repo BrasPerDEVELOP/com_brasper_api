@@ -165,9 +165,10 @@ class WorldCupService:
         coupon = await self.session.get(Coupon, coupon_id)
         if not coupon or coupon.deleted or coupon.coupon_type != "MATCH":
             raise ValueError("Cupón del Mundial no encontrado")
+        cancellable = {"DRAFT", "APPROVED_WAITING", "ACTIVE", "SUSPENDED"}
         if action == "approve" and coupon.lifecycle_status == "DRAFT":
             coupon.lifecycle_status = "APPROVED_WAITING"
-        elif action == "cancel" and coupon.lifecycle_status != "ACTIVE":
+        elif action == "cancel" and coupon.lifecycle_status in cancellable:
             coupon.lifecycle_status = "CANCELLED"
             coupon.is_active = False
         else:
