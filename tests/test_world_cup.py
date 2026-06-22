@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from app.modules.home_image.application.schemas.home_banner_schema import HomeBannerCreateCmd
 from app.modules.world_cup.provider import FootballDataProvider, _normalize_status
 from app.modules.world_cup.schemas import MatchSelection, PublicLiveResponse
 from app.modules.world_cup.enums import ExchangeRateScope
@@ -105,10 +104,3 @@ def test_exchange_rate_scope_round_trip(scope):
 
 def test_all_exchange_rates_supports_campaign_storage_value():
     assert ExchangeRateScope.from_currencies("ALL", "ALL") is ExchangeRateScope.all
-
-
-def test_banner_rejects_unapproved_icon_and_color():
-    with pytest.raises(ValidationError):
-        HomeBannerCreateCmd(indicators=[{"icon": "custom:unsafe"}])
-    with pytest.raises(ValidationError):
-        HomeBannerCreateCmd(appearance={"type": "gradient", "primary": "javascript:red"})

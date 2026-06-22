@@ -1,4 +1,4 @@
-"""world cup campaign and configurable home
+"""world cup campaign
 
 Revision ID: 050
 Revises: 049
@@ -16,12 +16,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("home_banner", sa.Column("content", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")), schema="home_banner")
-    op.add_column("home_banner", sa.Column("indicators", postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")), schema="home_banner")
-    op.add_column("home_banner", sa.Column("appearance", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")), schema="home_banner")
-    op.add_column("home_banner", sa.Column("show_image", sa.Boolean(), nullable=False, server_default=sa.true()), schema="home_banner")
-    op.add_column("home_banner", sa.Column("show_indicators", sa.Boolean(), nullable=False, server_default=sa.true()), schema="home_banner")
-
     op.execute(sa.text('CREATE SCHEMA IF NOT EXISTS "world_cup"'))
     op.create_table(
         "matches",
@@ -143,5 +137,3 @@ def downgrade() -> None:
     op.drop_table("campaign", schema="world_cup")
     op.drop_table("matches", schema="world_cup")
     op.execute(sa.text('DROP SCHEMA IF EXISTS "world_cup" CASCADE'))
-    for column in ["show_indicators", "show_image", "appearance", "indicators", "content"]:
-        op.drop_column("home_banner", column, schema="home_banner")
