@@ -641,6 +641,15 @@ class TransactionReadDTO(BaseModel):
         return data
 
 
+class TransactionListPage(BaseModel):
+    items: list[TransactionReadDTO]
+    total: int
+    skip: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+
+
 class BankAccountImportPayload(BaseModel):
     """Cuenta bancaria para importación (sin user_id; se asigna al crear)."""
 

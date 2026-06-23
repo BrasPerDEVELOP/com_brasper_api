@@ -74,3 +74,10 @@ logs/
 *.bak
 *.tmp
 .cache/
+
+# Uploaded media (keep placeholder for profile fallback)
+media/*
+!media/profile_images/placeholder.svg
+
+# Server recovery exports (local only)
+media_recovery_from_server/

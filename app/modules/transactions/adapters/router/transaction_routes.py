@@ -2,7 +2,7 @@
 """Rutas para el módulo de transacciones."""
 import json
 from datetime import datetime
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
@@ -15,6 +15,7 @@ from app.modules.transactions.application.schemas import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionListPage,
     ImportRequestCmd,
     ImportResponseDTO,
 )
@@ -25,6 +26,9 @@ from app.modules.transactions.adapters.dependencies import (
     UpdateTransactionUseCaseDep,
     DeleteTransactionUseCaseDep,
     ImportTransactionsUseCaseDep,
+)
+from app.modules.transactions.application.use_cases.transaction_use_cases import (
+    _parse_currency_filter,
 )
 
 router = APIRouter(tags=["transactions"])
@@ -105,9 +109,11 @@ async def _apply_transaction_uploads(
 # =============================================================================
 
 
-@router.get("/", response_model=List[TransactionReadDTO])
+@router.get("/", response_model=TransactionListPage)
 async def list_transactions(
     use_case: ListTransactionsUseCaseDep,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     status: Optional[TransactionStatus] = Query(
         None,
         description="Filtro por estado (verification, verified, completed, failed, pending, checked, …)",
@@ -117,15 +123,41 @@ async def list_transactions(
     bank_account_destination_id: Optional[UUID] = Query(None, description="Filtro por cuenta destino"),
     created_at_from: Optional[datetime] = Query(None, description="Filtro: transacciones desde esta fecha (ISO)"),
     created_at_to: Optional[datetime] = Query(None, description="Filtro: transacciones hasta esta fecha (ISO)"),
+    currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda (PEN, USD, BRL): origen o destino de la tasa",
+    ),
+    origin_currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda origen de la tasa (coin_a)",
+    ),
+    destination_currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda destino de la tasa (coin_b)",
+    ),
 ):
-    """Lista transacciones con filtros opcionales."""
+    """Lista transacciones con filtros opcionales y paginación."""
+    try:
+        currency_filter = _parse_currency_filter(currency)
+        origin_currency_filter = _parse_currency_filter(origin_currency)
+        destination_currency_filter = _parse_currency_filter(destination_currency)
+    except (ValueError, KeyError):
+        raise HTTPException(
+            status_code=400,
+            detail="Moneda no válida. Use PEN, USD o BRL.",
+        )
     return await use_case.execute(
+        limit=limit,
+        skip=skip,
         status=status,
         user_id=user_id,
         bank_account_origin_id=bank_account_origin_id,
         bank_account_destination_id=bank_account_destination_id,
         created_at_from=created_at_from,
         created_at_to=created_at_to,
+        currency=currency_filter,
+        origin_currency=origin_currency_filter,
+        destination_currency=destination_currency_filter,
     )
 
 

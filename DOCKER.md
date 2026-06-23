@@ -84,7 +84,39 @@ Para borrar también el volumen de PostgreSQL:
 docker compose down -v
 ```
 
-## Comportamiento al arrancar
+> **No uses `docker compose down -v` si solo quieres actualizar código.** El volumen de media es un bind mount (`./media`) y no se borra con `-v`, pero sí evita parar la DB sin necesidad.
+
+## Actualizar en producción (sin perder imágenes)
+
+Las imágenes subidas viven en `media/` en el disco del servidor, **no** dentro del contenedor Docker.
+
+Requisitos ya configurados en el repo:
+
+1. **`.gitignore`** — ignora `media/*` (solo versiona el placeholder).
+2. **`docker-compose.yml`** — monta `./media:/app/media` en el servicio `api`.
+3. **`.dockerignore`** — no copia `media/` a la imagen Docker.
+
+Para actualizar después de un `git push`:
+
+```bash
+cd /var/www/com_brasper_api
+./scripts/deploy.sh
+```
+
+O manualmente:
+
+```bash
+mkdir -p media/{home_banner,home_popup,profile_images,transaction_vouchers}
+git pull
+docker compose up -d --build api
+```
+
+**Nunca ejecutes en el servidor:**
+
+- `git clean -fd` (borraría archivos no versionados, incluido `media/`).
+- `git checkout -- media/` (restauraría versiones viejas del repo).
+- Quitar el volumen `./media:/app/media` del `docker-compose.yml`.
+
 
 1. PostgreSQL (`db`) arranca y se espera a que esté listo (healthcheck).
 2. La API arranca: ejecuta `alembic upgrade head` y luego uvicorn en el puerto 8000 (interno).

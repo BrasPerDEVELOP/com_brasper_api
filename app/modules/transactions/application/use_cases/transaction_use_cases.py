@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from app.modules.transactions.application.use_cases.bank_account_use_cases import CreateBankAccountUseCase
 
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
+from app.core.pagination.offset import PaginatedResult
+from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.domain.models import Coupon, Transaction
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
@@ -33,6 +35,7 @@ from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionListPage,
     ImportRequestCmd,
     ImportResponseDTO,
 )
@@ -91,6 +94,17 @@ def sync_transaction_status_from_checklist(entity: Transaction) -> None:
         entity.status = TransactionStatus.completed
     else:
         entity.status = TransactionStatus.verified
+
+
+def _parse_currency_filter(value: Optional[str]) -> Optional[Currency]:
+    """Convierte PEN, pen, usd, etc. a Currency; None si viene vacío."""
+    if value is None or not str(value).strip():
+        return None
+    raw = str(value).strip()
+    try:
+        return Currency(raw.upper())
+    except ValueError:
+        return Currency[raw.lower()]
 
 
 def _build_transaction_query_filter(
@@ -186,13 +200,19 @@ class ListTransactionsUseCase:
 
     async def execute(
         self,
+        *,
+        limit: int,
+        skip: int,
         status: Optional[TransactionStatus] = None,
         user_id: Optional[UUID] = None,
         bank_account_origin_id: Optional[UUID] = None,
         bank_account_destination_id: Optional[UUID] = None,
         created_at_from: Optional[datetime] = None,
         created_at_to: Optional[datetime] = None,
-    ) -> List[TransactionReadDTO]:
+        currency: Optional[Currency] = None,
+        origin_currency: Optional[Currency] = None,
+        destination_currency: Optional[Currency] = None,
+    ) -> TransactionListPage:
         query_filter = _build_transaction_query_filter(
             status=status,
             user_id=user_id,
@@ -201,8 +221,34 @@ class ListTransactionsUseCase:
             created_at_from=created_at_from,
             created_at_to=created_at_to,
         )
-        items = await self.repo.list(query_filter=query_filter, eager_options=_TXN_LOAD_USER)
-        return [TransactionReadDTO.model_validate(x) for x in items]
+        raw = await self.repo.list(
+            query_filter=query_filter,
+            eager_options=_TXN_LOAD_USER,
+            limit=limit,
+            offset=skip,
+            currency=currency,
+            origin_currency=origin_currency,
+            destination_currency=destination_currency,
+        )
+        if isinstance(raw, PaginatedResult):
+            items = [TransactionReadDTO.model_validate(x) for x in raw.items]
+            return TransactionListPage(
+                items=items,
+                total=raw.total,
+                skip=raw.skip,
+                limit=raw.limit,
+                has_next=raw.has_next,
+                has_previous=raw.has_previous,
+            )
+        items = [TransactionReadDTO.model_validate(x) for x in raw]
+        return TransactionListPage(
+            items=items,
+            total=len(items),
+            skip=skip,
+            limit=limit,
+            has_next=False,
+            has_previous=skip > 0,
+        )
 
 
 class CreateTransactionUseCase:

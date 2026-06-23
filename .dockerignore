@@ -25,3 +25,7 @@ __pycache__
 # Logs
 *.log
 logs
+
+# Media subida en runtime (el volumen ./media:/app/media es la fuente de verdad)
+media
+media_recovery_from_server
