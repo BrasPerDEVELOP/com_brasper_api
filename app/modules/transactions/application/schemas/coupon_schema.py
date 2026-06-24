@@ -21,6 +21,7 @@ class CouponCreateCmd(BaseModel):
     lifecycle_status: str = "ACTIVE"
     per_user_limit: Optional[int] = None
     match_id: Optional[UUID] = None
+    exchange_rate_scopes: Optional[list[str]] = None
 
 
 class CouponUpdateCmd(BaseModel):
@@ -35,6 +36,7 @@ class CouponUpdateCmd(BaseModel):
     is_active: Optional[bool] = None
     lifecycle_status: Optional[str] = None
     per_user_limit: Optional[int] = None
+    exchange_rate_scopes: Optional[list[str]] = None
 
 
 class CouponReadDTO(BaseModel):
@@ -55,5 +57,6 @@ class CouponReadDTO(BaseModel):
     used_count: int = 0
     per_user_limit: Optional[int] = None
     match_id: Optional[UUID] = None
+    exchange_rate_scopes: Optional[list[str]] = None
 
     model_config = ConfigDict(from_attributes=True)

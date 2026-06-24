@@ -119,19 +119,25 @@ class WorldCupService:
         *,
         discount_percentage: float | None = None,
         max_uses: int | None = None,
-        exchange_rate_scope: ExchangeRateScope | None = None,
+        exchange_rate_scopes: list[ExchangeRateScope | str] | None = None,
     ) -> WorldCupMatch:
         match = await self.session.get(WorldCupMatch, match_id)
         if not match or match.deleted:
             raise ValueError("Partido no encontrado")
         campaign = await self.get_or_create_campaign()
-        # Scope efectivo del partido: el recibido por partido, o el de la campaña como default.
-        effective_scope = exchange_rate_scope or campaign.exchange_rate_scope
+        # Scopes efectivos del partido: lo recibido por partido, o los defaults de campaña.
+        effective_scopes = ExchangeRateScope.normalize_many(
+            exchange_rate_scopes,
+            fallback=campaign.exchange_rate_scope,
+        )
+        if not exchange_rate_scopes:
+            effective_scopes = campaign.normalized_exchange_rate_scopes
+        primary_scope = effective_scopes[0]
         match.selected = selected
         coupon = (await self.session.execute(select(Coupon).where(Coupon.match_id == match.id, Coupon.deleted.is_(False)))).scalar_one_or_none()
         if selected and not coupon:
             code = await self._unique_code(self._render_code(campaign.code_template, match))
-            origin_currency, destination_currency = effective_scope.currencies
+            origin_currency, destination_currency = primary_scope.currencies
             coupon = Coupon(
                 code=code,
                 discount_percentage=discount_percentage or campaign.default_discount_percentage,
@@ -139,6 +145,7 @@ class WorldCupService:
                 per_user_limit=None,
                 origin_currency=origin_currency,
                 destination_currency=destination_currency,
+                exchange_rate_scopes=[scope.value for scope in effective_scopes],
                 coupon_type="MATCH",
                 lifecycle_status="DRAFT" if campaign.mode == "REVIEW" else "APPROVED_WAITING",
                 match_id=match.id,
@@ -146,12 +153,13 @@ class WorldCupService:
             )
             self.session.add(coupon)
         elif selected and coupon and coupon.lifecycle_status in {"DRAFT", "APPROVED_WAITING", "CANCELLED"}:
-            origin_currency, destination_currency = effective_scope.currencies
+            origin_currency, destination_currency = primary_scope.currencies
             coupon.discount_percentage = discount_percentage or coupon.discount_percentage
             coupon.max_uses = max_uses or coupon.max_uses
             coupon.per_user_limit = None
             coupon.origin_currency = origin_currency
             coupon.destination_currency = destination_currency
+            coupon.exchange_rate_scopes = [scope.value for scope in effective_scopes]
             if coupon.lifecycle_status == "CANCELLED":
                 coupon.lifecycle_status = "DRAFT" if campaign.mode == "REVIEW" else "APPROVED_WAITING"
         elif not selected and coupon and coupon.lifecycle_status != "ACTIVE":
@@ -227,5 +235,12 @@ async def list_matches_with_coupons(session: AsyncSession) -> list[dict]:
         "coupon_code": coupon.code if coupon else None, "coupon_status": coupon.lifecycle_status if coupon else None,
         "coupon_discount_percentage": coupon.discount_percentage if coupon else None,
         "coupon_max_uses": coupon.max_uses if coupon else None,
-        "coupon_exchange_rate_scope": ExchangeRateScope.from_currencies(coupon.origin_currency, coupon.destination_currency) if coupon else None,
+        "coupon_exchange_rate_scope": ExchangeRateScope.normalize_many(
+            coupon.exchange_rate_scopes,
+            fallback=ExchangeRateScope.from_currencies(coupon.origin_currency, coupon.destination_currency),
+        )[0] if coupon else None,
+        "coupon_exchange_rate_scopes": ExchangeRateScope.normalize_many(
+            coupon.exchange_rate_scopes,
+            fallback=ExchangeRateScope.from_currencies(coupon.origin_currency, coupon.destination_currency),
+        ) if coupon else [],
     } for match, coupon in rows]

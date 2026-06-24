@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
-from app.core.permissions import require_permission
 from app.db.base import get_db
+from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.transactions.domain.models import Coupon
 from app.modules.world_cup.enums import ExchangeRateScope
 from app.modules.world_cup.models import AdminNotification, WorldCupCampaign, WorldCupMatch
@@ -43,7 +43,10 @@ def _public_match_dto(match: WorldCupMatch, coupon: Coupon, *, include_status: b
         coupon=PublicCouponDTO(
             code=coupon.code,
             discount_percentage=float(coupon.discount_percentage),
-            exchange_rate_scope=ExchangeRateScope.from_currencies(coupon.origin_currency, coupon.destination_currency),
+            exchange_rate_scopes=ExchangeRateScope.normalize_many(
+                coupon.exchange_rate_scopes,
+                fallback=ExchangeRateScope.from_currencies(coupon.origin_currency, coupon.destination_currency),
+            ),
             ends_at_estimate=estimate_match_end(match.starts_at),
         ),
     )
@@ -94,8 +97,10 @@ async def get_campaign(svc: WorldCupService = Depends(service)):
 @router.put("/campaign", response_model=CampaignRead, dependencies=[Depends(require_permission("world_cup.manage"))])
 async def update_campaign(body: CampaignUpdate, svc: WorldCupService = Depends(service)):
     campaign = await svc.get_or_create_campaign()
-    for field, value in body.model_dump().items():
+    payload = body.model_dump(exclude={"exchange_rate_scope", "exchange_rate_scopes"})
+    for field, value in payload.items():
         setattr(campaign, field, value)
+    campaign.set_exchange_rate_scopes(body.exchange_rate_scopes)
     await svc.session.commit()
     await svc.session.refresh(campaign)
     return campaign
@@ -114,7 +119,7 @@ async def select_match(match_id: UUID, body: MatchSelection, svc: WorldCupServic
             body.selected,
             discount_percentage=body.discount_percentage,
             max_uses=body.max_uses,
-            exchange_rate_scope=body.exchange_rate_scope,
+            exchange_rate_scopes=body.provided_exchange_rate_scopes,
         )
         return next(item for item in await list_matches_with_coupons(svc.session) if item["id"] == match_id)
     except (ValueError, StopIteration) as exc:

@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from app.modules.users.domain.models import User
 
 from sqlalchemy import BigInteger, Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer
-from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.modules.coin.domain.enums import Currency, CurrencyEnumType
@@ -263,6 +263,7 @@ class Coupon(ORMBaseModel):
     lifecycle_status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE", index=True)
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     per_user_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    exchange_rate_scopes: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     match_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("world_cup.matches.id", ondelete="SET NULL"), nullable=True, index=True
     )

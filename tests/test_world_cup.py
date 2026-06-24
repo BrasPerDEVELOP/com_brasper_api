@@ -50,7 +50,7 @@ def test_match_selection_accepts_per_match_coupon_rules():
     )
     assert selection.discount_percentage == 20
     assert selection.max_uses == 50
-    assert set(selection.model_dump()) == {"selected", "discount_percentage", "max_uses", "exchange_rate_scope"}
+    assert set(selection.model_dump()) == {"selected", "discount_percentage", "max_uses", "exchange_rate_scope", "exchange_rate_scopes"}
 
 
 def test_match_selection_rejects_invalid_discount():
@@ -61,7 +61,13 @@ def test_match_selection_rejects_invalid_discount():
 def test_match_selection_accepts_optional_exchange_rate_scope():
     selection = MatchSelection(selected=True, exchange_rate_scope="USD_BRL")
     assert selection.exchange_rate_scope is ExchangeRateScope.usd_brl
+    assert selection.effective_exchange_rate_scopes == [ExchangeRateScope.usd_brl]
     assert "exchange_rate_scope" in selection.model_dump()
+
+
+def test_match_selection_accepts_multiple_exchange_rate_scopes():
+    selection = MatchSelection(selected=True, exchange_rate_scopes=["BRL_PEN", "BRL_USD", "BRL_PEN"])
+    assert selection.effective_exchange_rate_scopes == [ExchangeRateScope.brl_pen, ExchangeRateScope.brl_usd]
 
 
 def test_match_selection_exchange_rate_scope_defaults_to_none():
@@ -82,15 +88,15 @@ def test_public_live_response_omits_internal_fields():
             "home_team_code": "PER", "away_team_code": "BRA",
             "stage": "GROUP_A", "starts_at": datetime(2026, 6, 17, 22, tzinfo=timezone.utc),
             "status": "LIVE",
-            "coupon": {"code": "X", "discount_percentage": 10, "exchange_rate_scope": "BRL_PEN",
-                       "ends_at_estimate": datetime(2026, 6, 18, 2, tzinfo=timezone.utc)},
+        "coupon": {"code": "X", "discount_percentage": 10, "exchange_rate_scope": "BRL_PEN",
+                   "ends_at_estimate": datetime(2026, 6, 18, 2, tzinfo=timezone.utc)},
         }],
         "next": None,
     }
     parsed = PublicLiveResponse.model_validate(payload)
     dumped = parsed.model_dump()
     coupon_fields = set(dumped["live"][0]["coupon"])
-    assert coupon_fields == {"code", "discount_percentage", "exchange_rate_scope", "ends_at_estimate"}
+    assert coupon_fields == {"code", "discount_percentage", "exchange_rate_scope", "exchange_rate_scopes", "ends_at_estimate"}
     match_fields = set(dumped["live"][0])
     assert "raw_data" not in match_fields and "notification_emails" not in match_fields
     assert match_fields == {"home_team", "away_team", "home_team_code", "away_team_code", "stage", "starts_at", "status", "coupon"}

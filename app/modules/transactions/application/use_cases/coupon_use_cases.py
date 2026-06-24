@@ -75,6 +75,7 @@ class CreateCouponUseCase:
             lifecycle_status=cmd.lifecycle_status,
             per_user_limit=cmd.per_user_limit,
             match_id=cmd.match_id,
+            exchange_rate_scopes=cmd.exchange_rate_scopes,
         )
         saved = await self.repo.add(entity)
         await self.repo.commit()
@@ -110,6 +111,8 @@ class UpdateCouponUseCase:
             entity.lifecycle_status = cmd.lifecycle_status
         if cmd.per_user_limit is not None:
             entity.per_user_limit = cmd.per_user_limit
+        if cmd.exchange_rate_scopes is not None:
+            entity.exchange_rate_scopes = cmd.exchange_rate_scopes
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity)

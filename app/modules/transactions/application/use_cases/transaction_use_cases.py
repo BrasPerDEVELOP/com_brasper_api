@@ -21,6 +21,7 @@ from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.domain.models import Coupon, Transaction
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
+from app.modules.world_cup.enums import ExchangeRateScope
 from app.modules.world_cup.models import CouponRedemption
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.users.domain.enums import UserRole
@@ -296,7 +297,11 @@ class CreateTransactionUseCase:
             now = datetime.now(timezone.utc)
             if (coupon.start_date and coupon.start_date > now) or (coupon.end_date and coupon.end_date < now):
                 raise ValueError("El cupón no está vigente")
-            if (
+            exchange_rate_scopes = getattr(coupon, "exchange_rate_scopes", None)
+            if exchange_rate_scopes:
+                if not ExchangeRateScope.matches_pair(exchange_rate_scopes, tax_rate.coin_a, tax_rate.coin_b):
+                    raise ValueError("El cupón no corresponde al par de monedas")
+            elif (
                 coupon.origin_currency is not None and coupon.origin_currency != tax_rate.coin_a
             ) or (
                 coupon.destination_currency is not None and coupon.destination_currency != tax_rate.coin_b

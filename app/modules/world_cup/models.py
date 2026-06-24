@@ -41,16 +41,29 @@ class WorldCupCampaign(ORMBaseModel):
     default_per_user_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     origin_currency: Mapped[str] = mapped_column(String(10), nullable=False, default="PEN")
     destination_currency: Mapped[str] = mapped_column(String(10), nullable=False, default="BRL")
+    exchange_rate_scopes: Mapped[list] = mapped_column(JSONB, nullable=False, default=lambda: ["PEN_BRL"])
     code_template: Mapped[str] = mapped_column(String(80), nullable=False, default="MUNDIAL-{HOME}-{AWAY}")
     notification_emails: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
     @property
     def exchange_rate_scope(self) -> ExchangeRateScope:
-        return ExchangeRateScope.from_currencies(self.origin_currency, self.destination_currency)
+        return self.normalized_exchange_rate_scopes[0]
 
     @exchange_rate_scope.setter
     def exchange_rate_scope(self, value: ExchangeRateScope | str) -> None:
-        scope = ExchangeRateScope(value)
+        self.set_exchange_rate_scopes([value])
+
+    @property
+    def normalized_exchange_rate_scopes(self) -> list[ExchangeRateScope]:
+        return ExchangeRateScope.normalize_many(
+            self.exchange_rate_scopes,
+            fallback=ExchangeRateScope.from_currencies(self.origin_currency, self.destination_currency),
+        )
+
+    def set_exchange_rate_scopes(self, values: list[ExchangeRateScope | str] | None) -> None:
+        scopes = ExchangeRateScope.normalize_many(values)
+        self.exchange_rate_scopes = [scope.value for scope in scopes]
+        scope = scopes[0]
         origin, destination = scope.currencies
         self.origin_currency = origin.value if origin else "ALL"
         self.destination_currency = destination.value if destination else "ALL"

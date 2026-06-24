@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.modules.world_cup.enums import ExchangeRateScope
 
@@ -27,6 +27,7 @@ class MatchRead(BaseModel):
     coupon_discount_percentage: Optional[float] = None
     coupon_max_uses: Optional[int] = None
     coupon_exchange_rate_scope: Optional[ExchangeRateScope] = None
+    coupon_exchange_rate_scopes: list[ExchangeRateScope] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -35,9 +36,19 @@ class CampaignUpdate(BaseModel):
     mode: str = Field(pattern="^(REVIEW|AUTOMATIC)$")
     default_discount_percentage: float = Field(gt=0, le=100)
     default_max_uses: int = Field(gt=0)
-    exchange_rate_scope: ExchangeRateScope
+    exchange_rate_scopes: Optional[list[ExchangeRateScope]] = None
+    exchange_rate_scope: Optional[ExchangeRateScope] = None
     code_template: str = Field(min_length=3, max_length=80)
     notification_emails: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_exchange_rate_scopes(self):
+        self.exchange_rate_scopes = ExchangeRateScope.normalize_many(
+            self.exchange_rate_scopes,
+            fallback=self.exchange_rate_scope,
+        )
+        self.exchange_rate_scope = self.exchange_rate_scopes[0]
+        return self
 
 class CampaignRead(CampaignUpdate):
     id: UUID
@@ -51,13 +62,44 @@ class MatchSelection(BaseModel):
     discount_percentage: Optional[float] = Field(default=None, gt=0, le=100)
     max_uses: Optional[int] = Field(default=None, gt=0)
     exchange_rate_scope: Optional[ExchangeRateScope] = None
+    exchange_rate_scopes: Optional[list[ExchangeRateScope]] = None
+
+    @property
+    def effective_exchange_rate_scopes(self) -> list[ExchangeRateScope]:
+        return ExchangeRateScope.normalize_many(
+            self.exchange_rate_scopes,
+            fallback=self.exchange_rate_scope,
+        )
+
+    @property
+    def provided_exchange_rate_scopes(self) -> list[ExchangeRateScope] | None:
+        if self.exchange_rate_scopes is None and self.exchange_rate_scope is None:
+            return None
+        return self.effective_exchange_rate_scopes
 
 
 class PublicCouponDTO(BaseModel):
     code: str
     discount_percentage: float
-    exchange_rate_scope: ExchangeRateScope
+    exchange_rate_scopes: list[ExchangeRateScope] = Field(default_factory=list)
     ends_at_estimate: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_exchange_rate_scope(cls, data):
+        if isinstance(data, dict) and not data.get("exchange_rate_scopes") and data.get("exchange_rate_scope"):
+            return {**data, "exchange_rate_scopes": [data["exchange_rate_scope"]]}
+        return data
+
+    @model_validator(mode="after")
+    def normalize_exchange_rate_scopes(self):
+        self.exchange_rate_scopes = ExchangeRateScope.normalize_many(self.exchange_rate_scopes)
+        return self
+
+    @computed_field
+    @property
+    def exchange_rate_scope(self) -> ExchangeRateScope:
+        return self.exchange_rate_scopes[0] if self.exchange_rate_scopes else ExchangeRateScope.all
 
 
 class PublicMatchDTO(BaseModel):
