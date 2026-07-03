@@ -650,6 +650,16 @@ class TransactionListPage(BaseModel):
     has_previous: bool
 
 
+class TransactionMetricsDTO(BaseModel):
+    """Agregados globales para el dashboard (sobre todas las transacciones)."""
+
+    total: int
+    by_status: dict[str, int]
+    volume_origin: float
+    volume_destination: float
+    last_7_days: int
+
+
 class BankAccountImportPayload(BaseModel):
     """Cuenta bancaria para importación (sin user_id; se asigna al crear)."""
 

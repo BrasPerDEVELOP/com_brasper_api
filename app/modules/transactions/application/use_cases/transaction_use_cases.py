@@ -37,6 +37,7 @@ from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionUpdateCmd,
     TransactionReadDTO,
     TransactionListPage,
+    TransactionMetricsDTO,
     ImportRequestCmd,
     ImportResponseDTO,
 )
@@ -109,16 +110,18 @@ def _parse_currency_filter(value: Optional[str]) -> Optional[Currency]:
 
 
 def _build_transaction_query_filter(
-    status: Optional[TransactionStatus] = None,
     user_id: Optional[UUID] = None,
     bank_account_origin_id: Optional[UUID] = None,
     bank_account_destination_id: Optional[UUID] = None,
     created_at_from: Optional[datetime] = None,
     created_at_to: Optional[datetime] = None,
 ) -> Optional[QueryFilter]:
-    """Construye QueryFilter para transacciones."""
+    """Construye QueryFilter para transacciones.
+
+    Nota: el estado se filtra aparte (estado "efectivo") y la búsqueda de texto
+    y el rango por ``send_date`` se resuelven en el repositorio.
+    """
     filter_specs = [
-        (status, "status", OperatorEnum.EQ),
         (user_id, "user_id", OperatorEnum.EQ),
         (bank_account_origin_id, "bank_account_origin_id", OperatorEnum.EQ),
         (bank_account_destination_id, "bank_account_destination_id", OperatorEnum.EQ),
@@ -208,14 +211,17 @@ class ListTransactionsUseCase:
         user_id: Optional[UUID] = None,
         bank_account_origin_id: Optional[UUID] = None,
         bank_account_destination_id: Optional[UUID] = None,
+        bank_account_id: Optional[UUID] = None,
         created_at_from: Optional[datetime] = None,
         created_at_to: Optional[datetime] = None,
+        send_date_from: Optional[datetime] = None,
+        send_date_to: Optional[datetime] = None,
+        search: Optional[str] = None,
         currency: Optional[Currency] = None,
         origin_currency: Optional[Currency] = None,
         destination_currency: Optional[Currency] = None,
     ) -> TransactionListPage:
         query_filter = _build_transaction_query_filter(
-            status=status,
             user_id=user_id,
             bank_account_origin_id=bank_account_origin_id,
             bank_account_destination_id=bank_account_destination_id,
@@ -230,6 +236,11 @@ class ListTransactionsUseCase:
             currency=currency,
             origin_currency=origin_currency,
             destination_currency=destination_currency,
+            search=search,
+            effective_status=status.value if status is not None else None,
+            send_date_from=send_date_from,
+            send_date_to=send_date_to,
+            bank_account_id=bank_account_id,
         )
         if isinstance(raw, PaginatedResult):
             items = [TransactionReadDTO.model_validate(x) for x in raw.items]
@@ -250,6 +261,15 @@ class ListTransactionsUseCase:
             has_next=False,
             has_previous=skip > 0,
         )
+
+
+class GetTransactionMetricsUseCase:
+    def __init__(self, repo: TransactionRepositoryInterface):
+        self.repo = repo
+
+    async def execute(self) -> TransactionMetricsDTO:
+        data = await self.repo.metrics()
+        return TransactionMetricsDTO(**data)
 
 
 class CreateTransactionUseCase:

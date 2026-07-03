@@ -21,6 +21,7 @@ from app.modules.integraciones.adapters.router import router as integraciones_ro
 from app.modules.home_image.adapters.router import router as home_banner_router
 from app.modules.brasper.adapters.router import router as brasper_router
 from app.modules.blog.adapters.router import router as blog_router
+from app.modules.metrics.adapters.router import router as metrics_router
 from app.modules.world_cup.routes import router as world_cup_router, public_router as world_cup_public_router
 from app.modules.world_cup.scheduler import start_scheduler, stop_scheduler
 
@@ -173,6 +174,7 @@ app.include_router(integraciones_router)
 app.include_router(home_banner_router)
 app.include_router(brasper_router)
 app.include_router(blog_router)
+app.include_router(metrics_router)
 app.include_router(world_cup_router)
 app.include_router(world_cup_public_router)
 

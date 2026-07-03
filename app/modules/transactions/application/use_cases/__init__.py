@@ -4,6 +4,7 @@ from . import transaction_use_cases
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
     GetTransactionByIdUseCase,
     ListTransactionsUseCase,
+    GetTransactionMetricsUseCase,
     CreateTransactionUseCase,
     UpdateTransactionUseCase,
     DeleteTransactionUseCase,
@@ -36,6 +37,7 @@ from app.modules.transactions.application.use_cases.coupon_use_cases import (
 __all__ = [
     "GetTransactionByIdUseCase",
     "ListTransactionsUseCase",
+    "GetTransactionMetricsUseCase",
     "CreateTransactionUseCase",
     "UpdateTransactionUseCase",
     "DeleteTransactionUseCase",

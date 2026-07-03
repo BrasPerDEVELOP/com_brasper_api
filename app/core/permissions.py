@@ -16,10 +16,14 @@ def require_permission(permission: str) -> Callable:
         current = get_current_user()
         if not current or not current.get("user_id"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticación requerida")
-        user = await db.get(User, UUID(current["user_id"]))
-        if not user or user.deleted:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
-        role = user.role or "user"
+        # El middleware ya validó token→usuario y expone el rol; evitamos re-consultar
+        # el User (round-trip extra contra la DB remota). Fallback por compatibilidad.
+        role = current.get("role")
+        if not role:
+            user = await db.get(User, UUID(current["user_id"]))
+            if not user or user.deleted:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+            role = user.role or "user"
         permissions = (await db.execute(select(RolePermissionModel.permissions).where(
             RolePermissionModel.role == role, RolePermissionModel.deleted.is_(False), RolePermissionModel.enable.is_(True)
         ))).scalar_one_or_none() or []

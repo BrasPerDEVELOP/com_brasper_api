@@ -35,8 +35,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         token = self._extract_token(request)
         if not token:
-            logger.debug(f"No token provided for path: {request.url.path}")
-            return await call_next(request)
+            # Ruta no pública sin token: se rechaza (antes pasaba como anónimo,
+            # exponiendo endpoints protegidos sin credenciales).
+            logger.warning(f"No token provided for protected path: {request.url.path}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Autenticación requerida"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         # Validar token opaco solo por BD (lookup por token + expiración)
         user_data = await self._verify_token_in_database(token)
@@ -79,13 +85,19 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
             async with AsyncSessionLocal() as session:
                 try:
-                    stmt = select(AuthModel).where(AuthModel.token == token)
-                    result = await session.execute(stmt)
-                    auth_model = result.scalars().first()
+                    # Un solo round-trip: token + usuario en un JOIN (DB remota de alta latencia).
+                    stmt = (
+                        select(AuthModel, UserModel)
+                        .join(UserModel, UserModel.auth_id == AuthModel.id)
+                        .where(AuthModel.token == token, UserModel.deleted.is_(False))
+                    )
+                    row = (await session.execute(stmt)).first()
 
-                    if not auth_model:
-                        logger.debug("Token not found in database")
+                    if not row:
+                        logger.debug("Token/usuario no encontrado en la base de datos")
                         return None
+
+                    auth_model, user_model = row
 
                     # Expiración: el token se guardó en updated_at; válido hasta updated_at + TOKEN_EXPIRATION_MINUTES
                     token_created = auth_model.updated_at or auth_model.created_at
@@ -95,20 +107,11 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                             logger.debug("Token expired")
                             return None
 
-                    user_stmt = select(UserModel).where(
-                        UserModel.auth_id == auth_model.id,
-                        UserModel.deleted.is_(False)
-                    )
-                    user_result = await session.execute(user_stmt)
-                    user_model = user_result.scalar_one_or_none()
-
-                    if not user_model:
-                        logger.debug("User not found for auth_id")
-                        return None
-
                     return {
                         "user_id": str(user_model.id),
                         "username": auth_model.username,
+                        # Se expone el rol para que require_permission no re-consulte el User.
+                        "role": user_model.role or "user",
                         "created_at": (auth_model.updated_at or datetime.utcnow()).isoformat(),
                     }
                 except Exception as e:

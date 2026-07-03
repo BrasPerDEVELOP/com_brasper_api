@@ -13,3 +13,7 @@ class TransactionRepositoryInterface(BaseRepositoryInterface[Transaction]):
         self, origin_currency_code: str, destination_currency_code: str
     ) -> str:
         """Siguiente código `PxB-0000000001` (1ª letra origen + x + 1ª letra destino + secuencia)."""
+
+    @abstractmethod
+    async def metrics(self) -> dict:
+        """Agregados globales para el dashboard (conteos, volumen, últimos 7 días)."""

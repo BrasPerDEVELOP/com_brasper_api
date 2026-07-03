@@ -16,12 +16,14 @@ from app.modules.transactions.application.schemas import (
     TransactionUpdateCmd,
     TransactionReadDTO,
     TransactionListPage,
+    TransactionMetricsDTO,
     ImportRequestCmd,
     ImportResponseDTO,
 )
 from app.modules.transactions.adapters.dependencies import (
     GetTransactionByIdUseCaseDep,
     ListTransactionsUseCaseDep,
+    GetTransactionMetricsUseCaseDep,
     CreateTransactionUseCaseDep,
     UpdateTransactionUseCaseDep,
     DeleteTransactionUseCaseDep,
@@ -121,8 +123,12 @@ async def list_transactions(
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     bank_account_origin_id: Optional[UUID] = Query(None, description="Filtro por cuenta origen"),
     bank_account_destination_id: Optional[UUID] = Query(None, description="Filtro por cuenta destino"),
+    bank_account_id: Optional[UUID] = Query(None, description="Filtro por cuenta (origen o destino)"),
     created_at_from: Optional[datetime] = Query(None, description="Filtro: transacciones desde esta fecha (ISO)"),
     created_at_to: Optional[datetime] = Query(None, description="Filtro: transacciones hasta esta fecha (ISO)"),
+    send_date_from: Optional[datetime] = Query(None, description="Filtro: send_date desde esta fecha (ISO)"),
+    send_date_to: Optional[datetime] = Query(None, description="Filtro: send_date hasta esta fecha (ISO)"),
+    search: Optional[str] = Query(None, description="Búsqueda de texto libre por código, nº de operación o id"),
     currency: Optional[str] = Query(
         None,
         description="Filtro por moneda (PEN, USD, BRL): origen o destino de la tasa",
@@ -153,12 +159,22 @@ async def list_transactions(
         user_id=user_id,
         bank_account_origin_id=bank_account_origin_id,
         bank_account_destination_id=bank_account_destination_id,
+        bank_account_id=bank_account_id,
         created_at_from=created_at_from,
         created_at_to=created_at_to,
+        send_date_from=send_date_from,
+        send_date_to=send_date_to,
+        search=search,
         currency=currency_filter,
         origin_currency=origin_currency_filter,
         destination_currency=destination_currency_filter,
     )
+
+
+@router.get("/metrics", response_model=TransactionMetricsDTO)
+async def transaction_metrics(use_case: GetTransactionMetricsUseCaseDep):
+    """Métricas agregadas para el dashboard (sobre todas las transacciones)."""
+    return await use_case.execute()
 
 
 @router.post(

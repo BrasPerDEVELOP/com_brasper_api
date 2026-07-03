@@ -15,6 +15,7 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
         ),
     },
     {"key": "dashboard", "permissions": ("dashboard.view",)},
+    {"key": "metrics", "permissions": ("metrics.view",)},
     {
         "key": "users",
         "permissions": (
@@ -108,6 +109,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     ),
     UserRole.sales.value: (
         "dashboard.view",
+        "metrics.view",
         "users.view",
         "users.create",
         "users.update",
@@ -124,6 +126,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     ),
     UserRole.accounting.value: (
         "dashboard.view",
+        "metrics.view",
         "accounting.view",
         "transactions.view",
         "bank_accounts.view",
