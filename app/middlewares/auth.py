@@ -130,6 +130,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if path == "/":
             return True
         public_paths = [
+            "/media/",
             "/auth/",
             "/docs",
             "/redoc",
