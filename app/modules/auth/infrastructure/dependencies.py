@@ -32,8 +32,12 @@ async def get_auth_repository(
 def get_current_user() -> dict:
     """Obtiene el usuario actual desde el middleware."""
     from app.middlewares.auth import get_current_user as get_user
+    from app.core.settings import get_settings
+
     user = get_user()
     if not user:
+        if not get_settings().AUTH_REQUIRED:
+            return {}
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -70,6 +74,10 @@ async def get_current_user_permissions(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[str]:
+    from app.core.settings import get_settings
+
+    if not get_settings().AUTH_REQUIRED:
+        return []
     user_id = current_user.get("user_id")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
@@ -94,6 +102,10 @@ def require_permission(permission: str):
     async def dependency(
         permissions: list[str] = Depends(get_current_user_permissions),
     ) -> list[str]:
+        from app.core.settings import get_settings
+
+        if not get_settings().AUTH_REQUIRED:
+            return permissions
         if permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -108,6 +120,10 @@ def require_any_permission(*required_permissions: str):
     async def dependency(
         permissions: list[str] = Depends(get_current_user_permissions),
     ) -> list[str]:
+        from app.core.settings import get_settings
+
+        if not get_settings().AUTH_REQUIRED:
+            return permissions
         if not any(permission in permissions for permission in required_permissions):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

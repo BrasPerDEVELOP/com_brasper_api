@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     DEBUG: bool
     LOG_LEVEL: str
     ENVIRONMENT: str = "development"
+    # Si es False, la API no exige token (útil mientras el front no envía Bearer).
+    AUTH_REQUIRED: bool = False
     ROOT_PATH: str = ""
     # URL pública cuando la API está detrás de proxy (ej. https://apibras.finzeler.com)
     PUBLIC_URL: str = ""

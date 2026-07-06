@@ -30,6 +30,17 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         current_user_var.set(None)
         current_token_var.set(None)
 
+        from app.core.settings import get_settings
+
+        if not get_settings().AUTH_REQUIRED:
+            token = self._extract_token(request)
+            if token:
+                user_data = await self._verify_token_in_database(token)
+                if user_data:
+                    current_user_var.set(user_data)
+                    current_token_var.set(token)
+            return await call_next(request)
+
         if self._is_public_path(request.url.path):
             return await call_next(request)
 
@@ -131,6 +142,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return True
         public_paths = [
             "/media/",
+            "/home-banner/",
             "/auth/",
             "/docs",
             "/redoc",

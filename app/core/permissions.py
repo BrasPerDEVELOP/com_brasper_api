@@ -13,6 +13,10 @@ from app.modules.users.domain.models import User
 
 def require_permission(permission: str) -> Callable:
     async def dependency(db: AsyncSession = Depends(get_db)) -> None:
+        from app.core.settings import get_settings
+
+        if not get_settings().AUTH_REQUIRED:
+            return
         current = get_current_user()
         if not current or not current.get("user_id"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticación requerida")

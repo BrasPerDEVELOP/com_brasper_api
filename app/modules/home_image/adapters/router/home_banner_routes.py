@@ -2,7 +2,9 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, status, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, status, UploadFile
+
+from app.modules.auth.infrastructure.dependencies import require_permission
 
 from app.modules.home_image.application.schemas import (
     HomeBannerCreateCmd,
@@ -33,7 +35,12 @@ async def get_home_banner_by_id(home_banner_id: UUID, use_case: GetHomeBannerByI
     return entity
 
 
-@router.post("/", response_model=HomeBannerReadDTO, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=HomeBannerReadDTO,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("home_banner.update"))],
+)
 async def create_home_banner(
     use_case: CreateHomeBannerUseCaseDep,
     enable: bool = Form(True),
@@ -57,7 +64,11 @@ async def create_home_banner(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.put("/", response_model=HomeBannerReadDTO)
+@router.put(
+    "/",
+    response_model=HomeBannerReadDTO,
+    dependencies=[Depends(require_permission("home_banner.update"))],
+)
 async def update_home_banner(
     use_case: UpdateHomeBannerUseCaseDep,
     id: UUID = Form(...),
