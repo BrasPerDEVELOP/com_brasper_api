@@ -2,7 +2,7 @@
 """Rutas para el módulo de transacciones."""
 import json
 from datetime import datetime
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
@@ -55,55 +55,76 @@ def _as_upload_file(value: object) -> Optional[UploadFile]:
     return None
 
 
+def _as_upload_files(value: object) -> List[UploadFile]:
+    values = value if isinstance(value, list) else [value]
+    files: List[UploadFile] = []
+    for item in values:
+        file = _as_upload_file(item)
+        if file is not None:
+            files.append(file)
+    return files
+
+
 async def _parse_create_request(
     request: Request,
 ) -> Tuple[
     TransactionCreateCmd,
-    Optional[UploadFile],
-    Optional[UploadFile],
-    Optional[UploadFile],
+    List[UploadFile],
+    List[UploadFile],
+    List[UploadFile],
 ]:
     """Parsea el request y retorna (cmd, send_voucher, payment_voucher, checked_image)."""
     if _is_form_request(request.headers.get("content-type", "")):
         form = await request.form()
         return TransactionCreateCmd.from_form_data(form)
     body = await request.json()
-    return TransactionCreateCmd.model_validate(body), None, None, None
+    return TransactionCreateCmd.model_validate(body), [], [], []
 
 
 async def _parse_update_request(
     request: Request,
 ) -> Tuple[
     TransactionUpdateCmd,
-    Optional[UploadFile],
-    Optional[UploadFile],
-    Optional[UploadFile],
+    List[UploadFile],
+    List[UploadFile],
+    List[UploadFile],
 ]:
     """Parsea el request y retorna (cmd, send_voucher, payment_voucher, checked_image)."""
     if _is_form_request(request.headers.get("content-type", "")):
         form = await request.form()
         return TransactionUpdateCmd.from_form_data(form)
     body = await request.json()
-    return TransactionUpdateCmd.model_validate(body), None, None, None
+    return TransactionUpdateCmd.model_validate(body), [], [], []
+
+
+async def _save_transaction_vouchers(files: List[UploadFile], prefix: str) -> List[str]:
+    paths: List[str] = []
+    for file in _as_upload_files(files):
+        if file.filename:
+            paths.append(await save_transaction_voucher(file, prefix))
+    return paths
 
 
 async def _apply_transaction_uploads(
     cmd: Union[TransactionCreateCmd, TransactionUpdateCmd],
-    send_file: Optional[UploadFile],
-    payment_file: Optional[UploadFile],
-    checked_image_file: Optional[UploadFile],
+    send_files: List[UploadFile],
+    payment_files: List[UploadFile],
+    checked_image_files: List[UploadFile],
 ) -> None:
     """Guarda vouchers e imagen de checklist; asigna rutas relativas al cmd."""
-    send_file = _as_upload_file(send_file)
-    payment_file = _as_upload_file(payment_file)
-    checked_image_file = _as_upload_file(checked_image_file)
+    send_paths = await _save_transaction_vouchers(send_files, "send")
+    payment_paths = await _save_transaction_vouchers(payment_files, "payment")
+    checked_paths = await _save_transaction_vouchers(checked_image_files, "checked")
 
-    if send_file and send_file.filename:
-        cmd.send_voucher = await save_transaction_voucher(send_file, "send")
-    if payment_file and payment_file.filename:
-        cmd.payment_voucher = await save_transaction_voucher(payment_file, "payment")
-    if checked_image_file and checked_image_file.filename:
-        cmd.checked_image = await save_transaction_voucher(checked_image_file, "checked")
+    if send_paths:
+        cmd.send_vouchers = send_paths
+        cmd.send_voucher = send_paths[0]
+    if payment_paths:
+        cmd.payment_vouchers = payment_paths
+        cmd.payment_voucher = payment_paths[0]
+    if checked_paths:
+        cmd.checked_images = checked_paths
+        cmd.checked_image = checked_paths[0]
 
 
 # =============================================================================

@@ -68,6 +68,60 @@ def _non_empty_str(value: Optional[str]) -> bool:
     return value is not None and str(value).strip() != ""
 
 
+def _voucher_paths(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            out.extend(_voucher_paths(item))
+        return out
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _merge_voucher_paths(*values: object) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for value in values:
+        for path in _voucher_paths(value):
+            if path in seen:
+                continue
+            seen.add(path)
+            merged.append(path)
+    return merged
+
+
+def _sync_legacy_voucher_fields(data: dict) -> None:
+    for singular, plural in (
+        ("send_voucher", "send_vouchers"),
+        ("payment_voucher", "payment_vouchers"),
+        ("checked_image", "checked_images"),
+    ):
+        paths = _merge_voucher_paths(data.get(plural), data.get(singular))
+        if paths:
+            data[plural] = paths
+            data[singular] = paths[0]
+        elif plural in data:
+            data[plural] = []
+            data[singular] = None
+
+
+def _append_voucher_updates(entity: Transaction, updates: dict) -> None:
+    for singular, plural in (
+        ("send_voucher", "send_vouchers"),
+        ("payment_voucher", "payment_vouchers"),
+        ("checked_image", "checked_images"),
+    ):
+        incoming = _merge_voucher_paths(updates.pop(plural, None), updates.pop(singular, None))
+        if not incoming:
+            continue
+        paths = _merge_voucher_paths(getattr(entity, plural, None), getattr(entity, singular, None), incoming)
+        updates[plural] = paths
+        updates[singular] = paths[0] if paths else None
+
+
 def _is_transaction_pipeline_complete(entity: Transaction) -> bool:
     """True si checklist y datos operativos (montos, send_date, vouchers) están completos.
     `payment_date` no se exige aquí: se asigna en servidor al pasar a completed."""
@@ -76,8 +130,8 @@ def _is_transaction_pipeline_complete(entity: Transaction) -> bool:
         and entity.commission_result is not None
         and entity.total_to_send is not None
         and entity.send_date is not None
-        and _non_empty_str(entity.send_voucher)
-        and _non_empty_str(entity.payment_voucher)
+        and bool(_merge_voucher_paths(entity.send_vouchers, entity.send_voucher))
+        and bool(_merge_voucher_paths(entity.payment_vouchers, entity.payment_voucher))
     )
 
 
@@ -184,6 +238,12 @@ def _drop_null_voucher_paths_unless_remove(
         updates.pop("payment_voucher", None)
     if not remove_checked and updates.get("checked_image") is None:
         updates.pop("checked_image", None)
+    if not remove_send and updates.get("send_vouchers") is None:
+        updates.pop("send_vouchers", None)
+    if not remove_payment and updates.get("payment_vouchers") is None:
+        updates.pop("payment_vouchers", None)
+    if not remove_checked and updates.get("checked_images") is None:
+        updates.pop("checked_images", None)
 
 
 _TXN_LOAD_USER = (selectinload(Transaction.user),)
@@ -390,6 +450,7 @@ class CreateTransactionUseCase:
         entity_data["status"] = TransactionStatus.verification
         # Fecha/hora de creación de la operación (envío); no se toma del cliente
         entity_data["send_date"] = datetime.now(timezone.utc)
+        _sync_legacy_voucher_fields(entity_data)
         entity = Transaction(**entity_data)
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
@@ -428,10 +489,15 @@ class UpdateTransactionUseCase:
 
         if remove_send_voucher:
             updates["send_voucher"] = None
+            updates["send_vouchers"] = []
         if remove_payment_voucher:
             updates["payment_voucher"] = None
+            updates["payment_vouchers"] = []
         if remove_checked_image:
             updates["checked_image"] = None
+            updates["checked_images"] = []
+
+        _append_voucher_updates(entity, updates)
 
         dest_id = updates.get("bank_account_destination_id")
         if dest_id is not None:

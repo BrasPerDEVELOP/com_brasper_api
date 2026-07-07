@@ -109,6 +109,9 @@ class Transaction(ORMBaseModel):
     send_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     payment_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     checked_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    send_vouchers: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True)
+    payment_vouchers: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True)
+    checked_images: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True)
 
     # Checklist
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

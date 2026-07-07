@@ -62,6 +62,31 @@ def _as_upload_file(value: Any) -> Optional[UploadFile]:
     return None
 
 
+def _as_upload_files(value: Any) -> List[UploadFile]:
+    """Normaliza uno o varios valores de form-data a lista de UploadFile."""
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    files: List[UploadFile] = []
+    for item in values:
+        file = _as_upload_file(item)
+        if file is not None:
+            files.append(file)
+    return files
+
+
+def _form_upload_files(form: Any, *keys: str) -> List[UploadFile]:
+    files: List[UploadFile] = []
+    for key in keys:
+        if key not in form:
+            continue
+        if hasattr(form, "getlist"):
+            files.extend(_as_upload_files(form.getlist(key)))
+        else:
+            files.extend(_as_upload_files(form.get(key)))
+    return files
+
+
 class TransactionCreateCmd(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -162,6 +187,9 @@ class TransactionCreateCmd(BaseModel):
         default=None,
         description="Ruta relativa de archivo asociado al checklist; acepta imagen o documento (multipart: campo checked_image)",
     )
+    send_vouchers: Optional[List[str]] = None
+    payment_vouchers: Optional[List[str]] = None
+    checked_images: Optional[List[str]] = None
     checked: bool = False
 
     @classmethod
@@ -202,9 +230,9 @@ class TransactionCreateCmd(BaseModel):
         checked: bool = Form(False),
     ) -> Tuple[
         "TransactionCreateCmd",
-        Optional[UploadFile],
-        Optional[UploadFile],
-        Optional[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
     ]:
         cmd = cls(
             bank_account_origin=_parse_optional_uuid(bank_account_origin),
@@ -244,18 +272,21 @@ class TransactionCreateCmd(BaseModel):
             send_voucher=None,  # se llenará en la ruta tras guardar
             payment_voucher=None,
             checked_image=None,
+            send_vouchers=None,
+            payment_vouchers=None,
+            checked_images=None,
             checked=checked,
         )
-        return cmd, send_voucher, payment_voucher, checked_image
+        return cmd, _as_upload_files(send_voucher), _as_upload_files(payment_voucher), _as_upload_files(checked_image)
 
     @classmethod
     def from_form_data(
         cls, form: Any
     ) -> Tuple[
         "TransactionCreateCmd",
-        Optional[UploadFile],
-        Optional[UploadFile],
-        Optional[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
     ]:
         """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d="": form.get(k, d) if hasattr(form, "get") else d
@@ -303,17 +334,14 @@ class TransactionCreateCmd(BaseModel):
             send_voucher=None,
             payment_voucher=None,
             checked_image=None,
+            send_vouchers=None,
+            payment_vouchers=None,
+            checked_images=None,
             checked=_get("checked", "false").lower() in ("true", "1", "yes"),
         )
-        send_f = form.get("send_voucher") if "send_voucher" in form else None
-        pay_f = form.get("payment_voucher") if "payment_voucher" in form else None
-        checked_img_f = form.get("checked_image") if "checked_image" in form else None
-        if send_f and not getattr(send_f, "filename", True):
-            send_f = None
-        if pay_f and not getattr(pay_f, "filename", True):
-            pay_f = None
-        if checked_img_f and not getattr(checked_img_f, "filename", True):
-            checked_img_f = None
+        send_f = _form_upload_files(form, "send_voucher", "send_vouchers", "send_voucher_files")
+        pay_f = _form_upload_files(form, "payment_voucher", "payment_vouchers", "payment_voucher_files")
+        checked_img_f = _form_upload_files(form, "checked_image", "checked_images", "checked_image_files")
         return cmd, send_f, pay_f, checked_img_f
 
 
@@ -354,6 +382,9 @@ class TransactionUpdateCmd(BaseModel):
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
+    send_vouchers: Optional[List[str]] = None
+    payment_vouchers: Optional[List[str]] = None
+    checked_images: Optional[List[str]] = None
     checked: Optional[bool] = None
     remove_send_voucher: Optional[bool] = None
     remove_payment_voucher: Optional[bool] = None
@@ -395,9 +426,9 @@ class TransactionUpdateCmd(BaseModel):
         remove_checked_image: Optional[str] = Form(None),
     ) -> Tuple[
         "TransactionUpdateCmd",
-        Optional[UploadFile],
-        Optional[UploadFile],
-        Optional[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
     ]:
         payload = {"id": UUID(id)}
         if _field_present(bank_account_origin):
@@ -466,16 +497,16 @@ class TransactionUpdateCmd(BaseModel):
             payload["remove_checked_image"] = _parse_checked(remove_checked_image)
 
         cmd = cls(**payload)
-        return cmd, send_voucher, payment_voucher, checked_image
+        return cmd, _as_upload_files(send_voucher), _as_upload_files(payment_voucher), _as_upload_files(checked_image)
 
     @classmethod
     def from_form_data(
         cls, form: Any
     ) -> Tuple[
         "TransactionUpdateCmd",
-        Optional[UploadFile],
-        Optional[UploadFile],
-        Optional[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
+        List[UploadFile],
     ]:
         """Construye cmd desde form-data. Retorna (cmd, send_voucher, payment_voucher, checked_image)."""
         _get = lambda k, d=None: form.get(k, d) if hasattr(form, "get") else d
@@ -555,9 +586,9 @@ class TransactionUpdateCmd(BaseModel):
             payload["remove_checked_image"] = _parse_checked(_get("remove_checked_image"))
 
         cmd = cls(**payload)
-        send_f = _as_upload_file(form.get("send_voucher")) if "send_voucher" in form else None
-        pay_f = _as_upload_file(form.get("payment_voucher")) if "payment_voucher" in form else None
-        checked_img_f = _as_upload_file(form.get("checked_image")) if "checked_image" in form else None
+        send_f = _form_upload_files(form, "send_voucher", "send_vouchers", "send_voucher_files")
+        pay_f = _form_upload_files(form, "payment_voucher", "payment_vouchers", "payment_voucher_files")
+        checked_img_f = _form_upload_files(form, "checked_image", "checked_images", "checked_image_files")
         return cmd, send_f, pay_f, checked_img_f
 
 
@@ -611,6 +642,9 @@ class TransactionReadDTO(BaseModel):
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
+    send_vouchers: List[str] = Field(default_factory=list)
+    payment_vouchers: List[str] = Field(default_factory=list)
+    checked_images: List[str] = Field(default_factory=list)
     checked: bool = False
     created_at: datetime
     created_by: Optional[str] = None
@@ -618,6 +652,14 @@ class TransactionReadDTO(BaseModel):
     user: TransactionUserRef
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("send_vouchers", "payment_vouchers", "checked_images", mode="before")
+    @classmethod
+    def _coerce_voucher_list(cls, value: Any) -> List[str]:
+        if value is None or value == "":
+            return []
+        values = value if isinstance(value, list) else [value]
+        return [str(item).strip() for item in values if str(item).strip()]
 
     @model_validator(mode="before")
     @classmethod
