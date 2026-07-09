@@ -51,6 +51,14 @@ _CMD_TO_ENTITY = {
 # Roles elegibles para asignación automática de agente al crear transacción (sin agent_id explícito).
 _TRANSACTION_AGENT_ROLES = (UserRole.admin.value, UserRole.sales.value)
 
+# Código sentinela de la "calculadora especial": descuento de comisión manual, sin cupón real.
+SPECIAL_CALCULATOR_DISCOUNT_CODE = "ESPECIAL"
+
+
+def _is_special_calculator_code(code: Optional[str]) -> bool:
+    """True si el código corresponde a la calculadora especial (no un cupón real)."""
+    return bool(code) and code.strip().upper() == SPECIAL_CALCULATOR_DISCOUNT_CODE
+
 
 async def _resolve_agent_id_for_create(
     user_repo: UserRepositoryInterface,
@@ -368,6 +376,8 @@ class CreateTransactionUseCase:
         base_commission = round(amount * float(commission.percentage) / 100, 2)
         coupon = None
         discount = 0.0
+        is_special = False
+        special_discount_percentage: Optional[float] = None
         if cmd.coupon_id:
             coupon = (await self._session.execute(
                 select(Coupon).where(Coupon.id == cmd.coupon_id, Coupon.deleted.is_(False)).with_for_update()
@@ -399,20 +409,56 @@ class CreateTransactionUseCase:
                     raise ValueError("Ya alcanzaste el límite de uso de este cupón")
             discount = round(min(base_commission * float(coupon.discount_percentage) / 100, base_commission), 2)
             coupon.used_count += 1
+        elif _is_special_calculator_code(cmd.coupon_discount_code):
+            # Calculadora especial: descuento de comisión manual, sin cupón real. Puede ser
+            # negativo (recargo). Se PERSISTE para que el monto especial sea correcto server-side
+            # y no dependa solo del navegador (sessionStorage).
+            is_special = True
+            discount = round(float(cmd.coupon_discount_commission or 0.0), 2)
+            special_discount_percentage = (
+                float(cmd.coupon_discount_percentage)
+                if cmd.coupon_discount_percentage is not None
+                else None
+            )
         effective_commission = round(base_commission - discount, 2)
+        # La comisión efectiva no puede superar el monto de origen (envío no negativo).
+        if effective_commission > amount:
+            effective_commission = amount
         total_to_send = round(amount - effective_commission, 2)
         destination_amount = round(total_to_send * float(tax_rate.tax), 2)
-        entity_data.update({
+        financials: dict = {
             "commission_result": effective_commission,
             "total_to_send": total_to_send,
             "destination_amount": destination_amount,
-            "coupon_discount_code": coupon.code if coupon else None,
-            "coupon_origin_amount": amount if coupon else None,
-            "coupon_destination_amount": destination_amount if coupon else None,
-            "coupon_discount_percentage": float(coupon.discount_percentage) if coupon else None,
-            "coupon_discount_commission": discount if coupon else None,
-            "coupon_discount_total_to_send": total_to_send if coupon else None,
-        })
+        }
+        if coupon:
+            financials.update({
+                "coupon_discount_code": coupon.code,
+                "coupon_origin_amount": amount,
+                "coupon_destination_amount": destination_amount,
+                "coupon_discount_percentage": float(coupon.discount_percentage),
+                "coupon_discount_commission": discount,
+                "coupon_discount_total_to_send": total_to_send,
+            })
+        elif is_special:
+            financials.update({
+                "coupon_discount_code": SPECIAL_CALCULATOR_DISCOUNT_CODE,
+                "coupon_origin_amount": amount,
+                "coupon_destination_amount": destination_amount,
+                "coupon_discount_percentage": special_discount_percentage,
+                "coupon_discount_commission": discount,
+                "coupon_discount_total_to_send": total_to_send,
+            })
+        else:
+            financials.update({
+                "coupon_discount_code": None,
+                "coupon_origin_amount": None,
+                "coupon_destination_amount": None,
+                "coupon_discount_percentage": None,
+                "coupon_discount_commission": None,
+                "coupon_discount_total_to_send": None,
+            })
+        entity_data.update(financials)
         return coupon
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:

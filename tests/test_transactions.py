@@ -180,6 +180,88 @@ async def test_create_transaction_use_case_keeps_explicit_agent_id(monkeypatch):
     assert captured["agent_id"] == explicit
 
 
+@pytest.mark.asyncio
+async def test_create_transaction_persists_special_calculator_discount(monkeypatch):
+    """La calculadora especial (código ESPECIAL) persiste el descuento y el monto especial."""
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock(return_value=[uuid4()])
+
+    tax = MagicMock()
+    tax.coin_a = Currency.pen
+    tax.coin_b = Currency.brl
+    tax.tax = 1.494
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+
+    commission = MagicMock()
+    commission.percentage = 3
+    commission.coin_a = Currency.pen
+    commission.coin_b = Currency.brl
+    commission.min_amount = 100
+    commission.max_amount = 50_000
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=commission)
+
+    captured: dict = {}
+
+    async def capture_add(entity):
+        captured["commission_result"] = entity.commission_result
+        captured["total_to_send"] = entity.total_to_send
+        captured["destination_amount"] = entity.destination_amount
+        captured["coupon_discount_code"] = entity.coupon_discount_code
+        captured["coupon_discount_commission"] = entity.coupon_discount_commission
+        captured["coupon_destination_amount"] = entity.coupon_destination_amount
+        captured["coupon_discount_total_to_send"] = entity.coupon_discount_total_to_send
+        return entity
+
+    txn_repo = AsyncMock()
+    txn_repo.add = AsyncMock(side_effect=capture_add)
+    txn_repo.commit = AsyncMock()
+    txn_repo.refresh = AsyncMock()
+    txn_repo.next_sequential_transaction_code = AsyncMock(return_value="PxB-TEST-ESP")
+
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    bank = MagicMock()
+    bank.bank = "Banco do Brasil - 001"
+    bank.company = "Empresa Y"
+    dest_acc = MagicMock()
+    dest_acc.bank_id = uuid4()
+    dest_acc.bank = bank
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=dest_acc)
+
+    session = AsyncMock()
+
+    uc = CreateTransactionUseCase(
+        txn_repo, tax_rate_repo, user_repo, bank_account_repo, commission_repo, session
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=1000.0,
+        destination_amount=1450.0,
+        code="",
+        coupon_discount_code="ESPECIAL",
+        coupon_discount_commission=0.55,
+        coupon_discount_percentage=1.83,
+    )
+    await uc.execute(cmd)
+
+    # base_commission = 1000 * 3% = 30; descuento especial 0.55 → comisión efectiva 29.45
+    assert captured["commission_result"] == 29.45
+    assert captured["total_to_send"] == 970.55
+    # destino = 970.55 * 1.494 ≈ 1450 (con la comisión descontada, no la base 1449.18)
+    assert captured["destination_amount"] == pytest.approx(1450.0, abs=0.01)
+    # el descuento especial queda PERSISTIDO (antes se anulaba a None)
+    assert captured["coupon_discount_code"] == "ESPECIAL"
+    assert captured["coupon_discount_commission"] == 0.55
+    assert captured["coupon_destination_amount"] == pytest.approx(1450.0, abs=0.01)
+    assert captured["coupon_discount_total_to_send"] == 970.55
+
+
 def test_post_transaction_json_minimal_payload(client):
     """POST /transactions/ con payload mínimo (campos requeridos) retorna 201."""
     payload = {
