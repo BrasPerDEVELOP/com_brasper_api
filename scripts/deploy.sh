@@ -1,24 +1,17 @@
 #!/bin/sh
-# Actualización segura en servidor: preserva media/ subida en disco.
+# Actualización segura en servidor con almacenamiento en Cloudflare R2.
 # Uso: ./scripts/deploy.sh
 
 set -e
 cd "$(dirname "$0")/.."
 
-echo ">>> Asegurando carpetas de media..."
-for dir in home_banner home_popup profile_images transaction_vouchers; do
-  mkdir -p "media/$dir"
+echo ">>> Verificando configuración R2 en .env..."
+for var in R2_ENDPOINT_URL R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET_NAME; do
+  if ! grep -q "^${var}=" .env; then
+    echo "ERROR: falta ${var} en .env"
+    exit 1
+  fi
 done
-
-if [ ! -f media/profile_images/placeholder.svg ]; then
-  echo "ERROR: falta media/profile_images/placeholder.svg"
-  exit 1
-fi
-
-if ! grep -q './media:/app/media' docker-compose.yml; then
-  echo "ERROR: docker-compose.yml debe montar ./media:/app/media"
-  exit 1
-fi
 
 echo ">>> Actualizando código..."
 git pull --ff-only
@@ -26,4 +19,4 @@ git pull --ff-only
 echo ">>> Reconstruyendo y reiniciando API..."
 docker compose up -d --build api
 
-echo ">>> Deploy completado. Media en disco: $(find media -type f | wc -l | tr -d ' ') archivos"
+echo ">>> Deploy completado. Archivos en Cloudflare R2 (bucket: $(grep '^R2_BUCKET_NAME=' .env | cut -d= -f2))."

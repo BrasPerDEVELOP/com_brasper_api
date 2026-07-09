@@ -7,7 +7,6 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.core.settings import get_settings
 
@@ -45,6 +44,11 @@ async def lifespan(app: FastAPI):
     logger.info("Iniciando aplicación Com Brasper API...")
     logger.info("=" * 70)
     
+    logger.info("Verificando conexión con Cloudflare R2...")
+    from app.shared.services.file_service import file_service
+
+    await file_service.verify_connection()
+    logger.info(f"✓ Cloudflare R2 conectado (bucket: {settings.R2_BUCKET_NAME})")
     logger.info("✓ Aplicación iniciada correctamente")
     logger.info("=" * 70)
     
@@ -118,12 +122,11 @@ app.add_middleware(
 )
 
 # Archivos estáticos (imágenes, etc.)
-from pathlib import Path
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import RedirectResponse, Response
 from fastapi import HTTPException
 import re
 
-_media_path = Path("media")
+from app.shared.services.file_service import file_service
 
 # Solo rutas sin subcarpeta: /media/profile_xxx.jpg (legacy)
 _PROFILE_SINGLE = re.compile(r"^profile_[a-zA-Z0-9\-]+\.(jpg|jpeg|png|webp|gif)$", re.I)
@@ -140,27 +143,32 @@ _PROFILE_PLACEHOLDER_SVG = (
 
 @app.get("/media/{file_path:path}")
 async def serve_media(file_path: str):
-    """Sirve archivos de media/. Fallback: profile_xxx.jpg → profile_images/ o placeholder."""
-    # Evitar path traversal
+    """Sirve archivos desde Cloudflare R2. Fallback: profile_xxx.jpg → profile_images/ o placeholder."""
     if ".." in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=404, detail="Not found")
-    # Fallback para profile_xxx.jpg en raíz (legacy)
+
+    if settings.R2_PUBLIC_URL:
+        key = file_path
+        if _PROFILE_SINGLE.match(file_path):
+            key = f"profile_images/{file_path}"
+        return RedirectResponse(settings.media_public_url(key), status_code=302)
+
+    candidates = [file_path]
     if _PROFILE_SINGLE.match(file_path):
-        for candidate in [
-            _media_path / "profile_images" / file_path,
-            _media_path / file_path,
-        ]:
-            if candidate.exists() and candidate.is_file():
-                return FileResponse(candidate)
-        # Imagen no existe: devolver placeholder (evita 404 en <img src>)
+        candidates = [f"profile_images/{file_path}", file_path]
+
+    for key in candidates:
+        result = await file_service.read_file(key)
+        if result:
+            content, media_type = result
+            return Response(content=content, media_type=media_type)
+
+    if _PROFILE_SINGLE.match(file_path):
         return Response(
             content=_PROFILE_PLACEHOLDER_SVG,
             media_type="image/svg+xml",
         )
-    # Ruta normal
-    full_path = _media_path / file_path
-    if full_path.exists() and full_path.is_file():
-        return FileResponse(full_path)
+
     raise HTTPException(status_code=404, detail="Not found")
 
 

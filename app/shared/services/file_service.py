@@ -1,10 +1,16 @@
-"""Servicio escalable para manejo de archivos (imágenes, documentos, etc.)."""
+"""Servicio de archivos en Cloudflare R2 (S3-compatible)."""
+import asyncio
+import mimetypes
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 import uuid
 
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import UploadFile
+
+from app.core.settings import get_settings
 
 
 class FileType(Enum):
@@ -30,7 +36,6 @@ class FileType(Enum):
     DATA_IMPORT = "data_import"
 
 
-# Extensiones permitidas para imágenes
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".odt"}
 ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS = (
@@ -39,12 +44,37 @@ ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS = (
 
 
 class FileService:
-    """Servicio escalable para archivos - preparado para aiofiles."""
+    """Almacenamiento de archivos en Cloudflare R2."""
 
-    def __init__(self, base_dir: str = "media", use_async_io: bool = False):
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.use_async_io = use_async_io
+    def __init__(self) -> None:
+        self._settings = get_settings()
+        self._s3_client = None
+
+    def _get_s3_client(self):
+        if self._s3_client is None:
+            settings = self._settings
+            self._s3_client = boto3.client(
+                "s3",
+                endpoint_url=settings.R2_ENDPOINT_URL,
+                aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+                region_name="auto",
+            )
+        return self._s3_client
+
+    def _guess_content_type(self, key: str) -> str:
+        content_type, _ = mimetypes.guess_type(key)
+        return content_type or "application/octet-stream"
+
+    async def verify_connection(self) -> None:
+        """Comprueba acceso al bucket R2 al iniciar la aplicación."""
+        client = self._get_s3_client()
+        bucket = self._settings.R2_BUCKET_NAME
+
+        def _head_bucket() -> None:
+            client.head_bucket(Bucket=bucket)
+
+        await asyncio.to_thread(_head_bucket)
 
     async def save_file(
         self,
@@ -54,10 +84,7 @@ class FileService:
         custom_prefix: Optional[str] = None,
         allowed_extensions: Optional[set] = None,
     ) -> str:
-        """Guarda archivo y retorna la ruta relativa."""
-        type_dir = self.base_dir / file_type.value
-        type_dir.mkdir(parents=True, exist_ok=True)
-
+        """Guarda archivo en R2 y retorna la key relativa (ej: profile_images/profile_xxx.jpg)."""
         file_extension = Path(original_filename).suffix.lower()
         if allowed_extensions and file_extension not in allowed_extensions:
             raise ValueError(
@@ -66,61 +93,108 @@ class FileService:
             )
 
         unique_id = uuid.uuid4().hex[:8]
-        filename = f"{custom_prefix}_{unique_id}{file_extension}" if custom_prefix else f"{unique_id}{file_extension}"
-        file_path = type_dir / filename
+        filename = (
+            f"{custom_prefix}_{unique_id}{file_extension}"
+            if custom_prefix
+            else f"{unique_id}{file_extension}"
+        )
+        key = f"{file_type.value}/{filename}"
+        await self._write_r2(key, file_content)
+        return key
 
-        await self._write_file(file_path, file_content)
-        # Retorna ruta relativa a media/ para URL: /media/{result}
-        relative = str(file_path.relative_to(self.base_dir)).replace("\\", "/")
-        return relative
+    async def _write_r2(self, key: str, content: bytes) -> None:
+        client = self._get_s3_client()
+        bucket = self._settings.R2_BUCKET_NAME
 
-    async def _write_file(self, file_path: Path, content: bytes) -> None:
-        """Método interno para escribir - fácil cambiar a aiofiles."""
-        with open(file_path, "wb") as f:
-            f.write(content)
+        def _put_object() -> None:
+            client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=content,
+                ContentType=self._guess_content_type(key),
+            )
+
+        await asyncio.to_thread(_put_object)
+
+    async def read_file(self, relative_path: str) -> Optional[tuple[bytes, str]]:
+        """Lee archivo por key relativa. Retorna (contenido, content_type) o None."""
+        client = self._get_s3_client()
+        bucket = self._settings.R2_BUCKET_NAME
+
+        def _get_object() -> Optional[tuple[bytes, str]]:
+            try:
+                response = client.get_object(Bucket=bucket, Key=relative_path)
+                body = response["Body"].read()
+                content_type = response.get("ContentType") or self._guess_content_type(relative_path)
+                return body, content_type
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+                    return None
+                raise
+
+        return await asyncio.to_thread(_get_object)
 
     async def delete_file(self, relative_path: str) -> bool:
-        """Elimina archivo por ruta relativa a media/ (ej: home_banner/xxx.jpg)."""
-        try:
-            full_path = self.base_dir / relative_path
-            if full_path.exists() and full_path.is_file():
-                full_path.unlink()
+        """Elimina archivo por key relativa (ej: home_banner/xxx.jpg)."""
+        client = self._get_s3_client()
+        bucket = self._settings.R2_BUCKET_NAME
+
+        def _delete_object() -> bool:
+            try:
+                client.delete_object(Bucket=bucket, Key=relative_path)
                 return True
-            return False
-        except Exception:
-            return False
+            except ClientError:
+                return False
+
+        return await asyncio.to_thread(_delete_object)
+
+    async def upload_local_file(self, local_path: Path, key: str) -> None:
+        """Sube un archivo del disco local a R2 (útil para migraciones)."""
+        content = await asyncio.to_thread(local_path.read_bytes)
+        await self._write_r2(key, content)
 
 
-file_service = FileService(base_dir="media", use_async_io=False)
+file_service = FileService()
 
 
-# ======================
-# Funciones para Home Banner
-# ======================
+async def save_upload_file(
+    upload_file: Optional[UploadFile],
+    file_type: FileType,
+    custom_prefix: Optional[str] = None,
+    allowed_extensions: Optional[set] = None,
+) -> Optional[str]:
+    """Guarda un UploadFile genérico en R2."""
+    if not upload_file:
+        return None
+
+    file_content = await upload_file.read()
+    if not file_content:
+        return None
+
+    return await file_service.save_file(
+        file_content=file_content,
+        original_filename=upload_file.filename or "file",
+        file_type=file_type,
+        custom_prefix=custom_prefix,
+        allowed_extensions=allowed_extensions,
+    )
+
 
 async def save_home_banner_image(
     banner_file: Optional[UploadFile],
     lang: str,
 ) -> Optional[str]:
     """Guarda imagen de banner home (es/pr/en)."""
-    if not banner_file:
-        return None
-
-    file_content = await banner_file.read()
-    if not file_content:
-        return None
-
-    ext = Path(banner_file.filename or "").suffix.lower()
-    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+    ext = Path(banner_file.filename or "").suffix.lower() if banner_file else ""
+    if banner_file and ext and ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise ValueError(
             f"Extensión '{ext}' no permitida para banner. "
             f"Permitidas: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
         )
 
     safe_lang = "".join(c for c in lang if c.isalnum() or c in "._-")[:5]
-    return await file_service.save_file(
-        file_content=file_content,
-        original_filename=banner_file.filename or "banner",
+    return await save_upload_file(
+        banner_file,
         file_type=FileType.HOME_BANNER,
         custom_prefix=f"banner_{safe_lang}",
         allowed_extensions=ALLOWED_IMAGE_EXTENSIONS,
@@ -134,33 +208,21 @@ async def delete_home_banner_image(image_path: Optional[str]) -> bool:
     return await file_service.delete_file(image_path)
 
 
-# ======================
-# Funciones para Home Popup
-# ======================
-
 async def save_home_popup_image(
     popup_file: Optional[UploadFile],
     lang: str,
 ) -> Optional[str]:
     """Guarda imagen de popup home (es/pr/en)."""
-    if not popup_file:
-        return None
-
-    file_content = await popup_file.read()
-    if not file_content:
-        return None
-
-    ext = Path(popup_file.filename or "").suffix.lower()
-    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+    ext = Path(popup_file.filename or "").suffix.lower() if popup_file else ""
+    if popup_file and ext and ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise ValueError(
             f"Extensión '{ext}' no permitida para popup. "
             f"Permitidas: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
         )
 
     safe_lang = "".join(c for c in lang if c.isalnum() or c in "._-")[:5]
-    return await file_service.save_file(
-        file_content=file_content,
-        original_filename=popup_file.filename or "popup",
+    return await save_upload_file(
+        popup_file,
         file_type=FileType.HOME_POPUP,
         custom_prefix=f"popup_{safe_lang}",
         allowed_extensions=ALLOWED_IMAGE_EXTENSIONS,
@@ -174,29 +236,17 @@ async def delete_home_popup_image(image_path: Optional[str]) -> bool:
     return await file_service.delete_file(image_path)
 
 
-# ======================
-# Funciones para Profile Image (usuario)
-# ======================
-
 async def save_profile_image(profile_file: Optional[UploadFile]) -> Optional[str]:
-    """Guarda imagen de perfil de usuario. Retorna ruta relativa (ej: profile_images/profile_xxx.jpg)."""
-    if not profile_file:
-        return None
-
-    file_content = await profile_file.read()
-    if not file_content:
-        return None
-
-    ext = Path(profile_file.filename or "").suffix.lower()
-    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+    """Guarda imagen de perfil de usuario. Retorna key relativa (ej: profile_images/profile_xxx.jpg)."""
+    ext = Path(profile_file.filename or "").suffix.lower() if profile_file else ""
+    if profile_file and ext and ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise ValueError(
             f"Extensión '{ext}' no permitida para imagen de perfil. "
             f"Permitidas: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
         )
 
-    return await file_service.save_file(
-        file_content=file_content,
-        original_filename=profile_file.filename or "profile",
+    return await save_upload_file(
+        profile_file,
         file_type=FileType.PROFILE_IMAGE,
         custom_prefix="profile",
         allowed_extensions=ALLOWED_IMAGE_EXTENSIONS,
@@ -210,20 +260,12 @@ async def delete_profile_image(image_path: Optional[str]) -> bool:
     return await file_service.delete_file(image_path)
 
 
-# ======================
-# Funciones para Transaction Voucher
-# ======================
-
 async def save_transaction_voucher(
     voucher_file: Optional[UploadFile],
     prefix: str = "voucher",
 ) -> Optional[str]:
-    """Guarda adjunto de transacción (voucher/checklist). Retorna ruta relativa."""
+    """Guarda adjunto de transacción (voucher/checklist). Retorna key relativa."""
     if not voucher_file or not voucher_file.filename:
-        return None
-
-    file_content = await voucher_file.read()
-    if not file_content:
         return None
 
     ext = Path(voucher_file.filename).suffix.lower()
@@ -233,9 +275,8 @@ async def save_transaction_voucher(
             f"Permitidas: {', '.join(sorted(ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS))}"
         )
 
-    return await file_service.save_file(
-        file_content=file_content,
-        original_filename=voucher_file.filename,
+    return await save_upload_file(
+        voucher_file,
         file_type=FileType.TRANSACTION_VOUCHER,
         custom_prefix=prefix,
         allowed_extensions=ALLOWED_TRANSACTION_ATTACHMENT_EXTENSIONS,
