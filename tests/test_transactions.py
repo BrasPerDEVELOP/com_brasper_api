@@ -9,11 +9,13 @@ from app.modules.coin.domain.enums import Currency
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
+    TransactionUpdateCmd,
     TransactionReadDTO,
 )
 from app.modules.transactions.application.use_cases import transaction_use_cases
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
     CreateTransactionUseCase,
+    UpdateTransactionUseCase,
 )
 from app.modules.users.domain.enums import UserRole
 
@@ -299,6 +301,113 @@ def test_put_transaction_json_accepts_operation_number_alias(
     updates = cmd.model_dump(exclude_unset=True)
 
     assert updates["operation_number"] == "OP-778899"
+
+
+def _build_update_uc(monkeypatch, dest_bank_company: str):
+    """Arma UpdateTransactionUseCase con repos mockeados; retorna (uc, entity, cmd_dest_id)."""
+    entity = MagicMock()
+    entity.checked = False  # corta sync_transaction_status_from_checklist antes de leer vouchers
+    entity.status = TransactionStatus.verification
+
+    txn_repo = AsyncMock()
+    txn_repo.get = AsyncMock(return_value=entity)
+    txn_repo.update = AsyncMock()
+    txn_repo.commit = AsyncMock()
+    txn_repo.refresh = AsyncMock()
+
+    bank = MagicMock()
+    bank.bank = "Banco do Brasil - 001"
+    bank.company = dest_bank_company
+    dest_acc = MagicMock()
+    dest_acc.bank_id = uuid4()
+    dest_acc.bank = bank
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=dest_acc)
+
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    uc = UpdateTransactionUseCase(txn_repo, bank_account_repo)
+    return uc, entity
+
+
+@pytest.mark.asyncio
+async def test_update_keeps_explicit_company_name_over_destination_snapshot(monkeypatch):
+    """UpdateTransactionUseCase: la razón social enviada gana sobre el snapshot de la cuenta destino."""
+    uc, entity = _build_update_uc(monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda")
+
+    cmd = TransactionUpdateCmd(
+        id=uuid4(),
+        bank_account_destination=uuid4(),  # el front reenvía la cuenta destino aunque no cambie
+        company_name="INGENITECH S.A.C",
+    )
+    await uc.execute(cmd)
+
+    assert entity.company_name == "INGENITECH S.A.C"
+
+
+@pytest.mark.asyncio
+async def test_update_derives_company_name_from_destination_when_absent(monkeypatch):
+    """UpdateTransactionUseCase: sin company_name explícito, se deriva del banco de la cuenta destino."""
+    uc, entity = _build_update_uc(monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda")
+
+    cmd = TransactionUpdateCmd(
+        id=uuid4(),
+        bank_account_destination=uuid4(),
+    )
+    await uc.execute(cmd)
+
+    assert entity.company_name == "Brasper 21 Corretora De Cambio Ltda"
+
+
+def test_put_transaction_json_accepts_company_name(client, mock_update_transaction_uc):
+    """PUT /transactions/ (JSON) parsea company_name en el cmd de actualización."""
+    response = client.put(
+        "/transactions/",
+        json={
+            "id": str(uuid4()),
+            "company_name": "INGENITECH S.A.C",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+    assert updates["company_name"] == "INGENITECH S.A.C"
+
+
+def test_put_transaction_multipart_accepts_company_name(
+    client, mock_update_transaction_uc, monkeypatch
+):
+    """PUT /transactions/ (multipart, al subir comprobante) parsea company_name."""
+
+    async def fake_save_transaction_voucher(file, prefix):
+        return f"transaction_vouchers/{prefix}_new.jpeg"
+
+    transaction_routes = importlib.import_module(
+        "app.modules.transactions.adapters.router.transaction_routes"
+    )
+    monkeypatch.setattr(
+        transaction_routes,
+        "save_transaction_voucher",
+        fake_save_transaction_voucher,
+    )
+
+    response = client.put(
+        "/transactions/",
+        data={
+            "id": str(uuid4()),
+            "company_name": "INGENITECH S.A.C",
+        },
+        files={
+            "send_voucher": ("send.jpeg", b"fake-image", "image/jpeg"),
+        },
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+    assert updates["company_name"] == "INGENITECH S.A.C"
 
 
 def test_put_transaction_multipart_accepts_pdf_checked_image(

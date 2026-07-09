@@ -509,7 +509,10 @@ class UpdateTransactionUseCase:
             )
             updates["bank_id"] = snap.get("bank_id")
             updates["bank_name"] = snap.get("bank_name")
-            updates["company_name"] = snap.get("company_name")
+            # Respeta la razón social enviada explícitamente (igual que en create);
+            # solo se deriva de la cuenta destino cuando el request no la trae.
+            if updates.get("company_name") is None:
+                updates["company_name"] = snap.get("company_name")
 
         for attr, value in updates.items():
             setattr(entity, attr, value)

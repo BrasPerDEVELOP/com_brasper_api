@@ -349,6 +349,9 @@ class TransactionUpdateCmd(BaseModel):
     id: UUID
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: Optional[UUID] = None
+    # Razón social (snapshot editable). bank_id/bank_name siguen a la cuenta destino,
+    # pero company_name puede elegirse libremente, igual que en create.
+    company_name: Optional[str] = None
     user_id: Optional[UUID] = None
     agent_id: Optional[UUID] = None
     tax_rate_id: Optional[UUID] = None
@@ -396,6 +399,7 @@ class TransactionUpdateCmd(BaseModel):
         id: str = Form(..., description="UUID de la transacción"),
         bank_account_origin: Optional[str] = Form(None),
         bank_account_destination: Optional[str] = Form(None),
+        company_name: Optional[str] = Form(None),
         user_id: Optional[str] = Form(None),
         agent_id: Optional[str] = Form(None),
         tax_rate_id: Optional[str] = Form(None),
@@ -435,6 +439,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(bank_account_origin)
         if _field_present(bank_account_destination):
             payload["bank_account_destination"] = _parse_optional_uuid(bank_account_destination)
+        if _field_present(company_name):
+            payload["company_name"] = company_name.strip() if company_name and company_name.strip() else None
         if _field_present(user_id):
             payload["user_id"] = _parse_optional_uuid(user_id)
         if _field_present(agent_id):
@@ -515,6 +521,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(_get("bank_account_origin"))
         if "bank_account_destination" in form:
             payload["bank_account_destination"] = _parse_optional_uuid(_get("bank_account_destination"))
+        if "company_name" in form:
+            payload["company_name"] = str(_get("company_name") or "").strip() or None
         if "user_id" in form:
             payload["user_id"] = _parse_optional_uuid(_get("user_id"))
         if "agent_id" in form:
