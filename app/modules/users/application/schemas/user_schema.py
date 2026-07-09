@@ -1,12 +1,13 @@
 from datetime import datetime
 from fastapi import File, Form, UploadFile
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer
 from uuid import UUID
 from typing import Optional
 
 from app.modules.auth.application.schemas.auth_schema import AuthCreateCmd
 from app.modules.auth.domain.permissions import default_permissions_for_role
 from app.modules.users.domain.enums import UserRole, DocumentType, PhoneCode
+from app.shared.media import to_media_url
 
 # Máximo 15 dígitos para teléfono
 phone_max_digits = 999_999_999_999_999
@@ -169,6 +170,10 @@ class UserReadDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer("profile_image")
+    def _serialize_profile_media(self, value, _info):
+        return to_media_url(value)
+
     @model_validator(mode="after")
     def set_defaults_when_null(self):
         if self.profile_image is None:
@@ -206,6 +211,10 @@ class UserReadGeneralDTO(BaseModel):
     must_change_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("profile_image")
+    def _serialize_profile_media(self, value, _info):
+        return to_media_url(value)
 
     @model_validator(mode="after")
     def set_defaults_when_null(self):

@@ -4,10 +4,11 @@ from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import File, Form, UploadFile
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
 
 from app.modules.transactions.domain.enums import AccountFlowType, BankCountry, SocialActor, TransactionStatus
 from app.modules.users.domain.enums import UserRole
+from app.shared.media import to_media_url, to_media_urls
 
 
 
@@ -660,6 +661,14 @@ class TransactionReadDTO(BaseModel):
     user: TransactionUserRef
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("send_voucher", "payment_voucher", "checked_image")
+    def _serialize_voucher_media(self, value, _info):
+        return to_media_url(value)
+
+    @field_serializer("send_vouchers", "payment_vouchers", "checked_images")
+    def _serialize_voucher_media_lists(self, value, _info):
+        return to_media_urls(value)
 
     @field_validator("send_vouchers", "payment_vouchers", "checked_images", mode="before")
     @classmethod

@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.shared.media import to_media_url
 
 
 class HomeBannerCreateCmd(BaseModel):
@@ -31,3 +33,7 @@ class HomeBannerReadDTO(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("banner_es", "banner_pr", "banner_en")
+    def _serialize_banner_media(self, value, _info):
+        return to_media_url(value)

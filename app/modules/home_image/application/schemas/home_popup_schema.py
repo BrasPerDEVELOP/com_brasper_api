@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.shared.media import to_media_url
 
 
 class HomePopupCreateCmd(BaseModel):
@@ -31,3 +33,7 @@ class HomePopupReadDTO(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("popup_es", "popup_pr", "popup_en")
+    def _serialize_popup_media(self, value, _info):
+        return to_media_url(value)
