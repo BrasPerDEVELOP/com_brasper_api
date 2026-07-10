@@ -32,6 +32,7 @@ from app.modules.transactions.interfaces.transaction_repository import (
 from app.modules.transactions.interfaces.bank_account_repository import (
     BankAccountRepositoryInterface,
 )
+from app.modules.transactions.interfaces.bank_repository import BankRepositoryInterface
 from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
@@ -233,6 +234,22 @@ async def _hydrate_bank_snapshot_from_destination(
         entity_data["company_name"] = b.company
 
 
+async def _hydrate_social_reason_snapshot(
+    bank_repo: BankRepositoryInterface,
+    *,
+    social_reason_bank_id: UUID,
+    entity_data: dict,
+) -> None:
+    """Valida y persiste la razón social exacta elegida por su banco."""
+    bank = await bank_repo.get(social_reason_bank_id)
+    if not bank:
+        raise ValueError(
+            f"No existe banco de razón social con id {social_reason_bank_id}"
+        )
+    entity_data["social_reason_bank_id"] = social_reason_bank_id
+    entity_data["company_name"] = bank.company
+
+
 def _drop_null_voucher_paths_unless_remove(
     updates: dict,
     remove_send: bool,
@@ -347,6 +364,7 @@ class CreateTransactionUseCase:
         tax_rate_repo: TaxRateRepositoryInterface,
         user_repo: UserRepositoryInterface,
         bank_account_repo: BankAccountRepositoryInterface,
+        bank_repo: BankRepositoryInterface,
         commission_repo: Optional[CommissionRepositoryInterface] = None,
         session: Optional[AsyncSession] = None,
     ):
@@ -354,6 +372,7 @@ class CreateTransactionUseCase:
         self._tax_rate_repo = tax_rate_repo
         self._user_repo = user_repo
         self._bank_account_repo = bank_account_repo
+        self._bank_repo = bank_repo
         self._commission_repo = commission_repo
         self._session = session
 
@@ -473,16 +492,24 @@ class CreateTransactionUseCase:
             entity_data=entity_data,
         )
         reserved_bank_id = entity_data.get("bank_id")
-        bank_overrides = cmd.model_dump(
+        requested_bank_data = cmd.model_dump(
             exclude_unset=True,
-            include={"bank_id", "bank_name", "company_name"},
+            include={"bank_id", "company_name", "social_reason_bank_id"},
         )
-        if bank_overrides.get("bank_id") is not None:
-            if bank_overrides["bank_id"] != reserved_bank_id:
+        if requested_bank_data.get("bank_id") is not None:
+            if requested_bank_data["bank_id"] != reserved_bank_id:
                 raise ValueError("bank_id no coincide con el banco de la cuenta destino")
-        for key, val in bank_overrides.items():
-            if val is not None:
-                entity_data[key] = val
+
+        social_reason_bank_id = requested_bank_data.get("social_reason_bank_id")
+        if social_reason_bank_id is not None:
+            await _hydrate_social_reason_snapshot(
+                self._bank_repo,
+                social_reason_bank_id=social_reason_bank_id,
+                entity_data=entity_data,
+            )
+        elif requested_bank_data.get("company_name") is not None:
+            # Compatibilidad temporal con clientes anteriores al campo FK.
+            entity_data["company_name"] = requested_bank_data["company_name"]
         tax_rate = await self._tax_rate_repo.get(cmd.tax_rate_id)
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
@@ -512,9 +539,11 @@ class UpdateTransactionUseCase:
         self,
         repo: TransactionRepositoryInterface,
         bank_account_repo: BankAccountRepositoryInterface,
+        bank_repo: BankRepositoryInterface,
     ):
         self.repo = repo
         self._bank_account_repo = bank_account_repo
+        self._bank_repo = bank_repo
 
     async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
@@ -545,20 +574,57 @@ class UpdateTransactionUseCase:
 
         _append_voucher_updates(entity, updates)
 
+        fields_set = cmd.model_fields_set
+        social_reason_was_sent = "social_reason_bank_id" in fields_set
+        company_name_was_sent = "company_name" in fields_set
         dest_id = updates.get("bank_account_destination_id")
+        destination_snapshot: dict = {}
         if dest_id is not None:
-            snap: dict = {}
             await _hydrate_bank_snapshot_from_destination(
                 self._bank_account_repo,
                 bank_account_destination_id=dest_id,
-                entity_data=snap,
+                entity_data=destination_snapshot,
             )
-            updates["bank_id"] = snap.get("bank_id")
-            updates["bank_name"] = snap.get("bank_name")
-            # Respeta la razón social enviada explícitamente (igual que en create);
-            # solo se deriva de la cuenta destino cuando el request no la trae.
-            if updates.get("company_name") is None:
-                updates["company_name"] = snap.get("company_name")
+            updates["bank_id"] = destination_snapshot.get("bank_id")
+            updates["bank_name"] = destination_snapshot.get("bank_name")
+
+            # Compatibilidad para registros legacy: si aún no tienen una FK de
+            # razón social, conservan el comportamiento histórico al cambiar la
+            # cuenta destino. Una selección persistida nunca se sobrescribe.
+            if (
+                not social_reason_was_sent
+                and not company_name_was_sent
+                and entity.social_reason_bank_id is None
+            ):
+                updates["company_name"] = destination_snapshot.get("company_name")
+
+        if social_reason_was_sent:
+            social_reason_bank_id = updates.get("social_reason_bank_id")
+            if social_reason_bank_id is not None:
+                await _hydrate_social_reason_snapshot(
+                    self._bank_repo,
+                    social_reason_bank_id=social_reason_bank_id,
+                    entity_data=updates,
+                )
+            elif not company_name_was_sent:
+                # Al limpiar una selección, deja un snapshot legacy coherente con
+                # la cuenta destino aunque esta no venga repetida en el request.
+                if not destination_snapshot:
+                    await _hydrate_bank_snapshot_from_destination(
+                        self._bank_account_repo,
+                        bank_account_destination_id=entity.bank_account_destination_id,
+                        entity_data=destination_snapshot,
+                    )
+                updates["company_name"] = destination_snapshot.get("company_name")
+        elif entity.social_reason_bank_id is not None:
+            # Un cliente antiguo puede reenviar `company_name` sin conocer el FK.
+            # Mientras exista una selección exacta, el banco persistido es la fuente
+            # autoritativa y evita que ese snapshot quede desincronizado.
+            await _hydrate_social_reason_snapshot(
+                self._bank_repo,
+                social_reason_bank_id=entity.social_reason_bank_id,
+                entity_data=updates,
+            )
 
         for attr, value in updates.items():
             setattr(entity, attr, value)

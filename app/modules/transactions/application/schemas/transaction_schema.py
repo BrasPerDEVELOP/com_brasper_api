@@ -105,6 +105,7 @@ class TransactionCreateCmd(BaseModel):
                 "commission_result": 5.0,
                 "total_to_send": 100.0,
                 "bank_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "social_reason_bank_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                 "bank_name": "Banco ejemplo",
                 "company_name": "Empresa ejemplo",
                 "coupon_discount_code": "SUMMER10",
@@ -141,6 +142,10 @@ class TransactionCreateCmd(BaseModel):
     bank_id: Optional[UUID] = Field(
         default=None,
         description="Opcional; debe coincidir con el banco de la cuenta destino. Si se omite, se asigna desde el servidor.",
+    )
+    social_reason_bank_id: Optional[UUID] = Field(
+        default=None,
+        description="Banco exacto elegido como razón social; el servidor deriva company_name desde este banco.",
     )
     bank_name: Optional[str] = Field(
         default=None,
@@ -203,6 +208,7 @@ class TransactionCreateCmd(BaseModel):
         tax_rate_id: str = Form(..., description="UUID de tasa"),
         commission_id: str = Form(..., description="UUID de comisión"),
         bank_id: Optional[str] = Form(None, description="UUID del banco (opcional; debe coincidir con cuenta destino)"),
+        social_reason_bank_id: Optional[str] = Form(None, description="UUID del banco elegido como razón social"),
         bank_name: Optional[str] = Form(None, description="Nombre del banco (opcional; snapshot)"),
         company_name: Optional[str] = Form(None, description="Nombre de empresa (opcional; snapshot)"),
         status: str = Form(
@@ -243,6 +249,7 @@ class TransactionCreateCmd(BaseModel):
             tax_rate_id=UUID(tax_rate_id),
             commission_id=UUID(commission_id),
             bank_id=_parse_optional_uuid(bank_id),
+            social_reason_bank_id=_parse_optional_uuid(social_reason_bank_id),
             bank_name=bank_name.strip() if bank_name and bank_name.strip() else None,
             company_name=company_name.strip() if company_name and company_name.strip() else None,
             status=TransactionStatus(status) if status else TransactionStatus.verification,
@@ -299,6 +306,7 @@ class TransactionCreateCmd(BaseModel):
             tax_rate_id=UUID(_get("tax_rate_id", "")),
             commission_id=UUID(_get("commission_id", "")),
             bank_id=_parse_optional_uuid(_get("bank_id")),
+            social_reason_bank_id=_parse_optional_uuid(_get("social_reason_bank_id")),
             bank_name=(
                 str(_get("bank_name") or "").strip() or None
             ),
@@ -350,8 +358,9 @@ class TransactionUpdateCmd(BaseModel):
     id: UUID
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: Optional[UUID] = None
-    # Razón social (snapshot editable). bank_id/bank_name siguen a la cuenta destino,
-    # pero company_name puede elegirse libremente, igual que en create.
+    # bank_id/bank_name siguen a la cuenta destino; la razón social se identifica
+    # de forma independiente y company_name se deriva del banco seleccionado.
+    social_reason_bank_id: Optional[UUID] = None
     company_name: Optional[str] = None
     user_id: Optional[UUID] = None
     agent_id: Optional[UUID] = None
@@ -400,6 +409,7 @@ class TransactionUpdateCmd(BaseModel):
         id: str = Form(..., description="UUID de la transacción"),
         bank_account_origin: Optional[str] = Form(None),
         bank_account_destination: Optional[str] = Form(None),
+        social_reason_bank_id: Optional[str] = Form(None),
         company_name: Optional[str] = Form(None),
         user_id: Optional[str] = Form(None),
         agent_id: Optional[str] = Form(None),
@@ -440,6 +450,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(bank_account_origin)
         if _field_present(bank_account_destination):
             payload["bank_account_destination"] = _parse_optional_uuid(bank_account_destination)
+        if _field_present(social_reason_bank_id):
+            payload["social_reason_bank_id"] = _parse_optional_uuid(social_reason_bank_id)
         if _field_present(company_name):
             payload["company_name"] = company_name.strip() if company_name and company_name.strip() else None
         if _field_present(user_id):
@@ -522,6 +534,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(_get("bank_account_origin"))
         if "bank_account_destination" in form:
             payload["bank_account_destination"] = _parse_optional_uuid(_get("bank_account_destination"))
+        if "social_reason_bank_id" in form:
+            payload["social_reason_bank_id"] = _parse_optional_uuid(_get("social_reason_bank_id"))
         if "company_name" in form:
             payload["company_name"] = str(_get("company_name") or "").strip() or None
         if "user_id" in form:
@@ -625,6 +639,7 @@ class TransactionReadDTO(BaseModel):
     bank_account_origin_id: Optional[UUID] = None
     bank_account_destination_id: UUID
     bank_id: Optional[UUID] = None
+    social_reason_bank_id: Optional[UUID] = None
     bank_name: Optional[str] = None
     company_name: Optional[str] = None
     user_id: UUID

@@ -215,6 +215,7 @@ def _make_use_case(db: FakeCouponDB, *, user_id, commission, tax_rate, code):
         tax_rate_repo=tax_rate_repo,
         user_repo=user_repo,
         bank_account_repo=bank_account_repo,
+        bank_repo=MagicMock(),
         commission_repo=commission_repo,
         session=session,
     )

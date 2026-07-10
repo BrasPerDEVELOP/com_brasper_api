@@ -62,6 +62,12 @@ def get_bank_account_repository(
     return SQLAlchemyBankAccountRepository(db)
 
 
+def get_bank_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> BankRepositoryInterface:
+    return SQLAlchemyBankRepository(db)
+
+
 def get_transaction_by_id_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
 ) -> GetTransactionByIdUseCase:
@@ -89,10 +95,19 @@ def create_transaction_uc(
     bank_account_repo: Annotated[
         BankAccountRepositoryInterface, Depends(get_bank_account_repository)
     ],
+    bank_repo: Annotated[BankRepositoryInterface, Depends(get_bank_repository)],
     commission_repo: Annotated[CommissionRepositoryInterface, Depends(get_commission_repository)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CreateTransactionUseCase:
-    return CreateTransactionUseCase(repo, tax_rate_repo, user_repo, bank_account_repo, commission_repo, db)
+    return CreateTransactionUseCase(
+        repo=repo,
+        tax_rate_repo=tax_rate_repo,
+        user_repo=user_repo,
+        bank_account_repo=bank_account_repo,
+        bank_repo=bank_repo,
+        commission_repo=commission_repo,
+        session=db,
+    )
 
 
 def update_transaction_uc(
@@ -100,8 +115,9 @@ def update_transaction_uc(
     bank_account_repo: Annotated[
         BankAccountRepositoryInterface, Depends(get_bank_account_repository)
     ],
+    bank_repo: Annotated[BankRepositoryInterface, Depends(get_bank_repository)],
 ) -> UpdateTransactionUseCase:
-    return UpdateTransactionUseCase(repo, bank_account_repo)
+    return UpdateTransactionUseCase(repo, bank_account_repo, bank_repo)
 
 
 def delete_transaction_uc(
@@ -120,12 +136,6 @@ DeleteTransactionUseCaseDep = Annotated[DeleteTransactionUseCase, Depends(delete
 
 
 # Bank
-def get_bank_repository(
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> BankRepositoryInterface:
-    return SQLAlchemyBankRepository(db)
-
-
 def get_bank_by_id_uc(
     repo: Annotated[BankRepositoryInterface, Depends(get_bank_repository)],
 ) -> GetBankByIdUseCase:

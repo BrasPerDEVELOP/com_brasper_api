@@ -21,7 +21,11 @@ from app.shared.model_base import ORMBaseModel
 
 
 class Transaction(ORMBaseModel):
-    """Transacción: cuentas origen/destino, user, agent, tax_rate, commission, montos, code, fechas, vouchers; bank_id y snapshot bank_name/company_name del Bank de la cuenta destino."""
+    """Transacción con bancos independientes para destino y razón social.
+
+    ``bank_id``/``bank_name`` identifican el banco de la cuenta destino, mientras
+    ``social_reason_bank_id``/``company_name`` conservan la razón social elegida.
+    """
     __tablename__ = "transactions"
     __table_args__ = {"schema": "transaction"}
 
@@ -63,6 +67,12 @@ class Transaction(ORMBaseModel):
         index=True,
     )
     bank_id: Mapped[Optional[UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.banks.id"),
+        nullable=True,
+        index=True,
+    )
+    social_reason_bank_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("transaction.banks.id"),
         nullable=True,
@@ -147,6 +157,12 @@ class Transaction(ORMBaseModel):
         back_populates="transactions",
         lazy="noload",
     )
+    social_reason_bank: Mapped[Optional["Bank"]] = relationship(
+        "Bank",
+        foreign_keys=[social_reason_bank_id],
+        back_populates="social_reason_transactions",
+        lazy="noload",
+    )
 
 
 class Bank(ORMBaseModel):
@@ -176,6 +192,12 @@ class Bank(ORMBaseModel):
         "Transaction",
         foreign_keys="[Transaction.bank_id]",
         back_populates="bank",
+        lazy="noload",
+    )
+    social_reason_transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        foreign_keys="[Transaction.social_reason_bank_id]",
+        back_populates="social_reason_bank",
         lazy="noload",
     )
 

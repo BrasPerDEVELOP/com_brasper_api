@@ -108,8 +108,11 @@ async def test_create_transaction_use_case_assigns_agent_from_admin_sales_pool(m
     dest_acc.bank = bank
     bank_account_repo = AsyncMock()
     bank_account_repo.get = AsyncMock(return_value=dest_acc)
+    bank_repo = AsyncMock()
 
-    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo, bank_account_repo)
+    uc = CreateTransactionUseCase(
+        txn_repo, tax_rate_repo, user_repo, bank_account_repo, bank_repo
+    )
     cmd = TransactionCreateCmd(
         bank_account_destination=uuid4(),
         user_id=uuid4(),
@@ -162,8 +165,11 @@ async def test_create_transaction_use_case_keeps_explicit_agent_id(monkeypatch):
     dest_acc.bank = bank
     bank_account_repo = AsyncMock()
     bank_account_repo.get = AsyncMock(return_value=dest_acc)
+    bank_repo = AsyncMock()
 
-    uc = CreateTransactionUseCase(txn_repo, tax_rate_repo, user_repo, bank_account_repo)
+    uc = CreateTransactionUseCase(
+        txn_repo, tax_rate_repo, user_repo, bank_account_repo, bank_repo
+    )
     cmd = TransactionCreateCmd(
         bank_account_destination=uuid4(),
         user_id=uuid4(),
@@ -178,6 +184,78 @@ async def test_create_transaction_use_case_keeps_explicit_agent_id(monkeypatch):
 
     user_repo.list_ids_by_roles.assert_not_called()
     assert captured["agent_id"] == explicit
+
+
+@pytest.mark.asyncio
+async def test_create_persists_exact_social_reason_bank_and_server_snapshots(monkeypatch):
+    """La razón social usa su FK, sin reemplazar el banco de la cuenta destino."""
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock(return_value=[uuid4()])
+
+    tax = MagicMock(coin_a=Currency.brl, coin_b=Currency.pen)
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+
+    destination_bank_id = uuid4()
+    destination_bank = MagicMock(
+        bank="BCP",
+        company="Empresa de cuenta destino",
+    )
+    destination_account = MagicMock(
+        bank_id=destination_bank_id,
+        bank=destination_bank,
+    )
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=destination_account)
+
+    selected_social_reason_bank_id = uuid4()
+    selected_social_reason_bank = MagicMock(
+        bank="Santander",
+        company="Brasper 21",
+    )
+    bank_repo = AsyncMock()
+    bank_repo.get = AsyncMock(return_value=selected_social_reason_bank)
+
+    captured: dict = {}
+
+    async def capture_add(entity):
+        captured["entity"] = entity
+        return entity
+
+    txn_repo = AsyncMock()
+    txn_repo.add = AsyncMock(side_effect=capture_add)
+    txn_repo.commit = AsyncMock()
+    txn_repo.refresh = AsyncMock()
+    txn_repo.next_sequential_transaction_code = AsyncMock(return_value="BxP-TEST-001")
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    uc = CreateTransactionUseCase(
+        txn_repo,
+        tax_rate_repo,
+        user_repo,
+        bank_account_repo,
+        bank_repo,
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        social_reason_bank_id=selected_social_reason_bank_id,
+        bank_name="Nombre manipulable que debe ignorarse",
+        company_name="Empresa manipulable que debe ignorarse",
+        origin_amount=1000.0,
+        destination_amount=630.0,
+    )
+
+    await uc.execute(cmd)
+
+    entity = captured["entity"]
+    assert entity.bank_id == destination_bank_id
+    assert entity.bank_name == "BCP"
+    assert entity.social_reason_bank_id == selected_social_reason_bank_id
+    assert entity.company_name == "Brasper 21"
+    bank_repo.get.assert_awaited_once_with(selected_social_reason_bank_id)
 
 
 @pytest.mark.asyncio
@@ -230,11 +308,18 @@ async def test_create_transaction_persists_special_calculator_discount(monkeypat
     dest_acc.bank = bank
     bank_account_repo = AsyncMock()
     bank_account_repo.get = AsyncMock(return_value=dest_acc)
+    bank_repo = AsyncMock()
 
     session = AsyncMock()
 
     uc = CreateTransactionUseCase(
-        txn_repo, tax_rate_repo, user_repo, bank_account_repo, commission_repo, session
+        txn_repo,
+        tax_rate_repo,
+        user_repo,
+        bank_account_repo,
+        bank_repo,
+        commission_repo,
+        session,
     )
     cmd = TransactionCreateCmd(
         bank_account_destination=uuid4(),
@@ -279,6 +364,57 @@ def test_post_transaction_json_minimal_payload(client):
     data = response.json()
     assert "id" in data
     assert "code" in data
+
+
+def test_post_transaction_json_accepts_social_reason_bank_id(
+    client, mock_create_transaction_uc, valid_transaction_payload
+):
+    selected_id = uuid4()
+    response = client.post(
+        "/transactions/",
+        json={
+            **valid_transaction_payload,
+            "social_reason_bank_id": str(selected_id),
+        },
+    )
+
+    assert response.status_code == 201
+    cmd = mock_create_transaction_uc.execute.await_args.args[0]
+    assert cmd.social_reason_bank_id == selected_id
+
+
+def test_post_transaction_multipart_accepts_social_reason_bank_id(
+    client, mock_create_transaction_uc, monkeypatch
+):
+    async def fake_save_transaction_voucher(file, prefix):
+        return f"transaction_vouchers/{prefix}_new.jpeg"
+
+    transaction_routes = importlib.import_module(
+        "app.modules.transactions.adapters.router.transaction_routes"
+    )
+    monkeypatch.setattr(
+        transaction_routes,
+        "save_transaction_voucher",
+        fake_save_transaction_voucher,
+    )
+    selected_id = uuid4()
+    response = client.post(
+        "/transactions/",
+        data={
+            "bank_account_destination": str(uuid4()),
+            "user_id": str(uuid4()),
+            "tax_rate_id": str(uuid4()),
+            "commission_id": str(uuid4()),
+            "social_reason_bank_id": str(selected_id),
+            "origin_amount": "1000",
+            "destination_amount": "630",
+        },
+        files={"send_voucher": ("send.jpeg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 201
+    cmd = mock_create_transaction_uc.execute.await_args.args[0]
+    assert cmd.social_reason_bank_id == selected_id
 
 
 def test_post_transaction_json_invalid_uuid_returns_error(client):
@@ -390,6 +526,8 @@ def _build_update_uc(monkeypatch, dest_bank_company: str):
     entity = MagicMock()
     entity.checked = False  # corta sync_transaction_status_from_checklist antes de leer vouchers
     entity.status = TransactionStatus.verification
+    entity.social_reason_bank_id = None
+    entity.bank_account_destination_id = uuid4()
 
     txn_repo = AsyncMock()
     txn_repo.get = AsyncMock(return_value=entity)
@@ -405,17 +543,20 @@ def _build_update_uc(monkeypatch, dest_bank_company: str):
     dest_acc.bank = bank
     bank_account_repo = AsyncMock()
     bank_account_repo.get = AsyncMock(return_value=dest_acc)
+    bank_repo = AsyncMock()
 
     monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
 
-    uc = UpdateTransactionUseCase(txn_repo, bank_account_repo)
-    return uc, entity
+    uc = UpdateTransactionUseCase(txn_repo, bank_account_repo, bank_repo)
+    return uc, entity, bank_repo
 
 
 @pytest.mark.asyncio
 async def test_update_keeps_explicit_company_name_over_destination_snapshot(monkeypatch):
     """UpdateTransactionUseCase: la razón social enviada gana sobre el snapshot de la cuenta destino."""
-    uc, entity = _build_update_uc(monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda")
+    uc, entity, _ = _build_update_uc(
+        monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda"
+    )
 
     cmd = TransactionUpdateCmd(
         id=uuid4(),
@@ -430,7 +571,9 @@ async def test_update_keeps_explicit_company_name_over_destination_snapshot(monk
 @pytest.mark.asyncio
 async def test_update_derives_company_name_from_destination_when_absent(monkeypatch):
     """UpdateTransactionUseCase: sin company_name explícito, se deriva del banco de la cuenta destino."""
-    uc, entity = _build_update_uc(monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda")
+    uc, entity, _ = _build_update_uc(
+        monkeypatch, dest_bank_company="Brasper 21 Corretora De Cambio Ltda"
+    )
 
     cmd = TransactionUpdateCmd(
         id=uuid4(),
@@ -439,6 +582,137 @@ async def test_update_derives_company_name_from_destination_when_absent(monkeypa
     await uc.execute(cmd)
 
     assert entity.company_name == "Brasper 21 Corretora De Cambio Ltda"
+
+
+@pytest.mark.asyncio
+async def test_update_persists_exact_social_reason_bank_and_derives_company(monkeypatch):
+    uc, entity, bank_repo = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    selected_id = uuid4()
+    bank_repo.get = AsyncMock(
+        return_value=MagicMock(bank="Santander", company="Brasper 21")
+    )
+
+    cmd = TransactionUpdateCmd(
+        id=uuid4(),
+        bank_account_destination=uuid4(),
+        social_reason_bank_id=selected_id,
+        company_name="Nombre incorrecto enviado por el cliente",
+    )
+    await uc.execute(cmd)
+
+    assert entity.social_reason_bank_id == selected_id
+    assert entity.company_name == "Brasper 21"
+    assert entity.bank_name == "Banco do Brasil - 001"
+    bank_repo.get.assert_awaited_once_with(selected_id)
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_nonexistent_social_reason_bank(monkeypatch):
+    uc, _, bank_repo = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    selected_id = uuid4()
+    bank_repo.get = AsyncMock(return_value=None)
+
+    with pytest.raises(
+        ValueError,
+        match=f"No existe banco de razón social con id {selected_id}",
+    ):
+        await uc.execute(
+            TransactionUpdateCmd(
+                id=uuid4(),
+                social_reason_bank_id=selected_id,
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_clear_social_reason_restores_destination_company(monkeypatch):
+    uc, entity, _ = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    entity.social_reason_bank_id = uuid4()
+
+    await uc.execute(
+        TransactionUpdateCmd(
+            id=uuid4(),
+            social_reason_bank_id=None,
+        )
+    )
+
+    assert entity.social_reason_bank_id is None
+    assert entity.company_name == "Empresa de cuenta destino"
+
+
+@pytest.mark.asyncio
+async def test_update_existing_social_reason_id_wins_over_legacy_company_name(monkeypatch):
+    uc, entity, bank_repo = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    selected_id = uuid4()
+    entity.social_reason_bank_id = selected_id
+    bank_repo.get = AsyncMock(
+        return_value=MagicMock(bank="Santander", company="Brasper 21")
+    )
+
+    await uc.execute(
+        TransactionUpdateCmd(
+            id=uuid4(),
+            company_name="PicPay sobrescrito por un cliente antiguo",
+        )
+    )
+
+    assert entity.social_reason_bank_id == selected_id
+    assert entity.company_name == "Brasper 21"
+
+
+def test_put_transaction_json_accepts_social_reason_bank_id(
+    client, mock_update_transaction_uc
+):
+    selected_id = uuid4()
+    response = client.put(
+        "/transactions/",
+        json={
+            "id": str(uuid4()),
+            "social_reason_bank_id": str(selected_id),
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    assert cmd.social_reason_bank_id == selected_id
+
+
+def test_put_transaction_multipart_accepts_social_reason_bank_id(
+    client, mock_update_transaction_uc, monkeypatch
+):
+    async def fake_save_transaction_voucher(file, prefix):
+        return f"transaction_vouchers/{prefix}_new.jpeg"
+
+    transaction_routes = importlib.import_module(
+        "app.modules.transactions.adapters.router.transaction_routes"
+    )
+    monkeypatch.setattr(
+        transaction_routes,
+        "save_transaction_voucher",
+        fake_save_transaction_voucher,
+    )
+    selected_id = uuid4()
+    response = client.put(
+        "/transactions/",
+        data={
+            "id": str(uuid4()),
+            "social_reason_bank_id": str(selected_id),
+        },
+        files={"send_voucher": ("send.jpeg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    assert cmd.social_reason_bank_id == selected_id
 
 
 def test_put_transaction_json_accepts_company_name(client, mock_update_transaction_uc):

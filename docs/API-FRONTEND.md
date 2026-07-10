@@ -170,6 +170,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
 {
   "bank_account_origin": "uuid",
   "bank_account_destination": "uuid",
+  "social_reason_bank_id": "uuid-banco-razon-social",
   "user_id": "uuid",
   "tax_rate_id": "uuid",
   "commission_id": "uuid",
@@ -190,6 +191,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
 - **`send_date`** se fija en servidor al instante de creación (UTC).
 - El checklist se marca solo en **actualizaciones** (PUT) cuando corresponda.
 - **`code`:** generado en servidor (no usar `TRX-…` ni códigos locales); ver formato en la sección de importación.
+- **`social_reason_bank_id`:** identifica la fila exacta del catálogo usada como razón social. Es independiente de `bank_id`, que continúa ligado al banco de la cuenta destino. El servidor deriva `company_name` desde esta selección.
 
 ---
 
@@ -286,6 +288,7 @@ interface TransactionReadDTO {
   id: string;
   bank_account_origin_id: string;
   bank_account_destination_id: string;
+  social_reason_bank_id?: string;
   user_id: string;
   tax_rate_id: string;
   commission_id: string;
