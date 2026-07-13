@@ -388,8 +388,6 @@ class CreateTransactionUseCase:
         amount = float(cmd.origin_amount)
         if amount <= 0:
             raise ValueError("El monto de origen debe ser mayor que cero")
-        if commission.min_amount is not None and amount < float(commission.min_amount):
-            raise ValueError("El monto está por debajo del rango de comisión")
         if commission.max_amount is not None and amount > float(commission.max_amount):
             raise ValueError("El monto supera el rango de comisión")
         base_commission = round(amount * float(commission.percentage) / 100, 2)
