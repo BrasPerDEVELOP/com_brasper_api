@@ -742,6 +742,30 @@ def _build_update_uc(monkeypatch, dest_bank_company: str):
     return uc, entity, bank_repo
 
 
+def test_merge_destination_entities_reuses_rows_for_same_account():
+    """PUT: reenviar la misma cuenta destino reutiliza la fila existente.
+
+    Sin el merge, reemplazar la colección insertaba la fila nueva antes de
+    borrar la vieja (orden INSERT→DELETE del flush) y violaba la restricción
+    única (transaction_id, bank_account_id) → IntegrityError 500.
+    """
+    account_kept, account_removed, account_new = uuid4(), uuid4(), uuid4()
+    existing_kept = MagicMock(bank_account_id=account_kept, amount=1000.0, position=0)
+    existing_removed = MagicMock(bank_account_id=account_removed, amount=200.0, position=1)
+    replacement_kept = MagicMock(bank_account_id=account_kept, amount=1200.0, position=0)
+    replacement_new = MagicMock(bank_account_id=account_new, amount=300.0, position=1)
+
+    merged = transaction_use_cases._merge_destination_entities(
+        [existing_kept, existing_removed], [replacement_kept, replacement_new]
+    )
+
+    assert merged[0] is existing_kept
+    assert merged[0].amount == 1200.0
+    assert merged[0].position == 0
+    assert merged[1] is replacement_new
+    assert existing_removed not in merged
+
+
 @pytest.mark.asyncio
 async def test_multiple_destinations_validate_owner_currency_and_total():
     user_id = uuid4()
