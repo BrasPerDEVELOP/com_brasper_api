@@ -304,6 +304,30 @@ def _destination_items_total(destinations: list) -> Decimal:
     return sum((_money(item.amount) for item in destinations), Decimal("0.00"))
 
 
+def _merge_destination_entities(
+    existing: list, replacements: list
+) -> list:
+    """Reutiliza las filas existentes por cuenta al reemplazar `destinations`.
+
+    SQLAlchemy ejecuta los INSERT antes que los DELETE dentro del mismo flush;
+    reemplazar la colección con la misma cuenta violaría la restricción única
+    (transaction_id, bank_account_id) → IntegrityError 500. Actualizar la fila
+    existente en su lugar evita el conflicto; las cuentas quitadas se eliminan
+    vía delete-orphan y solo las realmente nuevas se insertan.
+    """
+    by_account = {row.bank_account_id: row for row in existing}
+    merged = []
+    for replacement in replacements:
+        current = by_account.get(replacement.bank_account_id)
+        if current is not None:
+            current.amount = replacement.amount
+            current.position = replacement.position
+            merged.append(current)
+        else:
+            merged.append(replacement)
+    return merged
+
+
 async def _build_transaction_destinations(
     bank_account_repo: BankAccountRepositoryInterface,
     *,
@@ -795,7 +819,9 @@ class UpdateTransactionUseCase:
         for attr, value in updates.items():
             setattr(entity, attr, value)
         if replacement_destinations is not None:
-            entity.destinations = replacement_destinations
+            entity.destinations = _merge_destination_entities(
+                list(entity.destinations or []), replacement_destinations
+            )
 
         sync_transaction_status_from_checklist(entity)
 
