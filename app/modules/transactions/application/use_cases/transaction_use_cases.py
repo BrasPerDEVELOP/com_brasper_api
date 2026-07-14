@@ -119,16 +119,60 @@ def _sync_legacy_voucher_fields(data: dict) -> None:
             data[singular] = None
 
 
-def _append_voucher_updates(entity: Transaction, updates: dict) -> None:
-    for singular, plural in (
-        ("send_voucher", "send_vouchers"),
-        ("payment_voucher", "payment_vouchers"),
-        ("checked_image", "checked_images"),
-    ):
+def _voucher_matches(existing: str, provided: str) -> bool:
+    """Compara una key almacenada con el valor recibido (key relativa o URL completa del GET)."""
+    stored = str(existing or "").strip().lstrip("/")
+    candidate = str(provided or "").strip()
+    if not stored or not candidate:
+        return False
+    candidate = candidate.split("?", 1)[0].split("#", 1)[0]
+    normalized = candidate.lstrip("/")
+    if normalized == stored:
+        return True
+    return candidate.endswith(f"/{stored}")
+
+
+_VOUCHER_UPDATE_FIELDS = (
+    ("send_voucher", "send_vouchers", "remove_send_voucher", "send_vouchers_keep"),
+    ("payment_voucher", "payment_vouchers", "remove_payment_voucher", "payment_vouchers_keep"),
+    ("checked_image", "checked_images", "remove_checked_image", "checked_images_keep"),
+)
+
+
+def _apply_voucher_updates(
+    entity: Transaction,
+    updates: dict,
+    removes: dict,
+    keeps: dict,
+) -> None:
+    """Resuelve el estado final de cada grupo de vouchers en un PUT.
+
+    - `remove_*` → borra todo el grupo.
+    - `*_keep` → conserva solo los archivos existentes listados (borrado individual).
+    - Sin remove ni keep → los existentes se conservan y los uploads se agregan (append).
+    En todos los casos los archivos subidos en el request se agregan al final; un `null`
+    en el payload nunca borra rutas porque los valores de voucher se resuelven aquí.
+    """
+    for singular, plural, remove_key, keep_key in _VOUCHER_UPDATE_FIELDS:
         incoming = _merge_voucher_paths(updates.pop(plural, None), updates.pop(singular, None))
-        if not incoming:
-            continue
-        paths = _merge_voucher_paths(getattr(entity, plural, None), getattr(entity, singular, None), incoming)
+        keep = keeps.get(keep_key)
+        if removes.get(remove_key):
+            base: list[str] = []
+        else:
+            existing = _merge_voucher_paths(
+                getattr(entity, plural, None), getattr(entity, singular, None)
+            )
+            if keep is not None:
+                base = [
+                    path
+                    for path in existing
+                    if any(_voucher_matches(path, kept) for kept in keep)
+                ]
+            else:
+                if not incoming:
+                    continue
+                base = existing
+        paths = _merge_voucher_paths(base, incoming)
         updates[plural] = paths
         updates[singular] = paths[0] if paths else None
 
@@ -314,27 +358,6 @@ async def _build_transaction_destinations(
             f"(distribuido: {total:.2f}; calculado: {expected_total:.2f})"
         )
     return entities
-
-
-def _drop_null_voucher_paths_unless_remove(
-    updates: dict,
-    remove_send: bool,
-    remove_payment: bool,
-    remove_checked: bool,
-) -> None:
-    """Evita que `null` o defaults en el payload borren archivos; solo aplica con remove_*_voucher o remove_checked_image."""
-    if not remove_send and updates.get("send_voucher") is None:
-        updates.pop("send_voucher", None)
-    if not remove_payment and updates.get("payment_voucher") is None:
-        updates.pop("payment_voucher", None)
-    if not remove_checked and updates.get("checked_image") is None:
-        updates.pop("checked_image", None)
-    if not remove_send and updates.get("send_vouchers") is None:
-        updates.pop("send_vouchers", None)
-    if not remove_payment and updates.get("payment_vouchers") is None:
-        updates.pop("payment_vouchers", None)
-    if not remove_checked and updates.get("checked_images") is None:
-        updates.pop("checked_images", None)
 
 
 _TXN_LOAD_USER = (
@@ -659,28 +682,22 @@ class UpdateTransactionUseCase:
         requested_destinations = (
             cmd.destinations if "destinations" in cmd.model_fields_set else None
         )
-        remove_send_voucher = bool(updates.pop("remove_send_voucher", None))
-        remove_payment_voucher = bool(updates.pop("remove_payment_voucher", None))
-        remove_checked_image = bool(updates.pop("remove_checked_image", None))
-        # No escribir NULL en rutas de archivo por "null" en JSON u objeto reenviado: solo
-        # se borra con remove_*; actualizar un voucher no afecta a los demás.
-        _drop_null_voucher_paths_unless_remove(
-            updates, remove_send_voucher, remove_payment_voucher, remove_checked_image
-        )
+        removes = {
+            "remove_send_voucher": bool(updates.pop("remove_send_voucher", None)),
+            "remove_payment_voucher": bool(updates.pop("remove_payment_voucher", None)),
+            "remove_checked_image": bool(updates.pop("remove_checked_image", None)),
+        }
+        keeps = {
+            "send_vouchers_keep": updates.pop("send_vouchers_keep", None),
+            "payment_vouchers_keep": updates.pop("payment_vouchers_keep", None),
+            "checked_images_keep": updates.pop("checked_images_keep", None),
+        }
         # No actualizar checked si es None (el modelo requiere bool)
         updates = {k: v for k, v in updates.items() if k != "checked" or v is not None}
 
-        if remove_send_voucher:
-            updates["send_voucher"] = None
-            updates["send_vouchers"] = []
-        if remove_payment_voucher:
-            updates["payment_voucher"] = None
-            updates["payment_vouchers"] = []
-        if remove_checked_image:
-            updates["checked_image"] = None
-            updates["checked_images"] = []
-
-        _append_voucher_updates(entity, updates)
+        # Estado final de vouchers: remove_* borra el grupo, *_keep conserva solo los
+        # existentes listados (borrado individual) y los uploads siempre se agregan.
+        _apply_voucher_updates(entity, updates, removes, keeps)
 
         fields_set = cmd.model_fields_set
         social_reason_was_sent = "social_reason_bank_id" in fields_set

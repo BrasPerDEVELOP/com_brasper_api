@@ -40,19 +40,117 @@ def test_post_transaction_json_creates_success(client, valid_transaction_payload
     assert data["total_to_send"] == valid_transaction_payload["total_to_send"]
 
 
-def test_update_payload_strips_null_voucher_paths_without_remove_flags():
+def _voucher_entity(**overrides):
+    """Entity mínima con los seis campos de voucher para _apply_voucher_updates."""
+    entity = MagicMock()
+    entity.send_voucher = overrides.get("send_voucher")
+    entity.send_vouchers = overrides.get("send_vouchers", [])
+    entity.payment_voucher = overrides.get("payment_voucher")
+    entity.payment_vouchers = overrides.get("payment_vouchers", [])
+    entity.checked_image = overrides.get("checked_image")
+    entity.checked_images = overrides.get("checked_images", [])
+    return entity
+
+
+_NO_REMOVES = {
+    "remove_send_voucher": False,
+    "remove_payment_voucher": False,
+    "remove_checked_image": False,
+}
+_NO_KEEPS = {
+    "send_vouchers_keep": None,
+    "payment_vouchers_keep": None,
+    "checked_images_keep": None,
+}
+
+
+def test_update_payload_null_voucher_does_not_delete_existing():
     """PUT: `null` en un voucher no borra al actualizar otra ruta (p. ej. reenviar GET + un campo)."""
+    entity = _voucher_entity(
+        send_vouchers=["transaction_vouchers/send_a.webp"],
+        payment_vouchers=["transaction_vouchers/pay_a.webp"],
+    )
     u = {
         "send_voucher": None,
         "payment_voucher": None,
         "checked_image": "transaction_vouchers/only_new.pdf",
     }
-    transaction_use_cases._drop_null_voucher_paths_unless_remove(
-        u, remove_send=False, remove_payment=False, remove_checked=False
-    )
+    transaction_use_cases._apply_voucher_updates(entity, u, _NO_REMOVES, _NO_KEEPS)
     assert "send_voucher" not in u
     assert "payment_voucher" not in u
     assert u["checked_image"] == "transaction_vouchers/only_new.pdf"
+    assert u["checked_images"] == ["transaction_vouchers/only_new.pdf"]
+
+
+def test_update_remove_flag_clears_whole_voucher_group():
+    """PUT: remove_send_voucher borra todo el grupo aunque existan archivos previos."""
+    entity = _voucher_entity(
+        send_voucher="transaction_vouchers/send_a.webp",
+        send_vouchers=["transaction_vouchers/send_a.webp", "transaction_vouchers/send_b.webp"],
+    )
+    u = {}
+    removes = dict(_NO_REMOVES, remove_send_voucher=True)
+    transaction_use_cases._apply_voucher_updates(entity, u, removes, _NO_KEEPS)
+    assert u["send_vouchers"] == []
+    assert u["send_voucher"] is None
+
+
+def test_update_keep_list_removes_individual_voucher():
+    """PUT: send_vouchers_keep conserva solo los listados; acepta URL completa del GET."""
+    entity = _voucher_entity(
+        send_voucher="transaction_vouchers/send_a.webp",
+        send_vouchers=["transaction_vouchers/send_a.webp", "transaction_vouchers/send_b.webp"],
+    )
+    u = {}
+    keeps = dict(
+        _NO_KEEPS,
+        send_vouchers_keep=[
+            "https://media.example.dev/backofice/transaction_vouchers/send_b.webp"
+        ],
+    )
+    transaction_use_cases._apply_voucher_updates(entity, u, _NO_REMOVES, keeps)
+    assert u["send_vouchers"] == ["transaction_vouchers/send_b.webp"]
+    assert u["send_voucher"] == "transaction_vouchers/send_b.webp"
+
+
+def test_update_keep_list_combines_with_new_upload():
+    """PUT: keep parcial + archivo nuevo → quedan los conservados más el nuevo."""
+    entity = _voucher_entity(
+        send_vouchers=["transaction_vouchers/send_a.webp", "transaction_vouchers/send_b.webp"],
+    )
+    u = {"send_vouchers": ["transaction_vouchers/send_new.webp"]}
+    keeps = dict(_NO_KEEPS, send_vouchers_keep=["transaction_vouchers/send_a.webp"])
+    transaction_use_cases._apply_voucher_updates(entity, u, _NO_REMOVES, keeps)
+    assert u["send_vouchers"] == [
+        "transaction_vouchers/send_a.webp",
+        "transaction_vouchers/send_new.webp",
+    ]
+    assert u["send_voucher"] == "transaction_vouchers/send_a.webp"
+
+
+def test_update_keep_empty_list_clears_group_and_appends_upload():
+    """PUT: keep vacío borra los existentes; un upload simultáneo queda como único archivo."""
+    entity = _voucher_entity(
+        payment_vouchers=["transaction_vouchers/pay_a.webp"],
+    )
+    u = {"payment_vouchers": ["transaction_vouchers/pay_new.webp"]}
+    keeps = dict(_NO_KEEPS, payment_vouchers_keep=[])
+    transaction_use_cases._apply_voucher_updates(entity, u, _NO_REMOVES, keeps)
+    assert u["payment_vouchers"] == ["transaction_vouchers/pay_new.webp"]
+    assert u["payment_voucher"] == "transaction_vouchers/pay_new.webp"
+
+
+def test_update_upload_without_keep_appends_to_existing():
+    """PUT: upload sin keep conserva el comportamiento append actual."""
+    entity = _voucher_entity(
+        send_vouchers=["transaction_vouchers/send_a.webp"],
+    )
+    u = {"send_vouchers": ["transaction_vouchers/send_new.webp"]}
+    transaction_use_cases._apply_voucher_updates(entity, u, _NO_REMOVES, _NO_KEEPS)
+    assert u["send_vouchers"] == [
+        "transaction_vouchers/send_a.webp",
+        "transaction_vouchers/send_new.webp",
+    ]
 
 
 @pytest.mark.asyncio

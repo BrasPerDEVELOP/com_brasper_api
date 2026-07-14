@@ -111,6 +111,26 @@ def _parse_destinations(value: Any) -> Optional[List[TransactionDestinationInput
     return [TransactionDestinationInput.model_validate(item) for item in raw]
 
 
+def _parse_string_list(value: Any) -> Optional[List[str]]:
+    """Lista de strings desde form-data: JSON array, valor único o lista ya decodificada."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                value = json.loads(s)
+            except (TypeError, ValueError):
+                value = [s]
+        else:
+            value = [s]
+    if not isinstance(value, list):
+        value = [value]
+    return [str(item).strip() for item in value if item is not None and str(item).strip()]
+
+
 class TransactionCreateCmd(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -426,6 +446,11 @@ class TransactionUpdateCmd(BaseModel):
     send_vouchers: Optional[List[str]] = None
     payment_vouchers: Optional[List[str]] = None
     checked_images: Optional[List[str]] = None
+    # Borrado individual: lista autoritativa de archivos EXISTENTES a conservar
+    # (keys relativas o URLs completas del GET). Los uploads del request se agregan después.
+    send_vouchers_keep: Optional[List[str]] = None
+    payment_vouchers_keep: Optional[List[str]] = None
+    checked_images_keep: Optional[List[str]] = None
     checked: Optional[bool] = None
     remove_send_voucher: Optional[bool] = None
     remove_payment_voucher: Optional[bool] = None
@@ -640,6 +665,12 @@ class TransactionUpdateCmd(BaseModel):
             payload["remove_payment_voucher"] = _parse_checked(_get("remove_payment_voucher"))
         if "remove_checked_image" in form:
             payload["remove_checked_image"] = _parse_checked(_get("remove_checked_image"))
+        if "send_vouchers_keep" in form:
+            payload["send_vouchers_keep"] = _parse_string_list(_get("send_vouchers_keep"))
+        if "payment_vouchers_keep" in form:
+            payload["payment_vouchers_keep"] = _parse_string_list(_get("payment_vouchers_keep"))
+        if "checked_images_keep" in form:
+            payload["checked_images_keep"] = _parse_string_list(_get("checked_images_keep"))
 
         cmd = cls(**payload)
         send_f = _form_upload_files(form, "send_voucher", "send_vouchers", "send_voucher_files")
