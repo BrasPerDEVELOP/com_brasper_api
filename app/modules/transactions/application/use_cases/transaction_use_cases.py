@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from math import isfinite
 from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
 
@@ -510,11 +511,21 @@ class CreateTransactionUseCase:
         if effective_commission > amount:
             effective_commission = amount
         total_to_send = round(amount - effective_commission, 2)
-        destination_amount = round(total_to_send * float(tax_rate.tax), 2)
+        effective_tax_rate = float(tax_rate.tax)
+        if is_special and cmd.tax_amount is not None:
+            requested_tax_rate = float(cmd.tax_amount)
+            if not isfinite(requested_tax_rate) or requested_tax_rate <= 0:
+                raise ValueError("La tasa especial debe ser mayor que cero")
+            effective_tax_rate = requested_tax_rate
+        destination_amount = round(total_to_send * effective_tax_rate, 2)
         financials: dict = {
             "commission_result": effective_commission,
             "total_to_send": total_to_send,
             "destination_amount": destination_amount,
+            # En una operación normal manda siempre el catálogo. La calculadora
+            # especial puede enviar una tasa manual y debe conservarse en el
+            # snapshot financiero para que el servidor reproduzca la cotización.
+            "tax_amount": effective_tax_rate,
         }
         if coupon:
             financials.update({
