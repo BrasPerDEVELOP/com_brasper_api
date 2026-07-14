@@ -255,6 +255,10 @@ def _money(value: object) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _destination_items_total(destinations: list) -> Decimal:
+    return sum((_money(item.amount) for item in destinations), Decimal("0.00"))
+
+
 async def _build_transaction_destinations(
     bank_account_repo: BankAccountRepositoryInterface,
     *,
@@ -299,8 +303,15 @@ async def _build_transaction_destinations(
                 position=position,
             )
         )
-    if total != _money(destination_amount):
-        raise ValueError("La suma de cuentas destino debe coincidir con el monto a recibir")
+    expected_total = _money(destination_amount)
+    # El frontend y el servidor calculan comisión/tasa en momentos distintos.
+    # Una diferencia de un centavo puede aparecer por el orden de redondeo; la
+    # distribución manual es el total operativo que finalmente se transferirá.
+    if abs(total - expected_total) > Decimal("0.01"):
+        raise ValueError(
+            "La suma de cuentas destino debe coincidir con el monto a recibir "
+            f"(distribuido: {total:.2f}; calculado: {expected_total:.2f})"
+        )
     return entities
 
 
@@ -581,6 +592,10 @@ class CreateTransactionUseCase:
                 destination_currency=tax_rate.coin_b,
                 destination_amount=entity_data["destination_amount"],
             )
+            distributed_total = _destination_items_total(requested_destinations)
+            entity_data["destination_amount"] = float(distributed_total)
+            if entity_data.get("coupon_destination_amount") is not None:
+                entity_data["coupon_destination_amount"] = float(distributed_total)
         else:
             destination_entities = [
                 TransactionDestination(
@@ -723,6 +738,10 @@ class UpdateTransactionUseCase:
                 destination_currency=tax_rate.coin_b,
                 destination_amount=updates.get("destination_amount", entity.destination_amount),
             )
+            distributed_total = _destination_items_total(requested_destinations)
+            updates["destination_amount"] = float(distributed_total)
+            if updates.get("coupon_destination_amount") is not None:
+                updates["coupon_destination_amount"] = float(distributed_total)
         elif "destination_amount" in updates:
             existing_destinations = list(entity.destinations or [])
             if len(existing_destinations) > 1:

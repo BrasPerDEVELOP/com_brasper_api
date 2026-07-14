@@ -196,7 +196,7 @@ El front puede usar `status` para badges y `checked` para el control del checkli
 - El checklist se marca solo en **actualizaciones** (PUT) cuando corresponda.
 - **`code`:** generado en servidor (no usar `TRX-…` ni códigos locales); ver formato en la sección de importación.
 - **`social_reason_bank_id`:** identifica la fila exacta del catálogo usada como razón social. Es independiente de `bank_id`, que continúa ligado al banco de la cuenta destino. El servidor deriva `company_name` desde esta selección.
-- **`destinations`:** distribución manual del monto de recepción. Todas las cuentas deben pertenecer a `user_id`, tener la moneda destino de la tasa, no repetirse y sumar exactamente `destination_amount`. En multipart se envía como JSON. `bank_account_destination` conserva el primer elemento por compatibilidad.
+- **`destinations`:** distribución manual del monto de recepción. Todas las cuentas deben pertenecer a `user_id`, tener la moneda destino de la tasa y no repetirse. La suma debe coincidir con `destination_amount`; se tolera hasta un centavo por diferencias en el orden de redondeo entre frontend y servidor, normalizando el total persistido a la distribución. En multipart se envía como JSON. `bank_account_destination` conserva el primer elemento por compatibilidad.
 
 ---
 

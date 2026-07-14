@@ -637,6 +637,30 @@ async def test_multiple_destinations_reject_total_mismatch():
 
 
 @pytest.mark.asyncio
+async def test_multiple_destinations_accept_one_cent_rounding_difference():
+    user_id = uuid4()
+    account = MagicMock(
+        user_id=user_id,
+        account_flow=AccountFlowType.destination,
+        bank=MagicMock(currency=Currency.brl),
+    )
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=account)
+
+    result = await transaction_use_cases._build_transaction_destinations(
+        bank_account_repo,
+        destinations=[
+            TransactionDestinationInput(bank_account_id=uuid4(), amount=13.30),
+        ],
+        user_id=user_id,
+        destination_currency=Currency.brl,
+        destination_amount=13.29,
+    )
+
+    assert float(result[0].amount) == 13.30
+
+
+@pytest.mark.asyncio
 async def test_create_transaction_persists_multiple_destinations(monkeypatch):
     user_id = uuid4()
     first_id, second_id = uuid4(), uuid4()
@@ -687,11 +711,12 @@ async def test_create_transaction_persists_multiple_destinations(monkeypatch):
         tax_rate_id=uuid4(),
         commission_id=uuid4(),
         origin_amount=1000,
-        destination_amount=630,
+        destination_amount=629.99,
     ))
 
     entity = captured["entity"]
     assert entity.bank_account_destination_id == first_id
+    assert float(entity.destination_amount) == 630
     assert [(item.bank_account_id, float(item.amount)) for item in entity.destinations] == [
         (first_id, 300),
         (second_id, 330),
