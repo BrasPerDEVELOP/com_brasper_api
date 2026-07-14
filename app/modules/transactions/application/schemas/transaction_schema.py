@@ -1,4 +1,5 @@
 # app/modules/transactions/application/schemas/transaction_schema.py
+import json
 from datetime import datetime
 from typing import Any, List, Optional, Tuple
 from uuid import UUID
@@ -88,6 +89,28 @@ def _form_upload_files(form: Any, *keys: str) -> List[UploadFile]:
     return files
 
 
+class TransactionDestinationInput(BaseModel):
+    bank_account_id: UUID
+    amount: float = Field(gt=0)
+
+
+class TransactionDestinationDTO(TransactionDestinationInput):
+    id: UUID
+    position: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+def _parse_destinations(value: Any) -> Optional[List[TransactionDestinationInput]]:
+    """Acepta la lista JSON del multipart o una lista ya decodificada."""
+    if value is None or value == "":
+        return None
+    raw = json.loads(value) if isinstance(value, str) else value
+    if not isinstance(raw, list):
+        raise ValueError("destinations debe ser una lista")
+    return [TransactionDestinationInput.model_validate(item) for item in raw]
+
+
 class TransactionCreateCmd(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -135,6 +158,7 @@ class TransactionCreateCmd(BaseModel):
 
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: UUID
+    destinations: Optional[List[TransactionDestinationInput]] = None
     user_id: UUID
     agent_id: Optional[UUID] = None
     tax_rate_id: UUID
@@ -203,6 +227,7 @@ class TransactionCreateCmd(BaseModel):
         cls,
         bank_account_origin: Optional[str] = Form(None, description="UUID cuenta origen (opcional)"),
         bank_account_destination: str = Form(..., description="UUID cuenta destino"),
+        destinations: Optional[str] = Form(None, description="Distribución destino como JSON"),
         user_id: str = Form(..., description="UUID de usuario"),
         agent_id: Optional[str] = Form(None, description="UUID del agente asignado"),
         tax_rate_id: str = Form(..., description="UUID de tasa"),
@@ -244,6 +269,7 @@ class TransactionCreateCmd(BaseModel):
         cmd = cls(
             bank_account_origin=_parse_optional_uuid(bank_account_origin),
             bank_account_destination=UUID(bank_account_destination),
+            destinations=_parse_destinations(destinations),
             user_id=UUID(user_id),
             agent_id=_parse_optional_uuid(agent_id),
             tax_rate_id=UUID(tax_rate_id),
@@ -301,6 +327,7 @@ class TransactionCreateCmd(BaseModel):
         cmd = cls(
             bank_account_origin=_parse_optional_uuid(_get("bank_account_origin")),
             bank_account_destination=UUID(_get("bank_account_destination", "")),
+            destinations=_parse_destinations(_get("destinations") or None),
             user_id=UUID(_get("user_id", "")),
             agent_id=_parse_optional_uuid(_get("agent_id")),
             tax_rate_id=UUID(_get("tax_rate_id", "")),
@@ -358,6 +385,7 @@ class TransactionUpdateCmd(BaseModel):
     id: UUID
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: Optional[UUID] = None
+    destinations: Optional[List[TransactionDestinationInput]] = None
     # bank_id/bank_name siguen a la cuenta destino; la razón social se identifica
     # de forma independiente y company_name se deriva del banco seleccionado.
     social_reason_bank_id: Optional[UUID] = None
@@ -409,6 +437,7 @@ class TransactionUpdateCmd(BaseModel):
         id: str = Form(..., description="UUID de la transacción"),
         bank_account_origin: Optional[str] = Form(None),
         bank_account_destination: Optional[str] = Form(None),
+        destinations: Optional[str] = Form(None),
         social_reason_bank_id: Optional[str] = Form(None),
         company_name: Optional[str] = Form(None),
         user_id: Optional[str] = Form(None),
@@ -450,6 +479,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(bank_account_origin)
         if _field_present(bank_account_destination):
             payload["bank_account_destination"] = _parse_optional_uuid(bank_account_destination)
+        if _field_present(destinations):
+            payload["destinations"] = _parse_destinations(destinations)
         if _field_present(social_reason_bank_id):
             payload["social_reason_bank_id"] = _parse_optional_uuid(social_reason_bank_id)
         if _field_present(company_name):
@@ -534,6 +565,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_origin"] = _parse_optional_uuid(_get("bank_account_origin"))
         if "bank_account_destination" in form:
             payload["bank_account_destination"] = _parse_optional_uuid(_get("bank_account_destination"))
+        if "destinations" in form:
+            payload["destinations"] = _parse_destinations(_get("destinations"))
         if "social_reason_bank_id" in form:
             payload["social_reason_bank_id"] = _parse_optional_uuid(_get("social_reason_bank_id"))
         if "company_name" in form:
@@ -638,6 +671,7 @@ class TransactionReadDTO(BaseModel):
     id: UUID
     bank_account_origin_id: Optional[UUID] = None
     bank_account_destination_id: UUID
+    destinations: List[TransactionDestinationDTO] = Field(default_factory=list)
     bank_id: Optional[UUID] = None
     social_reason_bank_id: Optional[UUID] = None
     bank_name: Optional[str] = None
@@ -700,6 +734,7 @@ class TransactionReadDTO(BaseModel):
 
         if isinstance(data, TransactionModel):
             payload = {c.name: getattr(data, c.name) for c in data.__table__.columns}
+            payload["destinations"] = list(getattr(data, "destinations", None) or [])
             u = getattr(data, "user", None)
             payload["user"] = {
                 "id": data.user_id,

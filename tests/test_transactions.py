@@ -1,16 +1,18 @@
 """Tests para el endpoint POST /transactions/."""
 import importlib
+import json
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from app.modules.coin.domain.enums import Currency
-from app.modules.transactions.domain.enums import TransactionStatus
+from app.modules.transactions.domain.enums import AccountFlowType, TransactionStatus
 from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionDestinationInput,
 )
 from app.modules.transactions.application.use_cases import transaction_use_cases
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
@@ -547,8 +549,231 @@ def _build_update_uc(monkeypatch, dest_bank_company: str):
 
     monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
 
-    uc = UpdateTransactionUseCase(txn_repo, bank_account_repo, bank_repo)
+    tax_rate_repo = AsyncMock()
+    uc = UpdateTransactionUseCase(
+        txn_repo, bank_account_repo, bank_repo, tax_rate_repo
+    )
     return uc, entity, bank_repo
+
+
+@pytest.mark.asyncio
+async def test_multiple_destinations_validate_owner_currency_and_total():
+    user_id = uuid4()
+    first_id, second_id = uuid4(), uuid4()
+    bank = MagicMock(currency=Currency.pen)
+    accounts = {
+        first_id: MagicMock(
+            user_id=user_id,
+            account_flow=AccountFlowType.destination,
+            bank=bank,
+        ),
+        second_id: MagicMock(
+            user_id=user_id,
+            account_flow=AccountFlowType.destination,
+            bank=bank,
+        ),
+    }
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(side_effect=lambda account_id, **_: accounts[account_id])
+
+    result = await transaction_use_cases._build_transaction_destinations(
+        bank_account_repo,
+        destinations=[
+            TransactionDestinationInput(bank_account_id=first_id, amount=300),
+            TransactionDestinationInput(bank_account_id=second_id, amount=330),
+        ],
+        user_id=user_id,
+        destination_currency=Currency.pen,
+        destination_amount=630,
+    )
+
+    assert [item.bank_account_id for item in result] == [first_id, second_id]
+    assert [float(item.amount) for item in result] == [300, 330]
+
+
+@pytest.mark.asyncio
+async def test_multiple_destinations_reject_wrong_owner():
+    account = MagicMock(
+        user_id=uuid4(),
+        account_flow=AccountFlowType.destination,
+        bank=MagicMock(currency=Currency.pen),
+    )
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=account)
+
+    with pytest.raises(ValueError, match="pertenecer al cliente"):
+        await transaction_use_cases._build_transaction_destinations(
+            bank_account_repo,
+            destinations=[
+                TransactionDestinationInput(bank_account_id=uuid4(), amount=10),
+            ],
+            user_id=uuid4(),
+            destination_currency=Currency.pen,
+            destination_amount=10,
+        )
+
+
+@pytest.mark.asyncio
+async def test_multiple_destinations_reject_total_mismatch():
+    user_id = uuid4()
+    account = MagicMock(
+        user_id=user_id,
+        account_flow=AccountFlowType.destination,
+        bank=MagicMock(currency=Currency.pen),
+    )
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=account)
+
+    with pytest.raises(ValueError, match="suma de cuentas destino"):
+        await transaction_use_cases._build_transaction_destinations(
+            bank_account_repo,
+            destinations=[
+                TransactionDestinationInput(bank_account_id=uuid4(), amount=9),
+            ],
+            user_id=user_id,
+            destination_currency=Currency.pen,
+            destination_amount=10,
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_persists_multiple_destinations(monkeypatch):
+    user_id = uuid4()
+    first_id, second_id = uuid4(), uuid4()
+    tax = MagicMock(coin_a=Currency.brl, coin_b=Currency.pen)
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock(return_value=[uuid4()])
+
+    first_bank = MagicMock(id=uuid4(), bank="BCP", company="Cliente", currency=Currency.pen)
+    second_bank = MagicMock(id=uuid4(), bank="Interbank", company="Cliente", currency=Currency.pen)
+    accounts = {
+        first_id: MagicMock(
+            user_id=user_id,
+            bank_id=first_bank.id,
+            bank=first_bank,
+            account_flow=AccountFlowType.destination,
+        ),
+        second_id: MagicMock(
+            user_id=user_id,
+            bank_id=second_bank.id,
+            bank=second_bank,
+            account_flow=AccountFlowType.destination,
+        ),
+    }
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(side_effect=lambda account_id, **_: accounts[account_id])
+    captured = {}
+    transaction_repo = AsyncMock()
+    transaction_repo.add = AsyncMock(side_effect=lambda entity: captured.setdefault("entity", entity))
+    transaction_repo.next_sequential_transaction_code = AsyncMock(return_value="BxP-TEST-MULTI")
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    use_case = CreateTransactionUseCase(
+        transaction_repo,
+        tax_rate_repo,
+        user_repo,
+        bank_account_repo,
+        AsyncMock(),
+    )
+    await use_case.execute(TransactionCreateCmd(
+        bank_account_destination=first_id,
+        destinations=[
+            TransactionDestinationInput(bank_account_id=first_id, amount=300),
+            TransactionDestinationInput(bank_account_id=second_id, amount=330),
+        ],
+        user_id=user_id,
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=1000,
+        destination_amount=630,
+    ))
+
+    entity = captured["entity"]
+    assert entity.bank_account_destination_id == first_id
+    assert [(item.bank_account_id, float(item.amount)) for item in entity.destinations] == [
+        (first_id, 300),
+        (second_id, 330),
+    ]
+
+
+def test_create_multipart_parses_destinations_json():
+    first_id, second_id = uuid4(), uuid4()
+    cmd, *_ = TransactionCreateCmd.from_form_data({
+        "bank_account_destination": str(first_id),
+        "destinations": json.dumps([
+            {"bank_account_id": str(first_id), "amount": 300},
+            {"bank_account_id": str(second_id), "amount": 330},
+        ]),
+        "user_id": str(uuid4()),
+        "tax_rate_id": str(uuid4()),
+        "commission_id": str(uuid4()),
+        "origin_amount": "1000",
+        "destination_amount": "630",
+    })
+
+    assert cmd.destinations is not None
+    assert [item.bank_account_id for item in cmd.destinations] == [first_id, second_id]
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_replaces_multiple_destinations(monkeypatch):
+    user_id = uuid4()
+    first_id, second_id = uuid4(), uuid4()
+    tax_rate_id = uuid4()
+    entity = MagicMock(
+        checked=False,
+        status=TransactionStatus.verification,
+        social_reason_bank_id=None,
+        bank_account_destination_id=first_id,
+        user_id=user_id,
+        tax_rate_id=tax_rate_id,
+        destination_amount=630,
+        destinations=[],
+    )
+    banks = {
+        first_id: MagicMock(
+            user_id=user_id,
+            bank_id=uuid4(),
+            bank=MagicMock(bank="BCP", company="Cliente", currency=Currency.pen),
+            account_flow=AccountFlowType.destination,
+        ),
+        second_id: MagicMock(
+            user_id=user_id,
+            bank_id=uuid4(),
+            bank=MagicMock(bank="Interbank", company="Cliente", currency=Currency.pen),
+            account_flow=AccountFlowType.destination,
+        ),
+    }
+    transaction_repo = AsyncMock()
+    transaction_repo.get = AsyncMock(return_value=entity)
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(side_effect=lambda account_id, **_: banks[account_id])
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=MagicMock(coin_b=Currency.pen))
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    use_case = UpdateTransactionUseCase(
+        transaction_repo,
+        bank_account_repo,
+        AsyncMock(),
+        tax_rate_repo,
+    )
+    await use_case.execute(TransactionUpdateCmd(
+        id=uuid4(),
+        bank_account_destination=first_id,
+        destination_amount=630,
+        destinations=[
+            TransactionDestinationInput(bank_account_id=first_id, amount=300),
+            TransactionDestinationInput(bank_account_id=second_id, amount=330),
+        ],
+    ))
+
+    assert [(item.bank_account_id, float(item.amount)) for item in entity.destinations] == [
+        (first_id, 300),
+        (second_id, 330),
+    ]
 
 
 @pytest.mark.asyncio

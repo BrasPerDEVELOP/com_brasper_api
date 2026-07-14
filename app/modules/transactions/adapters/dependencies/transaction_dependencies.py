@@ -116,8 +116,11 @@ def update_transaction_uc(
         BankAccountRepositoryInterface, Depends(get_bank_account_repository)
     ],
     bank_repo: Annotated[BankRepositoryInterface, Depends(get_bank_repository)],
+    tax_rate_repo: Annotated[
+        TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
+    ],
 ) -> UpdateTransactionUseCase:
-    return UpdateTransactionUseCase(repo, bank_account_repo, bank_repo)
+    return UpdateTransactionUseCase(repo, bank_account_repo, bank_repo, tax_rate_repo)
 
 
 def delete_transaction_uc(

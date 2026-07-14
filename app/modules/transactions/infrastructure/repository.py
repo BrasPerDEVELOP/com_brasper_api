@@ -12,7 +12,7 @@ from app.core.pagination.offset import PageParams, PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.domain.models import TaxRate
 from app.modules.transactions.domain.enums import TransactionStatus
-from app.modules.transactions.domain.models import Transaction
+from app.modules.transactions.domain.models import Transaction, TransactionDestination
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
 from app.shared.query_filter import QueryFilter
 from app.shared.repositorie_base import BaseAsyncRepository
@@ -195,6 +195,9 @@ class SQLAlchemyTransactionRepository(
                 or_(
                     Transaction.bank_account_origin_id == bank_account_id,
                     Transaction.bank_account_destination_id == bank_account_id,
+                    Transaction.destinations.any(
+                        TransactionDestination.bank_account_id == bank_account_id
+                    ),
                 )
             )
 

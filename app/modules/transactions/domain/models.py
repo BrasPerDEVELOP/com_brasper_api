@@ -6,7 +6,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from app.modules.users.domain.models import User
 
-from sqlalchemy import BigInteger, Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer
+from sqlalchemy import BigInteger, Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -163,6 +163,49 @@ class Transaction(ORMBaseModel):
         back_populates="social_reason_transactions",
         lazy="noload",
     )
+    destinations: Mapped[list["TransactionDestination"]] = relationship(
+        "TransactionDestination",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+        order_by="TransactionDestination.position",
+        lazy="noload",
+    )
+
+
+class TransactionDestination(ORMBaseModel):
+    """Parte del monto destino enviada a una cuenta bancaria del cliente."""
+
+    __tablename__ = "transaction_destinations"
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_id",
+            "bank_account_id",
+            name="uq_transaction_destinations_transaction_account",
+        ),
+        {"schema": "transaction"},
+    )
+
+    transaction_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.transactions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bank_account_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.bank_accounts.id"),
+        nullable=False,
+        index=True,
+    )
+    amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    transaction: Mapped["Transaction"] = relationship(
+        "Transaction", back_populates="destinations", lazy="noload"
+    )
+    bank_account: Mapped["BankAccount"] = relationship(
+        "BankAccount", back_populates="transaction_destinations", lazy="noload"
+    )
 
 
 class Bank(ORMBaseModel):
@@ -267,6 +310,11 @@ class BankAccount(ORMBaseModel):
         "Transaction",
         foreign_keys="[Transaction.bank_account_destination_id]",
         back_populates="bank_account_destination",
+        lazy="noload",
+    )
+    transaction_destinations: Mapped[list["TransactionDestination"]] = relationship(
+        "TransactionDestination",
+        back_populates="bank_account",
         lazy="noload",
     )
 

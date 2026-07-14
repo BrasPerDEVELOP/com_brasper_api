@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 from typing import List, Optional, TYPE_CHECKING
 
@@ -19,11 +20,11 @@ from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
-from app.modules.transactions.domain.models import Coupon, Transaction
+from app.modules.transactions.domain.models import Coupon, Transaction, TransactionDestination
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
 from app.modules.world_cup.enums import ExchangeRateScope
 from app.modules.world_cup.models import CouponRedemption
-from app.modules.transactions.domain.enums import TransactionStatus
+from app.modules.transactions.domain.enums import AccountFlowType, TransactionStatus
 from app.modules.users.domain.enums import UserRole
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import (
@@ -250,6 +251,59 @@ async def _hydrate_social_reason_snapshot(
     entity_data["company_name"] = bank.company
 
 
+def _money(value: object) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+async def _build_transaction_destinations(
+    bank_account_repo: BankAccountRepositoryInterface,
+    *,
+    destinations: list,
+    user_id: UUID,
+    destination_currency: Currency,
+    destination_amount: float,
+) -> list[TransactionDestination]:
+    """Valida la distribución explícita y construye sus entidades ordenadas."""
+    from app.modules.transactions.domain.models import BankAccount
+
+    if not destinations:
+        raise ValueError("Debe indicar al menos una cuenta destino")
+    seen: set[UUID] = set()
+    entities: list[TransactionDestination] = []
+    total = Decimal("0.00")
+    for position, item in enumerate(destinations):
+        account_id = item.bank_account_id
+        if account_id in seen:
+            raise ValueError("No se puede repetir una cuenta destino")
+        seen.add(account_id)
+        amount = _money(item.amount)
+        if amount <= 0:
+            raise ValueError("Cada monto destino debe ser mayor que cero")
+        account = await bank_account_repo.get(
+            account_id,
+            eager_options=(selectinload(BankAccount.bank),),
+        )
+        if not account:
+            raise ValueError(f"No existe cuenta bancaria destino con id {account_id}")
+        if account.user_id != user_id:
+            raise ValueError("Todas las cuentas destino deben pertenecer al cliente")
+        if account.account_flow != AccountFlowType.destination:
+            raise ValueError("Todas las cuentas seleccionadas deben ser cuentas destino")
+        if account.bank is None or account.bank.currency != destination_currency:
+            raise ValueError("Todas las cuentas destino deben usar la moneda de recepción")
+        total += amount
+        entities.append(
+            TransactionDestination(
+                bank_account_id=account_id,
+                amount=float(amount),
+                position=position,
+            )
+        )
+    if total != _money(destination_amount):
+        raise ValueError("La suma de cuentas destino debe coincidir con el monto a recibir")
+    return entities
+
+
 def _drop_null_voucher_paths_unless_remove(
     updates: dict,
     remove_send: bool,
@@ -271,7 +325,10 @@ def _drop_null_voucher_paths_unless_remove(
         updates.pop("checked_images", None)
 
 
-_TXN_LOAD_USER = (selectinload(Transaction.user),)
+_TXN_LOAD_USER = (
+    selectinload(Transaction.user),
+    selectinload(Transaction.destinations),
+)
 
 
 class GetTransactionByIdUseCase:
@@ -480,10 +537,14 @@ class CreateTransactionUseCase:
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
+        entity_data.pop("destinations", None)
+        requested_destinations = cmd.destinations
         entity_data["agent_id"] = await _resolve_agent_id_for_create(
             self._user_repo,
             entity_data.get("agent_id"),
         )
+        if requested_destinations:
+            entity_data["bank_account_destination_id"] = requested_destinations[0].bank_account_id
         await _hydrate_bank_snapshot_from_destination(
             self._bank_account_repo,
             bank_account_destination_id=entity_data["bank_account_destination_id"],
@@ -512,6 +573,22 @@ class CreateTransactionUseCase:
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
         coupon = await self._apply_server_financials(cmd, tax_rate, entity_data)
+        if requested_destinations is not None:
+            destination_entities = await _build_transaction_destinations(
+                self._bank_account_repo,
+                destinations=requested_destinations,
+                user_id=cmd.user_id,
+                destination_currency=tax_rate.coin_b,
+                destination_amount=entity_data["destination_amount"],
+            )
+        else:
+            destination_entities = [
+                TransactionDestination(
+                    bank_account_id=entity_data["bank_account_destination_id"],
+                    amount=float(_money(entity_data["destination_amount"])),
+                    position=0,
+                )
+            ]
         entity_data["code"] = await self.repo.next_sequential_transaction_code(
             tax_rate.coin_a.value,
             tax_rate.coin_b.value,
@@ -523,12 +600,13 @@ class CreateTransactionUseCase:
         entity_data["send_date"] = datetime.now(timezone.utc)
         _sync_legacy_voucher_fields(entity_data)
         entity = Transaction(**entity_data)
+        entity.destinations = destination_entities
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
         if coupon and self._session is not None:
             self._session.add(CouponRedemption(coupon_id=coupon.id, user_id=cmd.user_id, transaction_id=saved.id))
         await self.repo.commit()
-        await self.repo.refresh(saved, load_noload_relations=["user"])
+        await self.repo.refresh(saved, load_noload_relations=["user", "destinations"])
         return TransactionReadDTO.model_validate(saved)
 
 
@@ -538,10 +616,12 @@ class UpdateTransactionUseCase:
         repo: TransactionRepositoryInterface,
         bank_account_repo: BankAccountRepositoryInterface,
         bank_repo: BankRepositoryInterface,
+        tax_rate_repo: TaxRateRepositoryInterface,
     ):
         self.repo = repo
         self._bank_account_repo = bank_account_repo
         self._bank_repo = bank_repo
+        self._tax_rate_repo = tax_rate_repo
 
     async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
@@ -549,6 +629,10 @@ class UpdateTransactionUseCase:
             return None
 
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        updates.pop("destinations", None)
+        requested_destinations = (
+            cmd.destinations if "destinations" in cmd.model_fields_set else None
+        )
         remove_send_voucher = bool(updates.pop("remove_send_voucher", None))
         remove_payment_voucher = bool(updates.pop("remove_payment_voucher", None))
         remove_checked_image = bool(updates.pop("remove_checked_image", None))
@@ -575,6 +659,8 @@ class UpdateTransactionUseCase:
         fields_set = cmd.model_fields_set
         social_reason_was_sent = "social_reason_bank_id" in fields_set
         company_name_was_sent = "company_name" in fields_set
+        if requested_destinations:
+            updates["bank_account_destination_id"] = requested_destinations[0].bank_account_id
         dest_id = updates.get("bank_account_destination_id")
         destination_snapshot: dict = {}
         if dest_id is not None:
@@ -624,14 +710,51 @@ class UpdateTransactionUseCase:
                 entity_data=updates,
             )
 
+        replacement_destinations: Optional[list[TransactionDestination]] = None
+        if requested_destinations is not None:
+            tax_rate_id = updates.get("tax_rate_id", entity.tax_rate_id)
+            tax_rate = await self._tax_rate_repo.get(tax_rate_id)
+            if not tax_rate:
+                raise ValueError(f"No existe tax_rate con id {tax_rate_id}")
+            replacement_destinations = await _build_transaction_destinations(
+                self._bank_account_repo,
+                destinations=requested_destinations,
+                user_id=updates.get("user_id", entity.user_id),
+                destination_currency=tax_rate.coin_b,
+                destination_amount=updates.get("destination_amount", entity.destination_amount),
+            )
+        elif "destination_amount" in updates:
+            existing_destinations = list(entity.destinations or [])
+            if len(existing_destinations) > 1:
+                current_total = sum((_money(item.amount) for item in existing_destinations), Decimal("0.00"))
+                if current_total != _money(updates["destination_amount"]):
+                    raise ValueError(
+                        "Debe enviar destinations al modificar una transacción con varias cuentas"
+                    )
+            elif existing_destinations:
+                existing_destinations[0].amount = float(_money(updates["destination_amount"]))
+            else:
+                replacement_destinations = [
+                    TransactionDestination(
+                        bank_account_id=updates.get(
+                            "bank_account_destination_id",
+                            entity.bank_account_destination_id,
+                        ),
+                        amount=float(_money(updates["destination_amount"])),
+                        position=0,
+                    )
+                ]
+
         for attr, value in updates.items():
             setattr(entity, attr, value)
+        if replacement_destinations is not None:
+            entity.destinations = replacement_destinations
 
         sync_transaction_status_from_checklist(entity)
 
         await self.repo.update(entity)
         await self.repo.commit()
-        await self.repo.refresh(entity, load_noload_relations=["user"])
+        await self.repo.refresh(entity, load_noload_relations=["user", "destinations"])
         return TransactionReadDTO.model_validate(entity)
 
 
