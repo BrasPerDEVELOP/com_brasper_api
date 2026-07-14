@@ -349,6 +349,94 @@ async def test_create_transaction_persists_special_calculator_discount(monkeypat
     assert captured["coupon_discount_total_to_send"] == 970.55
 
 
+@pytest.mark.asyncio
+async def test_special_calculator_uses_manual_tax_rate_instead_of_catalog():
+    """ESPECIAL reproduce la tasa manual enviada por la calculadora."""
+    commission = MagicMock(
+        percentage=5,
+        coin_a=Currency.pen,
+        coin_b=Currency.brl,
+        max_amount=50_000,
+    )
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=commission)
+    use_case = CreateTransactionUseCase(
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        commission_repo,
+        AsyncMock(),
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=111,
+        destination_amount=137.09,
+        tax_amount=1.3,
+        coupon_discount_code="ESPECIAL",
+        coupon_discount_commission=0,
+    )
+    tax_rate = MagicMock(
+        coin_a=Currency.pen,
+        coin_b=Currency.brl,
+        tax=1.483,
+    )
+    entity_data: dict = {}
+
+    await use_case._apply_server_financials(cmd, tax_rate, entity_data)
+
+    assert entity_data["commission_result"] == 5.55
+    assert entity_data["total_to_send"] == 105.45
+    assert entity_data["tax_amount"] == 1.3
+    assert entity_data["destination_amount"] == 137.09
+
+
+@pytest.mark.asyncio
+async def test_normal_transaction_ignores_client_tax_rate_override():
+    """Fuera de ESPECIAL, la tasa del catálogo continúa siendo autoritativa."""
+    commission = MagicMock(
+        percentage=5,
+        coin_a=Currency.pen,
+        coin_b=Currency.brl,
+        max_amount=50_000,
+    )
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=commission)
+    use_case = CreateTransactionUseCase(
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        commission_repo,
+        AsyncMock(),
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=111,
+        destination_amount=156.38,
+        tax_amount=1.3,
+    )
+    tax_rate = MagicMock(
+        coin_a=Currency.pen,
+        coin_b=Currency.brl,
+        tax=1.483,
+    )
+    entity_data: dict = {}
+
+    await use_case._apply_server_financials(cmd, tax_rate, entity_data)
+
+    assert entity_data["tax_amount"] == 1.483
+    assert entity_data["destination_amount"] == 156.38
+
+
 def test_post_transaction_json_minimal_payload(client):
     """POST /transactions/ con payload mínimo (campos requeridos) retorna 201."""
     payload = {
