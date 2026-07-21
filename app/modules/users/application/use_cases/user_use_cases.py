@@ -11,7 +11,7 @@ from app.core.unit_of_work import UnitOfWorkBase
 from app.shared.services.file_service import save_profile_image
 from app.modules.auth.application.use_cases import CreateAuthService
 from app.modules.auth.application.schemas.auth_schema import UserInfoDTO
-from app.modules.users.domain.models import User
+from app.modules.users.domain.models import User, UserIdentification
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.users.application.schemas.user_schema import (
     UserCreateCmd,
@@ -22,6 +22,50 @@ from app.modules.users.application.schemas.user_schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _build_identification_entities(cmd) -> list[UserIdentification]:
+    values = cmd.identifications
+    if values is None and cmd.document_type and cmd.document_number:
+        values = [{
+            "document_type": cmd.document_type,
+            "document_number": cmd.document_number,
+            "is_primary": True,
+        }]
+    entities = []
+    for position, value in enumerate(values or []):
+        document_type = value.document_type if hasattr(value, "document_type") else value["document_type"]
+        document_number = value.document_number if hasattr(value, "document_number") else value["document_number"]
+        is_primary = value.is_primary if hasattr(value, "is_primary") else value["is_primary"]
+        entities.append(UserIdentification(
+            document_type=document_type.value if hasattr(document_type, "value") else str(document_type),
+            document_number=str(document_number),
+            is_primary=bool(is_primary),
+            position=position,
+        ))
+    return entities
+
+
+def _sync_legacy_primary(user: User) -> None:
+    primary = next((item for item in user.identifications if item.is_primary), None)
+    if primary is None and user.identifications:
+        primary = user.identifications[0]
+        primary.is_primary = True
+    user.document_type = primary.document_type if primary else None
+    user.document_number = primary.document_number if primary else None
+
+
+def _sync_primary_from_legacy(user: User) -> None:
+    """Mantiene la colección cuando un consumidor antiguo actualiza el par legacy."""
+    if not user.document_type or not user.document_number:
+        user.identifications = []
+        return
+    primary = next((item for item in user.identifications if item.is_primary), None)
+    if primary is None:
+        primary = UserIdentification(is_primary=True, position=0)
+        user.identifications.insert(0, primary)
+    primary.document_type = user.document_type
+    primary.document_number = user.document_number
 
 
 class GetUserByIdUseCase:
@@ -101,6 +145,9 @@ class CreateUserUseCase:
                 phone=cmd.phone,
                 code_phone=cmd.code_phone.value if cmd.code_phone else None,
             )
+            user.identifications = _build_identification_entities(cmd)
+            if user.identifications:
+                _sync_legacy_primary(user)
 
             saved = await self._uow.user_repository.add(user)
             await self._uow.commit()
@@ -145,6 +192,11 @@ class UpdateUserUseCase:
                 existing_user.document_number = cmd.document_number
             if "document_type" in cmd.model_fields_set:
                 existing_user.document_type = cmd.document_type.value if cmd.document_type else None
+            if "identifications" in cmd.model_fields_set:
+                existing_user.identifications = _build_identification_entities(cmd)
+                _sync_legacy_primary(existing_user)
+            elif {"document_type", "document_number"} & cmd.model_fields_set:
+                _sync_primary_from_legacy(existing_user)
             if "is_agent" in cmd.model_fields_set:
                 existing_user.is_agent = cmd.is_agent
             if "role" in cmd.model_fields_set:

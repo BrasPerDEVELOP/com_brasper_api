@@ -135,3 +135,8 @@ Si quieres usar una base de datos que ya está en otro servidor (no el contenedo
 1. En `.env` pon `POSTGRES_HOST` (y `POSTGRES_PORT`) con la IP/host de ese servidor.
 2. En `docker-compose.yml` comenta o elimina el servicio `db` y el `depends_on: db` de la API.
 3. Levanta solo: `docker compose up -d --build nginx api`
+
+
+migraciones 
+
+poetry run alembic upgrade head
