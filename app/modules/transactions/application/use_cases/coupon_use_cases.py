@@ -74,7 +74,6 @@ class CreateCouponUseCase:
             coupon_type=cmd.coupon_type,
             lifecycle_status=cmd.lifecycle_status,
             per_user_limit=cmd.per_user_limit,
-            match_id=cmd.match_id,
             exchange_rate_scopes=cmd.exchange_rate_scopes,
         )
         saved = await self.repo.add(entity)

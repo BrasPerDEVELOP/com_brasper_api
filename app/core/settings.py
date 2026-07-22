@@ -31,9 +31,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str  # Clave secreta para encriptación AES-256 (mínimo 32 caracteres recomendado)
 
     TIMEZONE: str = "America/Lima"
+    # Variables del módulo world_cup (retirado el 2026-07-22). Se conservan
+    # declaradas para tolerar .env desplegados que aún las definen.
     FOOTBALL_DATA_API_TOKEN: str = ""
     FOOTBALL_DATA_COMPETITION_CODE: str = "WC"
-    # Configuración anterior conservada para tolerar despliegues con variables antiguas.
     SPORTMONKS_API_TOKEN: str = ""
     SPORTMONKS_WORLD_CUP_LEAGUE_ID: str = ""
     WORLD_CUP_SCHEDULER_ENABLED: bool = True

@@ -337,12 +337,23 @@ class Coupon(ORMBaseModel):
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     per_user_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     exchange_rate_scopes: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    match_id: Mapped[Optional[UUID]] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("world_cup.matches.id", ondelete="SET NULL"), nullable=True, index=True
-    )
 
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",
         back_populates="coupon",
         lazy="noload",
     )
+
+
+class CouponRedemption(ORMBaseModel):
+    """Canje de cupón por usuario/transacción (límites per_user y reversas).
+
+    La tabla física conserva el schema `world_cup` (migración 050) para no
+    requerir migración de datos; el módulo world_cup fue retirado el 2026-07-22.
+    """
+    __tablename__ = "coupon_redemptions"
+    __table_args__ = {"schema": "world_cup"}
+
+    coupon_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("transaction.coupons.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("user.user.id", ondelete="CASCADE"), nullable=False)
+    transaction_id: Mapped[Optional[UUID]] = mapped_column(PgUUID(as_uuid=True), ForeignKey("transaction.transactions.id", ondelete="SET NULL"), nullable=True)

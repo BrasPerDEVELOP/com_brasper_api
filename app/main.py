@@ -21,8 +21,6 @@ from app.modules.home_image.adapters.router import router as home_banner_router
 from app.modules.brasper.adapters.router import router as brasper_router
 from app.modules.blog.adapters.router import router as blog_router
 from app.modules.metrics.adapters.router import router as metrics_router
-from app.modules.world_cup.routes import router as world_cup_router, public_router as world_cup_public_router
-from app.modules.world_cup.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
@@ -52,9 +50,7 @@ async def lifespan(app: FastAPI):
     logger.info("✓ Aplicación iniciada correctamente")
     logger.info("=" * 70)
     
-    start_scheduler()
     yield
-    stop_scheduler()
     
     logger.info("=" * 70)
     logger.info("Cerrando aplicación...")
@@ -183,8 +179,6 @@ app.include_router(home_banner_router)
 app.include_router(brasper_router)
 app.include_router(blog_router)
 app.include_router(metrics_router)
-app.include_router(world_cup_router)
-app.include_router(world_cup_public_router)
 
 @app.get("/")
 async def root():

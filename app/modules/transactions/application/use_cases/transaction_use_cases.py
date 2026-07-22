@@ -21,11 +21,9 @@ from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
-from app.modules.transactions.domain.models import Coupon, Transaction, TransactionDestination
+from app.modules.transactions.domain.models import Coupon, CouponRedemption, Transaction, TransactionDestination
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
-from app.modules.world_cup.enums import ExchangeRateScope
-from app.modules.world_cup.models import CouponRedemption
-from app.modules.transactions.domain.enums import AccountFlowType, TransactionStatus
+from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
 from app.modules.users.domain.enums import UserRole
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import (

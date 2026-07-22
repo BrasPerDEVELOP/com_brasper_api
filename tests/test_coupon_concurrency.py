@@ -40,7 +40,7 @@ from app.modules.transactions.application.schemas.transaction_schema import (
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
     CreateTransactionUseCase,
 )
-from app.modules.world_cup.models import CouponRedemption
+from app.modules.transactions.domain.models import CouponRedemption
 
 
 # --------------------------------------------------------------------------- #

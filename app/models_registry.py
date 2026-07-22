@@ -20,14 +20,13 @@ from app.modules.coin.domain.models import (
 )
 
 # Transaction models
-from app.modules.transactions.domain.models import Transaction, Bank, BankAccount, Coupon
+from app.modules.transactions.domain.models import Transaction, Bank, BankAccount, Coupon, CouponRedemption
 
 # Integration models
 from app.modules.integraciones.domain.models import Integration, SocialAccount
 
 # Home image models
 from app.modules.home_image.domain.models import HomeBanner, HomePopup
-from app.modules.world_cup.models import WorldCupMatch, WorldCupCampaign, CouponRedemption, AdminNotification
 
 # Brasper
 from app.modules.brasper.domain.models import ContacForm

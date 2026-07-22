@@ -149,7 +149,6 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
             "/health",
             "/brasper/",
-            "/world-cup/public/",
             "/coin/",
             "/transactions/coupons/automatic/",
         ]
