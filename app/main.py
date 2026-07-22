@@ -5,7 +5,7 @@ import app.models_registry
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import get_settings
@@ -108,6 +108,28 @@ app.openapi = custom_openapi
 from app.middlewares.auth import TokenAuthMiddleware
 
 app.add_middleware(TokenAuthMiddleware)
+
+# Handlers globales: sin ellos, cualquier excepción no manejada se convierte en
+# un 500 emitido por ServerErrorMiddleware SIN cabeceras CORS, que el navegador
+# bloquea y axios reporta como "Network Error" en el backoffice.
+from sqlalchemy.exc import IntegrityError
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    logger.warning(f"IntegrityError en {request.url.path}: {exc.orig}")
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Conflicto de datos: el registro ya existe o viola una restricción única."},
+    )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    logger.warning(f"ValueError en {request.url.path}: {exc}")
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
 
 app.add_middleware(
     CORSMiddleware,

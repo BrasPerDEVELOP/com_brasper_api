@@ -46,6 +46,41 @@ def _build_identification_entities(cmd) -> list[UserIdentification]:
     return entities
 
 
+
+def _apply_identifications(user: User, values) -> None:
+    """Sincroniza la colección de identificaciones sin reemplazarla.
+
+    Reutiliza las filas existentes que coinciden por (document_type,
+    document_number), elimina las ausentes (delete-orphan) y agrega solo las
+    nuevas. Reemplazar la colección completa hacía que el flush ejecutara el
+    INSERT del documento reenviado antes del DELETE de su fila original,
+    violando uq_user_identifications_type_number (500 en PUT /user/).
+    """
+    existing_by_key = {
+        (item.document_type, str(item.document_number)): item
+        for item in user.identifications
+    }
+    next_rows = []
+    for position, value in enumerate(values or []):
+        document_type = value.document_type if hasattr(value, "document_type") else value["document_type"]
+        document_type = document_type.value if hasattr(document_type, "value") else str(document_type)
+        document_number = str(value.document_number if hasattr(value, "document_number") else value["document_number"])
+        is_primary = bool(value.is_primary if hasattr(value, "is_primary") else value["is_primary"])
+        row = existing_by_key.get((document_type, document_number))
+        if row is not None:
+            row.is_primary = is_primary
+            row.position = position
+        else:
+            row = UserIdentification(
+                document_type=document_type,
+                document_number=document_number,
+                is_primary=is_primary,
+                position=position,
+            )
+        next_rows.append(row)
+    user.identifications[:] = next_rows
+
+
 def _sync_legacy_primary(user: User) -> None:
     primary = next((item for item in user.identifications if item.is_primary), None)
     if primary is None and user.identifications:
@@ -193,7 +228,7 @@ class UpdateUserUseCase:
             if "document_type" in cmd.model_fields_set:
                 existing_user.document_type = cmd.document_type.value if cmd.document_type else None
             if "identifications" in cmd.model_fields_set:
-                existing_user.identifications = _build_identification_entities(cmd)
+                _apply_identifications(existing_user, cmd.identifications)
                 _sync_legacy_primary(existing_user)
             elif {"document_type", "document_number"} & cmd.model_fields_set:
                 _sync_primary_from_legacy(existing_user)
