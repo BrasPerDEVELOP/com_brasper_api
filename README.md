@@ -26,6 +26,7 @@ LOG_LEVEL=debug
 TOKEN_EXPIRATION_MINUTES=1440
 TOKEN_REFRESH_EXPIRATION_MINUTES=2880
 SECRET_KEY=tu-clave-secreta-min-32-caracteres
+BRASPER_IA_SHARED_SECRET=un-secreto-largo-distinto-de-secret-key
 ```
 
 **Importante:** No subas `.env` al repositorio (está en `.gitignore`). Genera una `SECRET_KEY` segura:

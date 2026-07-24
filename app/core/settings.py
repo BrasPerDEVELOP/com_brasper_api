@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     TOKEN_EXPIRATION_MINUTES: int = 1440  # 24 horas por defecto
     TOKEN_REFRESH_EXPIRATION_MINUTES: int = 2880  # 48 horas por defecto
     SECRET_KEY: str  # Clave secreta para encriptación AES-256 (mínimo 32 caracteres recomendado)
+    # Secreto compartido exclusivamente con com_brasper_ia. Si está vacío,
+    # los endpoints /brasper/ai responden 503 y nunca quedan abiertos.
+    BRASPER_IA_SHARED_SECRET: str = ""
 
     TIMEZONE: str = "America/Lima"
     # Variables del módulo world_cup (retirado el 2026-07-22). Se conservan
