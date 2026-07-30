@@ -535,6 +535,90 @@ async def test_normal_transaction_ignores_client_tax_rate_override():
     assert entity_data["destination_amount"] == 156.38
 
 
+@pytest.mark.asyncio
+async def test_amount_above_configured_maximum_uses_highest_commission_bracket():
+    highest_id = uuid4()
+    highest_commission = MagicMock(
+        id=highest_id,
+        percentage=2.5,
+        coin_a=Currency.usd,
+        coin_b=Currency.brl,
+        min_amount=2_977,
+        max_amount=10_000,
+    )
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=highest_commission)
+    commission_repo.list = AsyncMock(return_value=[highest_commission])
+    use_case = CreateTransactionUseCase(
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        commission_repo,
+        AsyncMock(),
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=highest_id,
+        origin_amount=25_000,
+        destination_amount=24_375,
+    )
+    tax_rate = MagicMock(coin_a=Currency.usd, coin_b=Currency.brl, tax=0.975)
+    entity_data: dict = {}
+
+    await use_case._apply_server_financials(cmd, tax_rate, entity_data)
+
+    assert entity_data["commission_result"] == 625
+    assert entity_data["total_to_send"] == 24_375
+
+
+@pytest.mark.asyncio
+async def test_amount_above_range_rejects_non_highest_commission_bracket():
+    lower_commission = MagicMock(
+        id=uuid4(),
+        percentage=1,
+        coin_a=Currency.usd,
+        coin_b=Currency.brl,
+        min_amount=100,
+        max_amount=2_976,
+    )
+    highest_commission = MagicMock(
+        id=uuid4(),
+        percentage=2.5,
+        coin_a=Currency.usd,
+        coin_b=Currency.brl,
+        min_amount=2_977,
+        max_amount=10_000,
+    )
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=lower_commission)
+    commission_repo.list = AsyncMock(return_value=[highest_commission])
+    use_case = CreateTransactionUseCase(
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        commission_repo,
+        AsyncMock(),
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(),
+        user_id=uuid4(),
+        tax_rate_id=uuid4(),
+        commission_id=lower_commission.id,
+        origin_amount=25_000,
+        destination_amount=24_750,
+    )
+    tax_rate = MagicMock(coin_a=Currency.usd, coin_b=Currency.brl, tax=0.99)
+
+    with pytest.raises(ValueError, match="comisión seleccionada"):
+        await use_case._apply_server_financials(cmd, tax_rate, {})
+
+
 def test_post_transaction_json_minimal_payload(client):
     """POST /transactions/ con payload mínimo (campos requeridos) retorna 201."""
     payload = {

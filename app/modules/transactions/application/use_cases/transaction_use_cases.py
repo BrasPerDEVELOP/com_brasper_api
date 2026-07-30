@@ -503,7 +503,25 @@ class CreateTransactionUseCase:
         if amount <= 0:
             raise ValueError("El monto de origen debe ser mayor que cero")
         if commission.max_amount is not None and amount > float(commission.max_amount):
-            raise ValueError("El monto supera el rango de comisión")
+            pair_commissions = await self._commission_repo.list(
+                query_filter=QueryFilter(
+                    filters=[
+                        FilterSchema(field="coin_a", value=tax_rate.coin_a, operator=OperatorEnum.EQ),
+                        FilterSchema(field="coin_b", value=tax_rate.coin_b, operator=OperatorEnum.EQ),
+                    ],
+                    order_by=[("max_amount", "desc")],
+                ),
+                limit=1,
+            )
+            highest_commission = (
+                pair_commissions.items[0]
+                if isinstance(pair_commissions, PaginatedResult) and pair_commissions.items
+                else pair_commissions[0]
+                if isinstance(pair_commissions, list) and pair_commissions
+                else None
+            )
+            if highest_commission is None or highest_commission.id != commission.id:
+                raise ValueError("El monto supera el rango de la comisión seleccionada")
         base_commission = round(amount * float(commission.percentage) / 100, 2)
         coupon = None
         discount = 0.0
