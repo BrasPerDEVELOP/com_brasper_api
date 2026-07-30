@@ -576,7 +576,7 @@ async def test_amount_above_configured_maximum_uses_highest_commission_bracket()
 
 
 @pytest.mark.asyncio
-async def test_amount_above_range_rejects_non_highest_commission_bracket():
+async def test_amount_above_range_replaces_stale_commission_with_highest_bracket():
     lower_commission = MagicMock(
         id=uuid4(),
         percentage=1,
@@ -615,8 +615,12 @@ async def test_amount_above_range_rejects_non_highest_commission_bracket():
     )
     tax_rate = MagicMock(coin_a=Currency.usd, coin_b=Currency.brl, tax=0.99)
 
-    with pytest.raises(ValueError, match="comisión seleccionada"):
-        await use_case._apply_server_financials(cmd, tax_rate, {})
+    entity_data: dict = {}
+    await use_case._apply_server_financials(cmd, tax_rate, entity_data)
+
+    assert entity_data["commission_id"] == highest_commission.id
+    assert entity_data["commission_result"] == 625
+    assert entity_data["total_to_send"] == 24_375
 
 
 def test_post_transaction_json_minimal_payload(client):

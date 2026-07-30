@@ -502,26 +502,54 @@ class CreateTransactionUseCase:
         amount = float(cmd.origin_amount)
         if amount <= 0:
             raise ValueError("El monto de origen debe ser mayor que cero")
-        if commission.max_amount is not None and amount > float(commission.max_amount):
+        below_selected_range = (
+            commission.min_amount is not None and amount < float(commission.min_amount)
+        )
+        above_selected_range = (
+            commission.max_amount is not None and amount > float(commission.max_amount)
+        )
+        if below_selected_range or above_selected_range:
             pair_commissions = await self._commission_repo.list(
                 query_filter=QueryFilter(
                     filters=[
                         FilterSchema(field="coin_a", value=tax_rate.coin_a, operator=OperatorEnum.EQ),
                         FilterSchema(field="coin_b", value=tax_rate.coin_b, operator=OperatorEnum.EQ),
                     ],
-                    order_by=[("max_amount", "desc")],
+                    order_by=[("min_amount", "asc")],
+                )
+            )
+            brackets = (
+                pair_commissions.items
+                if isinstance(pair_commissions, PaginatedResult)
+                else pair_commissions
+            )
+            ordered_brackets = sorted(
+                brackets,
+                key=lambda row: (
+                    float(row.min_amount) if row.min_amount is not None else 0,
+                    float(row.max_amount) if row.max_amount is not None else float("inf"),
                 ),
-                limit=1,
             )
-            highest_commission = (
-                pair_commissions.items[0]
-                if isinstance(pair_commissions, PaginatedResult) and pair_commissions.items
-                else pair_commissions[0]
-                if isinstance(pair_commissions, list) and pair_commissions
-                else None
+            matching_commission = next(
+                (
+                    row
+                    for row in ordered_brackets
+                    if (row.min_amount is None or amount >= float(row.min_amount))
+                    and (row.max_amount is None or amount <= float(row.max_amount))
+                ),
+                None,
             )
-            if highest_commission is None or highest_commission.id != commission.id:
-                raise ValueError("El monto supera el rango de la comisión seleccionada")
+            if matching_commission is None and ordered_brackets:
+                matching_commission = (
+                    ordered_brackets[0]
+                    if ordered_brackets[0].min_amount is not None
+                    and amount < float(ordered_brackets[0].min_amount)
+                    else ordered_brackets[-1]
+                )
+            if matching_commission is None:
+                raise ValueError("No existe una comisión configurada para el par de monedas")
+            commission = matching_commission
+            entity_data["commission_id"] = commission.id
         base_commission = round(amount * float(commission.percentage) / 100, 2)
         coupon = None
         discount = 0.0
