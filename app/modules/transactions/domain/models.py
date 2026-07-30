@@ -6,7 +6,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from app.modules.users.domain.models import User
 
-from sqlalchemy import BigInteger, Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint
+from sqlalchemy import Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -281,22 +281,22 @@ class BankAccount(ORMBaseModel):
     # Titular (Perú)
     holder_names: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     holder_surnames: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    document_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    document_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Empresarial (opcional)
     business_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    ruc_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    ruc_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     legal_representative_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    legal_representative_document: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    legal_representative_document: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Cuenta Perú
-    account_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    cci_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    account_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    cci_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Brasil / PIX
     pix_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     pix_key_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    cpf: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    cpf: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relaciones
     bank: Mapped["Bank"] = relationship("Bank", back_populates="bank_accounts", lazy="noload")

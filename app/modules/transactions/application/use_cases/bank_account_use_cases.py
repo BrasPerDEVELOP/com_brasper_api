@@ -137,6 +137,8 @@ class DeleteBankAccountUseCase:
     def __init__(self, repo: BankAccountRepositoryInterface):
         self.repo = repo
 
-    async def execute(self, bank_account_id: UUID) -> None:
-        await self.repo.delete(bank_account_id)
+    async def execute(self, bank_account_id: UUID) -> bool:
+        """Soft-delete. Retorna False si la cuenta no existe (o ya estaba eliminada)."""
+        result = await self.repo.delete(bank_account_id)
         await self.repo.commit()
+        return bool(result.get("status")) if isinstance(result, dict) else bool(result)

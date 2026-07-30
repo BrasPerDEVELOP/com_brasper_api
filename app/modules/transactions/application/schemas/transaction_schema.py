@@ -803,25 +803,29 @@ class TransactionMetricsDTO(BaseModel):
 class BankAccountImportPayload(BaseModel):
     """Cuenta bancaria para importación (sin user_id; se asigna al crear)."""
 
+    # Las plantillas de importación traen documentos como número; se normalizan a
+    # texto igual que en `BankAccountCreateCmd` en lugar de responder 422.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
     bank_id: UUID
     account_flow: AccountFlowType
     account_holder_type: SocialActor
     bank_country: BankCountry
     holder_names: Optional[str] = None
     holder_surnames: Optional[str] = None
-    document_number: Optional[int] = None
+    document_number: Optional[str] = None
     business_name: Optional[str] = None
-    ruc_number: Optional[int] = None
+    ruc_number: Optional[str] = None
     legal_representative_name: Optional[str] = None
-    legal_representative_document: Optional[int] = None
-    account_number: Optional[int] = None
-    account_number_confirmation: Optional[int] = None
-    cci_number: Optional[int] = None
-    cci_number_confirmation: Optional[int] = None
+    legal_representative_document: Optional[str] = None
+    account_number: Optional[str] = None
+    account_number_confirmation: Optional[str] = None
+    cci_number: Optional[str] = None
+    cci_number_confirmation: Optional[str] = None
     pix_key: Optional[str] = None
     pix_key_confirmation: Optional[str] = None
     pix_key_type: Optional[str] = None
-    cpf: Optional[int] = None
+    cpf: Optional[str] = None
 
 
 class TransactionImportPayload(BaseModel):
