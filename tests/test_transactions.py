@@ -854,6 +854,32 @@ def test_merge_destination_entities_reuses_rows_for_same_account():
     assert existing_removed not in merged
 
 
+def test_single_destination_follows_server_recalculated_total():
+    account_id = uuid4()
+    destinations = [
+        TransactionDestinationInput(bank_account_id=account_id, amount=30),
+    ]
+
+    synced = transaction_use_cases._sync_single_destination_amount(destinations, 32.08)
+
+    assert synced is not None
+    assert synced[0].bank_account_id == account_id
+    assert synced[0].amount == 32.08
+    assert destinations[0].amount == 30
+
+
+def test_multiple_destinations_keep_manual_distribution():
+    destinations = [
+        TransactionDestinationInput(bank_account_id=uuid4(), amount=20),
+        TransactionDestinationInput(bank_account_id=uuid4(), amount=10),
+    ]
+
+    synced = transaction_use_cases._sync_single_destination_amount(destinations, 32.08)
+
+    assert synced is destinations
+    assert [item.amount for item in synced] == [20, 10]
+
+
 @pytest.mark.asyncio
 async def test_multiple_destinations_validate_owner_currency_and_total():
     user_id = uuid4()

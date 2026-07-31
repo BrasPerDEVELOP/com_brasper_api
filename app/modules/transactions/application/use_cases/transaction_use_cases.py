@@ -302,6 +302,17 @@ def _destination_items_total(destinations: list) -> Decimal:
     return sum((_money(item.amount) for item in destinations), Decimal("0.00"))
 
 
+def _sync_single_destination_amount(destinations: list | None, destination_amount: float) -> list | None:
+    """Una cuenta única recibe todo el total financiero definitivo."""
+    if destinations is None or len(destinations) != 1:
+        return destinations
+    return [
+        destinations[0].model_copy(
+            update={"amount": float(_money(destination_amount))}
+        )
+    ]
+
+
 def _merge_destination_entities(
     existing: list, replacements: list
 ) -> list:
@@ -687,6 +698,10 @@ class CreateTransactionUseCase:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
         coupon = await self._apply_server_financials(cmd, tax_rate, entity_data)
         if requested_destinations is not None:
+            requested_destinations = _sync_single_destination_amount(
+                requested_destinations,
+                entity_data["destination_amount"],
+            )
             destination_entities = await _build_transaction_destinations(
                 self._bank_account_repo,
                 destinations=requested_destinations,
