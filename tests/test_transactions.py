@@ -880,6 +880,35 @@ def test_multiple_destinations_keep_manual_distribution():
     assert [item.amount for item in synced] == [20, 10]
 
 
+def test_multiple_destinations_validate_against_requested_operational_total():
+    destinations = [
+        TransactionDestinationInput(bank_account_id=uuid4(), amount=36450),
+        TransactionDestinationInput(bank_account_id=uuid4(), amount=24500),
+    ]
+
+    total = transaction_use_cases._destination_validation_total(
+        destinations,
+        requested_total=60950,
+        calculated_total=62508,
+    )
+
+    assert total == 60950
+
+
+def test_single_destination_validates_against_server_calculation():
+    destinations = [
+        TransactionDestinationInput(bank_account_id=uuid4(), amount=60950),
+    ]
+
+    total = transaction_use_cases._destination_validation_total(
+        destinations,
+        requested_total=60950,
+        calculated_total=62508,
+    )
+
+    assert total == 62508
+
+
 @pytest.mark.asyncio
 async def test_multiple_destinations_validate_owner_currency_and_total():
     user_id = uuid4()
