@@ -854,17 +854,17 @@ def test_merge_destination_entities_reuses_rows_for_same_account():
     assert existing_removed not in merged
 
 
-def test_single_destination_follows_server_recalculated_total():
+def test_single_destination_keeps_confirmed_operational_total():
     account_id = uuid4()
     destinations = [
         TransactionDestinationInput(bank_account_id=account_id, amount=30),
     ]
 
-    synced = transaction_use_cases._sync_single_destination_amount(destinations, 32.08)
+    synced = transaction_use_cases._sync_single_destination_amount(destinations, 30)
 
     assert synced is not None
     assert synced[0].bank_account_id == account_id
-    assert synced[0].amount == 32.08
+    assert synced[0].amount == 30
     assert destinations[0].amount == 30
 
 
@@ -878,35 +878,6 @@ def test_multiple_destinations_keep_manual_distribution():
 
     assert synced is destinations
     assert [item.amount for item in synced] == [20, 10]
-
-
-def test_multiple_destinations_validate_against_requested_operational_total():
-    destinations = [
-        TransactionDestinationInput(bank_account_id=uuid4(), amount=36450),
-        TransactionDestinationInput(bank_account_id=uuid4(), amount=24500),
-    ]
-
-    total = transaction_use_cases._destination_validation_total(
-        destinations,
-        requested_total=60950,
-        calculated_total=62508,
-    )
-
-    assert total == 60950
-
-
-def test_single_destination_validates_against_server_calculation():
-    destinations = [
-        TransactionDestinationInput(bank_account_id=uuid4(), amount=60950),
-    ]
-
-    total = transaction_use_cases._destination_validation_total(
-        destinations,
-        requested_total=60950,
-        calculated_total=62508,
-    )
-
-    assert total == 62508
 
 
 @pytest.mark.asyncio
@@ -1074,6 +1045,60 @@ async def test_create_transaction_persists_multiple_destinations(monkeypatch):
         (first_id, 300),
         (second_id, 330),
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_under_100_keeps_calculator_destination_after_server_recalculation(monkeypatch):
+    user_id = uuid4()
+    account_id = uuid4()
+    tax = MagicMock(coin_a=Currency.usd, coin_b=Currency.brl)
+    tax_rate_repo = AsyncMock()
+    tax_rate_repo.get = AsyncMock(return_value=tax)
+    user_repo = AsyncMock()
+    user_repo.list_ids_by_roles = AsyncMock(return_value=[uuid4()])
+    bank = MagicMock(id=uuid4(), bank="Banco", company="Cliente", currency=Currency.brl)
+    account = MagicMock(
+        user_id=user_id,
+        bank_id=bank.id,
+        bank=bank,
+        account_flow=AccountFlowType.destination,
+    )
+    bank_account_repo = AsyncMock()
+    bank_account_repo.get = AsyncMock(return_value=account)
+    captured = {}
+    transaction_repo = AsyncMock()
+    transaction_repo.add = AsyncMock(side_effect=lambda entity: captured.setdefault("entity", entity))
+    transaction_repo.next_sequential_transaction_code = AsyncMock(return_value="UxB-TEST-SMALL")
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    use_case = CreateTransactionUseCase(
+        transaction_repo,
+        tax_rate_repo,
+        user_repo,
+        bank_account_repo,
+        AsyncMock(),
+    )
+
+    async def simulate_server_recalculation(cmd, tax_rate, entity_data):
+        entity_data["destination_amount"] = 32.08
+        return None
+
+    use_case._apply_server_financials = AsyncMock(side_effect=simulate_server_recalculation)
+    await use_case.execute(TransactionCreateCmd(
+        bank_account_destination=account_id,
+        destinations=[
+            TransactionDestinationInput(bank_account_id=account_id, amount=30),
+        ],
+        user_id=user_id,
+        tax_rate_id=uuid4(),
+        commission_id=uuid4(),
+        origin_amount=50,
+        destination_amount=30,
+    ))
+
+    entity = captured["entity"]
+    assert float(entity.destination_amount) == 30
+    assert float(entity.destinations[0].amount) == 30
 
 
 def test_create_multipart_parses_destinations_json():

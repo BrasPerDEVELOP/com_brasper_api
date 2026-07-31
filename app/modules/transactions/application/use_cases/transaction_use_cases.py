@@ -303,7 +303,7 @@ def _destination_items_total(destinations: list) -> Decimal:
 
 
 def _sync_single_destination_amount(destinations: list | None, destination_amount: float) -> list | None:
-    """Una cuenta única recibe todo el total financiero definitivo."""
+    """Una cuenta única recibe todo el monto operativo confirmado."""
     if destinations is None or len(destinations) != 1:
         return destinations
     return [
@@ -311,18 +311,6 @@ def _sync_single_destination_amount(destinations: list | None, destination_amoun
             update={"amount": float(_money(destination_amount))}
         )
     ]
-
-
-def _destination_validation_total(
-    destinations: list,
-    *,
-    requested_total: object,
-    calculated_total: object,
-) -> object:
-    """El total operativo manual manda cuando se reparte entre varias cuentas."""
-    return calculated_total if len(destinations) == 1 else requested_total
-
-
 def _merge_destination_entities(
     existing: list, replacements: list
 ) -> list:
@@ -710,19 +698,14 @@ class CreateTransactionUseCase:
         if requested_destinations is not None:
             requested_destinations = _sync_single_destination_amount(
                 requested_destinations,
-                entity_data["destination_amount"],
-            )
-            destination_validation_total = _destination_validation_total(
-                requested_destinations,
-                requested_total=cmd.destination_amount,
-                calculated_total=entity_data["destination_amount"],
+                cmd.destination_amount,
             )
             destination_entities = await _build_transaction_destinations(
                 self._bank_account_repo,
                 destinations=requested_destinations,
                 user_id=cmd.user_id,
                 destination_currency=tax_rate.coin_b,
-                destination_amount=destination_validation_total,
+                destination_amount=cmd.destination_amount,
             )
             distributed_total = _destination_items_total(requested_destinations)
             entity_data["destination_amount"] = float(distributed_total)
