@@ -60,7 +60,15 @@ class QueryFilter:
             if field is None:
                 continue
             condition = self._get_operator(field, f.operator, f.value)
-            if condition:
+            # `is not None` y no `if condition:`: evaluar como booleano una
+            # expresión de SQLAlchemy (`col >= x`, `col.in_(...)`, `col.like(...)`)
+            # llama a `__bool__`, que lanza
+            # `TypeError: Boolean value of this clause is not defined`.
+            # Solo `==` y `!=` definen `__bool__`, así que el resto de los
+            # operadores provocaba un 500 en cuanto se usaba el filtro.
+            # `_get_operator` devuelve None cuando el operador no existe: ese es
+            # el único caso que debemos descartar.
+            if condition is not None:
                 filter_conditions.append(condition)
 
         if filter_conditions:
