@@ -13,6 +13,16 @@ class UserRepositoryInterface(BaseRepositoryInterface[User]):
         ...
 
     @abstractmethod
+    async def soft_delete_identifications(self, user_id: UUID) -> None:
+        """Acompaña al borrado lógico del usuario.
+
+        El índice único de `(document_type, document_number)` solo mira filas
+        vivas; si estas no se marcan, el documento del usuario eliminado queda
+        bloqueado y no se puede volver a registrar a esa persona.
+        """
+        ...
+
+    @abstractmethod
     async def get_by_email(self, email: str) -> Optional[User]:
         ...
 

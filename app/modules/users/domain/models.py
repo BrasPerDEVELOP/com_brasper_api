@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Optional
 import uuid
 
-from sqlalchemy import String, Boolean, BigInteger, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import String, Boolean, BigInteger, ForeignKey, Index, Integer, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,12 +13,22 @@ if TYPE_CHECKING:
 
 
 class UserIdentification(ORMBaseModel):
+    """Documento de identidad de un usuario.
+
+    La unicidad de `(document_type, document_number)` vive en un índice único
+    PARCIAL (`WHERE deleted = false`, migración 063), no en una constraint: el
+    borrado es lógico y una constraint incondicional dejaba el documento
+    bloqueado para siempre tras eliminar al usuario.
+    """
+
     __tablename__ = "user_identifications"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_user_identifications_type_number_alive",
             "document_type",
             "document_number",
-            name="uq_user_identifications_type_number",
+            unique=True,
+            postgresql_where=text("deleted = false"),
         ),
         {"schema": "user"},
     )
@@ -39,14 +49,30 @@ class UserIdentification(ORMBaseModel):
 
 class User(ORMBaseModel):
     __tablename__ = "user"
-    __table_args__ = {"schema": "user"}
+    __table_args__ = (
+        Index(
+            "uq_user_email_alive",
+            "email",
+            unique=True,
+            postgresql_where=text("deleted = false AND email IS NOT NULL"),
+        ),
+        Index(
+            "uq_user_document_number_alive",
+            "document_number",
+            unique=True,
+            postgresql_where=text("deleted = false AND document_number IS NOT NULL"),
+        ),
+        {"schema": "user"},
+    )
 
     auth_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     names: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     lastnames: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    # Unicidad en índice parcial `uq_user_email_alive` (migración 063).
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     profile_image: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    document_number: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
+    # Unicidad en índice parcial `uq_user_document_number_alive` (migración 063).
+    document_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     document_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # DocumentType enum value
     is_agent: Mapped[Optional[bool]] = mapped_column(Boolean, default=True, nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UserRole enum value

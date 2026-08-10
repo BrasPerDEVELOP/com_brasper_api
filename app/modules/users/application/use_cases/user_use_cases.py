@@ -262,6 +262,12 @@ class DeleteUserUseCase:
             user = await self._uow.user_repository.get(user_id)
             auth_id = user.auth_id if user else None
 
+            # Las identificaciones también se marcan: el borrado es lógico y el
+            # índice único de (tipo, número) solo excluye las filas borradas. Sin
+            # esto, el documento del usuario eliminado seguiría bloqueado y no se
+            # podría volver a registrar a esa persona.
+            await self._uow.user_repository.soft_delete_identifications(user_id)
+
             await self._uow.user_repository.delete(user_id)
             if auth_id:
                 await self._uow.auth_repository.delete(auth_id)
