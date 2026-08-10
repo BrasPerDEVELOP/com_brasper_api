@@ -359,9 +359,13 @@ class ListUserNameUseCase:
         try:
             from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 
+            # Sin filtro por `is_agent`: 2117 de los 2360 clientes lo tienen en
+            # `false`, así que exigirlo dejaba fuera al 90% del padrón. El efecto
+            # visible era que la tabla de transacciones mostraba el UUID en vez
+            # del nombre, y que el selector de cliente casi no ofrecía a nadie.
+            # Todos los consumidores de este endpoint filtran por `role`.
             filters = [
                 FilterSchema(field="enable", value=True, operator=OperatorEnum.EQ),
-                FilterSchema(field="is_agent", value=True, operator=OperatorEnum.EQ),
             ]
             if user_id is not None:
                 filters.append(FilterSchema(field="id", value=user_id, operator=OperatorEnum.EQ))
