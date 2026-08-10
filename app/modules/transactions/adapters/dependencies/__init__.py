@@ -28,6 +28,12 @@ from app.modules.transactions.adapters.dependencies.transaction_dependencies imp
     CreateCouponUseCaseDep,
     UpdateCouponUseCaseDep,
     DeleteCouponUseCaseDep,
+    get_tag_repository,
+    ListTagsUseCaseDep,
+    GetTagByIdUseCaseDep,
+    CreateTagUseCaseDep,
+    UpdateTagUseCaseDep,
+    DeleteTagUseCaseDep,
 )
 
 __all__ = [
@@ -59,4 +65,10 @@ __all__ = [
     "CreateCouponUseCaseDep",
     "UpdateCouponUseCaseDep",
     "DeleteCouponUseCaseDep",
+    "get_tag_repository",
+    "ListTagsUseCaseDep",
+    "GetTagByIdUseCaseDep",
+    "CreateTagUseCaseDep",
+    "UpdateTagUseCaseDep",
+    "DeleteTagUseCaseDep",
 ]

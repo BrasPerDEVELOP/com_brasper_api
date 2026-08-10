@@ -16,10 +16,12 @@ from app.modules.transactions.interfaces.transaction_repository import Transacti
 from app.modules.transactions.interfaces.bank_repository import BankRepositoryInterface
 from app.modules.transactions.interfaces.bank_account_repository import BankAccountRepositoryInterface
 from app.modules.transactions.interfaces.coupon_repository import CouponRepositoryInterface
+from app.modules.transactions.interfaces.tag_repository import TagRepositoryInterface
 from app.modules.transactions.infrastructure.repository import SQLAlchemyTransactionRepository
 from app.modules.transactions.infrastructure.bank_repository import SQLAlchemyBankRepository
 from app.modules.transactions.infrastructure.bank_account_repository import SQLAlchemyBankAccountRepository
 from app.modules.transactions.infrastructure.coupon_repository import SQLAlchemyCouponRepository
+from app.modules.transactions.infrastructure.tag_repository import SQLAlchemyTagRepository
 from app.core.containers.users import create_user_uc, get_user_repository
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.application.use_cases import (
@@ -47,6 +49,11 @@ from app.modules.transactions.application.use_cases import (
     CreateCouponUseCase,
     UpdateCouponUseCase,
     DeleteCouponUseCase,
+    ListTagsUseCase,
+    GetTagByIdUseCase,
+    CreateTagUseCase,
+    UpdateTagUseCase,
+    DeleteTagUseCase,
 )
 
 
@@ -119,8 +126,11 @@ def update_transaction_uc(
     tax_rate_repo: Annotated[
         TaxRateRepositoryInterface, Depends(get_tax_rate_repository)
     ],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UpdateTransactionUseCase:
-    return UpdateTransactionUseCase(repo, bank_account_repo, bank_repo, tax_rate_repo)
+    return UpdateTransactionUseCase(
+        repo, bank_account_repo, bank_repo, tax_rate_repo, session=db
+    )
 
 
 def delete_transaction_uc(
@@ -295,3 +305,47 @@ ListCouponsUseCaseDep = Annotated[ListCouponsUseCase, Depends(list_coupons_uc)]
 CreateCouponUseCaseDep = Annotated[CreateCouponUseCase, Depends(create_coupon_uc)]
 UpdateCouponUseCaseDep = Annotated[UpdateCouponUseCase, Depends(update_coupon_uc)]
 DeleteCouponUseCaseDep = Annotated[DeleteCouponUseCase, Depends(delete_coupon_uc)]
+
+
+# ---------------------------------------------------------------- etiquetas
+def get_tag_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TagRepositoryInterface:
+    return SQLAlchemyTagRepository(db)
+
+
+def list_tags_uc(
+    repo: Annotated[TagRepositoryInterface, Depends(get_tag_repository)],
+) -> ListTagsUseCase:
+    return ListTagsUseCase(repo)
+
+
+def get_tag_by_id_uc(
+    repo: Annotated[TagRepositoryInterface, Depends(get_tag_repository)],
+) -> GetTagByIdUseCase:
+    return GetTagByIdUseCase(repo)
+
+
+def create_tag_uc(
+    repo: Annotated[TagRepositoryInterface, Depends(get_tag_repository)],
+) -> CreateTagUseCase:
+    return CreateTagUseCase(repo)
+
+
+def update_tag_uc(
+    repo: Annotated[TagRepositoryInterface, Depends(get_tag_repository)],
+) -> UpdateTagUseCase:
+    return UpdateTagUseCase(repo)
+
+
+def delete_tag_uc(
+    repo: Annotated[TagRepositoryInterface, Depends(get_tag_repository)],
+) -> DeleteTagUseCase:
+    return DeleteTagUseCase(repo)
+
+
+ListTagsUseCaseDep = Annotated[ListTagsUseCase, Depends(list_tags_uc)]
+GetTagByIdUseCaseDep = Annotated[GetTagByIdUseCase, Depends(get_tag_by_id_uc)]
+CreateTagUseCaseDep = Annotated[CreateTagUseCase, Depends(create_tag_uc)]
+UpdateTagUseCaseDep = Annotated[UpdateTagUseCase, Depends(update_tag_uc)]
+DeleteTagUseCaseDep = Annotated[DeleteTagUseCase, Depends(delete_tag_uc)]

@@ -30,6 +30,13 @@ from app.modules.transactions.application.schemas.coupon_schema import (
     CouponReadDTO,
 )
 
+from app.modules.transactions.application.schemas.tag_schema import (
+    TagCreateCmd,
+    TagUpdateCmd,
+    TagReadDTO,
+    TAG_COLORS,
+)
+
 __all__ = [
     "TransactionCreateCmd",
     "TransactionUpdateCmd",
@@ -53,4 +60,8 @@ __all__ = [
     "CouponCreateCmd",
     "CouponUpdateCmd",
     "CouponReadDTO",
+    "TagCreateCmd",
+    "TagUpdateCmd",
+    "TagReadDTO",
+    "TAG_COLORS",
 ]

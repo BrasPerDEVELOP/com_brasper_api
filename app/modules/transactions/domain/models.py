@@ -170,6 +170,13 @@ class Transaction(ORMBaseModel):
         order_by="TransactionDestination.position",
         lazy="noload",
     )
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag",
+        secondary="transaction.transaction_tags",
+        back_populates="transactions",
+        order_by="Tag.position, Tag.label",
+        lazy="noload",
+    )
 
 
 class TransactionDestination(ORMBaseModel):
@@ -357,3 +364,61 @@ class CouponRedemption(ORMBaseModel):
     coupon_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("transaction.coupons.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("user.user.id", ondelete="CASCADE"), nullable=False)
     transaction_id: Mapped[Optional[UUID]] = mapped_column(PgUUID(as_uuid=True), ForeignKey("transaction.transactions.id", ondelete="SET NULL"), nullable=True)
+
+
+class Tag(ORMBaseModel):
+    """Etiqueta que ventas aplica a una transacción (ej. «Cliente nuevo»).
+
+    ``counts_as_new_client`` marca la única etiqueta que alimenta el indicador de
+    clientes nuevos del día; la unicidad se garantiza en el caso de uso, no con
+    una constraint, porque el borrado es lógico (``deleted``) y un índice único
+    parcial complicaría la reactivación de etiquetas.
+
+    ``active`` es distinto de ``deleted``: una etiqueta inactiva deja de ofrecerse
+    al registrar, pero sigue visible en las transacciones que ya la tenían.
+    """
+
+    __tablename__ = "tags"
+    __table_args__ = {"schema": "transaction"}
+
+    label: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    color: Mapped[str] = mapped_column(String(20), nullable=False, default="slate")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    counts_as_new_client: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        secondary="transaction.transaction_tags",
+        back_populates="tags",
+        lazy="noload",
+    )
+
+
+class TransactionTag(ORMBaseModel):
+    """Puente transacción ↔ etiqueta.
+
+    Se borra en cascada con la transacción y con la etiqueta: si se elimina una
+    etiqueta del catálogo, desaparece de las transacciones que la tenían.
+    """
+
+    __tablename__ = "transaction_tags"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", "tag_id", name="uq_transaction_tag"),
+        {"schema": "transaction"},
+    )
+
+    transaction_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.transactions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tag_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("transaction.tags.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )

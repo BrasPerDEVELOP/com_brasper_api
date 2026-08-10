@@ -34,6 +34,14 @@ from app.modules.transactions.application.use_cases.coupon_use_cases import (
     DeleteCouponUseCase,
 )
 
+from app.modules.transactions.application.use_cases.tag_use_cases import (
+    ListTagsUseCase,
+    GetTagByIdUseCase,
+    CreateTagUseCase,
+    UpdateTagUseCase,
+    DeleteTagUseCase,
+)
+
 __all__ = [
     "GetTransactionByIdUseCase",
     "ListTransactionsUseCase",
@@ -59,4 +67,9 @@ __all__ = [
     "CreateCouponUseCase",
     "UpdateCouponUseCase",
     "DeleteCouponUseCase",
+    "ListTagsUseCase",
+    "GetTagByIdUseCase",
+    "CreateTagUseCase",
+    "UpdateTagUseCase",
+    "DeleteTagUseCase",
 ]

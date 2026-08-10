@@ -21,7 +21,7 @@ from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
-from app.modules.transactions.domain.models import Coupon, CouponRedemption, Transaction, TransactionDestination
+from app.modules.transactions.domain.models import Coupon, CouponRedemption, Tag, Transaction, TransactionDestination
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
 from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
 from app.modules.users.domain.enums import UserRole
@@ -394,6 +394,9 @@ async def _build_transaction_destinations(
 _TXN_LOAD_USER = (
     selectinload(Transaction.user),
     selectinload(Transaction.destinations),
+    # Las etiquetas viajan con la transacción: sin esto el DTO las devolvería
+    # vacías (la relación es lazy="noload") y el listado haría N+1.
+    selectinload(Transaction.tags),
 )
 
 
@@ -478,6 +481,21 @@ class GetTransactionMetricsUseCase:
     async def execute(self) -> TransactionMetricsDTO:
         data = await self.repo.metrics()
         return TransactionMetricsDTO(**data)
+
+
+async def _resolve_tags(session: Optional[AsyncSession], tag_ids) -> list:
+    """Convierte una lista de ids en entidades Tag activas y no borradas.
+
+    Los ids desconocidos se ignoran en silencio: una etiqueta borrada del
+    catálogo no debe tumbar el alta de una transacción.
+    """
+    if session is None or not tag_ids:
+        return []
+    unique = list(dict.fromkeys(tag_ids))
+    result = await session.execute(
+        select(Tag).where(Tag.id.in_(unique), Tag.deleted.is_(False))
+    )
+    return list(result.scalars().all())
 
 
 class CreateTransactionUseCase:
@@ -660,6 +678,8 @@ class CreateTransactionUseCase:
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
         entity_data.pop("destinations", None)
+        # `tags` es relación, no columna: se aplica aparte tras construir la entidad.
+        entity_data.pop("tag_ids", None)
         requested_destinations = cmd.destinations
         entity_data["agent_id"] = await _resolve_agent_id_for_create(
             self._user_repo,
@@ -731,12 +751,13 @@ class CreateTransactionUseCase:
         _sync_legacy_voucher_fields(entity_data)
         entity = Transaction(**entity_data)
         entity.destinations = destination_entities
+        entity.tags = await _resolve_tags(self._session, getattr(cmd, "tag_ids", None))
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
         if coupon and self._session is not None:
             self._session.add(CouponRedemption(coupon_id=coupon.id, user_id=cmd.user_id, transaction_id=saved.id))
         await self.repo.commit()
-        await self.repo.refresh(saved, load_noload_relations=["user", "destinations"])
+        await self.repo.refresh(saved, load_noload_relations=["user", "destinations", "tags"])
         return TransactionReadDTO.model_validate(saved)
 
 
@@ -747,11 +768,13 @@ class UpdateTransactionUseCase:
         bank_account_repo: BankAccountRepositoryInterface,
         bank_repo: BankRepositoryInterface,
         tax_rate_repo: TaxRateRepositoryInterface,
+        session: Optional[AsyncSession] = None,
     ):
         self.repo = repo
         self._bank_account_repo = bank_account_repo
         self._bank_repo = bank_repo
         self._tax_rate_repo = tax_rate_repo
+        self._session = session
 
     async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
@@ -759,6 +782,7 @@ class UpdateTransactionUseCase:
             return None
 
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        updates.pop("tag_ids", None)
         updates.pop("destinations", None)
         requested_destinations = (
             cmd.destinations if "destinations" in cmd.model_fields_set else None
@@ -880,11 +904,17 @@ class UpdateTransactionUseCase:
                 list(entity.destinations or []), replacement_destinations
             )
 
+        # Las etiquetas se REEMPLAZAN, a diferencia de los comprobantes que se
+        # acumulan: lo que llega en `tag_ids` es la lista autoritativa. Omitir el
+        # campo deja las etiquetas como estaban.
+        if getattr(cmd, "tag_ids", None) is not None:
+            entity.tags = await _resolve_tags(self._session, cmd.tag_ids)
+
         sync_transaction_status_from_checklist(entity)
 
         await self.repo.update(entity)
         await self.repo.commit()
-        await self.repo.refresh(entity, load_noload_relations=["user", "destinations"])
+        await self.repo.refresh(entity, load_noload_relations=["user", "destinations", "tags"])
         return TransactionReadDTO.model_validate(entity)
 
 
