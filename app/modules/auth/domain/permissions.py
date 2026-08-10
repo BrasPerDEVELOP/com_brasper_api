@@ -64,6 +64,10 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
         "key": "rates",
         "permissions": ("rates.view", "rates.create", "rates.update", "rates.delete"),
     },
+    {
+        "key": "tags",
+        "permissions": ("tags.view", "tags.create", "tags.update", "tags.delete"),
+    },
     {"key": "home_banner", "permissions": ("home_banner.view", "home_banner.update")},
     {
         "key": "blog",
@@ -108,6 +112,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "transactions.view",
         "transactions.create",
         "transactions.update",
+        "tags.view",
         "calculator.view",
         "coupons.view",
         "coupons.create",
