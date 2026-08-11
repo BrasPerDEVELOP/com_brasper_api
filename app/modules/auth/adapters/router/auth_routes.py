@@ -191,6 +191,45 @@ def set_refresh_cookie(response: JSONResponse, raw_refresh_token: str) -> None:
     )
 
 
+MEDIA_COOKIE_NAME = "brasper_media_token"
+MEDIA_COOKIE_PATH = "/media"
+
+
+def set_media_cookie(response: JSONResponse, access_token: str) -> None:
+    """
+    Copia el access token en una cookie limitada a `/media`.
+
+    Los comprobantes se muestran con `<img src>` y se abren en pestaña nueva, y
+    el navegador no adjunta la cabecera `Authorization` en ninguno de los dos
+    casos: sin esto el panel recibe 401 en cada imagen. La cookie usa el mismo
+    token y la misma caducidad corta, así que no amplía el acceso; solo cambia
+    el transporte para las descargas que inicia el navegador.
+    """
+    settings = get_settings()
+    response.set_cookie(
+        key=MEDIA_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=settings.REFRESH_COOKIE_SECURE,
+        samesite=settings.REFRESH_COOKIE_SAMESITE,
+        domain=settings.REFRESH_COOKIE_DOMAIN,
+        path=MEDIA_COOKIE_PATH,
+        max_age=settings.JWT_ACCESS_TTL_MINUTES * 60,
+    )
+
+
+def clear_media_cookie(response: JSONResponse) -> None:
+    settings = get_settings()
+    response.delete_cookie(
+        key=MEDIA_COOKIE_NAME,
+        path=MEDIA_COOKIE_PATH,
+        domain=settings.REFRESH_COOKIE_DOMAIN,
+        secure=settings.REFRESH_COOKIE_SECURE,
+        httponly=True,
+        samesite=settings.REFRESH_COOKIE_SAMESITE,
+    )
+
+
 def clear_refresh_cookie(response: JSONResponse) -> None:
     settings = get_settings()
     response.delete_cookie(
@@ -325,6 +364,7 @@ async def login(
 
         response = JSONResponse(content=response_data)
         set_refresh_cookie(response, raw_refresh_token)
+        set_media_cookie(response, access_token)
         return response
     except Exception as e:
         await db.rollback()
@@ -408,10 +448,12 @@ async def refresh(
             }
         )
         set_refresh_cookie(response, new_raw_refresh)
+        set_media_cookie(response, new_access_token)
         return response
     except ValueError as e:
         response = JSONResponse(status_code=401, content={"detail": str(e)})
         clear_refresh_cookie(response)
+        clear_media_cookie(response)
         return response
 
 
@@ -488,6 +530,7 @@ async def logout(
 
     response = JSONResponse(content={"message": "Logged out successfully"})
     clear_refresh_cookie(response)
+    clear_media_cookie(response)
     return response
 
 

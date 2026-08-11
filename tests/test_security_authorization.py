@@ -1,4 +1,5 @@
 """Regresiones de autorización por recurso y separación WWW/backoffice."""
+from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock
 
@@ -113,7 +114,10 @@ async def test_private_voucher_allows_transaction_owner(monkeypatch):
     monkeypatch.setattr("app.db.base.AsyncSessionLocal", lambda: FakeSessionContext())
     token = current_user_var.set({"user_id": str(owner_id), "role": "client"})
     try:
-        await _authorize_private_media("transaction_vouchers/send_private.pdf")
+        # Sin cookie de medios: aquí el actor llega por la cabecera Authorization.
+        await _authorize_private_media(
+            "transaction_vouchers/send_private.pdf", SimpleNamespace(cookies={})
+        )
         db.execute.assert_awaited_once()
     finally:
         current_user_var.reset(token)
