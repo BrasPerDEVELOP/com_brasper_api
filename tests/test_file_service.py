@@ -11,6 +11,7 @@ from app.shared.services.file_service import (
     ALLOWED_IMAGE_EXTENSIONS,
     FileService,
     FileType,
+    file_service,
     delete_home_banner_image,
     save_home_banner_image,
     save_profile_image,
@@ -22,7 +23,10 @@ from app.shared.services.file_service import (
 def mock_s3():
     client = MagicMock()
     with patch("app.shared.services.file_service.boto3.client", return_value=client):
+        previous_client = file_service._s3_client
+        file_service._s3_client = None
         yield client
+        file_service._s3_client = previous_client
 
 
 @pytest.fixture

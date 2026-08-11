@@ -60,10 +60,16 @@ def test_ai_routes_require_matching_secret():
 
 
 def test_ai_contracts_return_minimum_safe_data():
+    from unittest.mock import AsyncMock, MagicMock
+    from app.db.base import get_db
     settings = get_settings()
     previous = settings.BRASPER_IA_SHARED_SECRET
     settings.BRASPER_IA_SHARED_SECRET = "integration-test-secret"
     app.dependency_overrides[get_ai_service] = lambda: FakeAIService()
+    db_mock = MagicMock()
+    db_mock.flush = AsyncMock()
+    db_mock.commit = AsyncMock()
+    app.dependency_overrides[get_db] = lambda: db_mock
     client = TestClient(app)
     headers = {"X-Brasper-IA-Secret": "integration-test-secret"}
     try:
@@ -89,4 +95,5 @@ def test_ai_contracts_return_minimum_safe_data():
         assert accounts.json()["data"][0]["company"] == "Brasper SAC"
     finally:
         app.dependency_overrides.pop(get_ai_service, None)
+        app.dependency_overrides.pop(get_db, None)
         settings.BRASPER_IA_SHARED_SECRET = previous

@@ -1,6 +1,6 @@
 """Tests de autorización y semántica de las rutas de cuentas bancarias."""
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,6 +10,7 @@ from app.core.settings import get_settings
 from app.main import app
 from app.middlewares.auth import TokenAuthMiddleware
 from app.modules.auth.infrastructure.dependencies import get_current_user_permissions
+from app.db.base import get_db
 from app.modules.transactions.adapters.dependencies.transaction_dependencies import (
     delete_bank_account_uc,
     get_bank_account_by_id_uc,
@@ -62,7 +63,7 @@ def bank_account_client(auth_required, monkeypatch):
     async def fake_verify(self, token: str):
         return dict(session)
 
-    monkeypatch.setattr(TokenAuthMiddleware, "_verify_token_in_database", fake_verify)
+    monkeypatch.setattr(TokenAuthMiddleware, "_authenticate_token", fake_verify)
 
     get_uc = AsyncMock()
     get_uc.execute = AsyncMock(return_value=existing)
@@ -71,6 +72,10 @@ def bank_account_client(auth_required, monkeypatch):
     list_uc = AsyncMock()
     list_uc.execute = AsyncMock(return_value=[existing])
 
+    db_mock = MagicMock()
+    db_mock.flush = AsyncMock()
+    db_mock.commit = AsyncMock()
+    app.dependency_overrides[get_db] = lambda: db_mock
     app.dependency_overrides[get_bank_account_by_id_uc] = lambda: get_uc
     app.dependency_overrides[delete_bank_account_uc] = lambda: delete_uc
     app.dependency_overrides[list_bank_accounts_uc] = lambda: list_uc
@@ -84,6 +89,7 @@ def bank_account_client(auth_required, monkeypatch):
     yield client, configure, {"get": get_uc, "delete": delete_uc, "list": list_uc}
 
     for dependency in (
+        get_db,
         get_bank_account_by_id_uc,
         delete_bank_account_uc,
         list_bank_accounts_uc,
@@ -171,7 +177,7 @@ def test_list_without_permission_is_scoped_to_caller(bank_account_client):
     client, configure, mocks = bank_account_client
     configure(OWNER_ID, [])
 
-    response = client.get("/transactions/bank-accounts/")
+    response = client.get("/transactions/bank-accounts")
 
     assert response.status_code == 200
     mocks["list"].execute.assert_awaited_once_with(user_id=OWNER_ID)
@@ -181,7 +187,7 @@ def test_list_of_another_user_without_permission_is_forbidden(bank_account_clien
     client, configure, mocks = bank_account_client
     configure(OWNER_ID, [])
 
-    response = client.get(f"/transactions/bank-accounts/?user_id={STAFF_ID}")
+    response = client.get(f"/transactions/bank-accounts?user_id={STAFF_ID}")
 
     assert response.status_code == 403
     mocks["list"].execute.assert_not_awaited()
@@ -191,7 +197,7 @@ def test_list_with_permission_honours_filter(bank_account_client):
     client, configure, mocks = bank_account_client
     configure(STAFF_ID, ["bank_accounts.view"])
 
-    response = client.get(f"/transactions/bank-accounts/?user_id={OWNER_ID}")
+    response = client.get(f"/transactions/bank-accounts?user_id={OWNER_ID}")
 
     assert response.status_code == 200
     mocks["list"].execute.assert_awaited_once_with(user_id=OWNER_ID)

@@ -1,15 +1,58 @@
 """Fixtures para tests."""
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.db.base import get_db
 from app.modules.transactions.application.use_cases import CreateTransactionUseCase, UpdateTransactionUseCase
 from app.modules.transactions.application.schemas import TransactionReadDTO, TransactionUserRef
 from app.modules.transactions.domain.enums import TransactionStatus
+
+
+@pytest.fixture(autouse=True)
+def pinned_auth_requirement():
+    """
+    Fija `AUTH_REQUIRED=False` como base de cada test.
+
+    `get_settings()` está cacheado y lee el `.env` del desarrollador, así que sin
+    esto el resultado de la suite depende de una variable local: con
+    `AUTH_REQUIRED=true` el middleware corta con 401 todos los tests que no
+    construyen un token, y con `false` pasan. Los tests que sí verifican
+    autorización ponen `AUTH_REQUIRED = True` explícitamente y lo restauran.
+    """
+    from app.core.settings import get_settings
+
+    settings = get_settings()
+    previous = settings.AUTH_REQUIRED
+    settings.AUTH_REQUIRED = False
+    try:
+        yield
+    finally:
+        settings.AUTH_REQUIRED = previous
+
+
+@pytest.fixture(autouse=True)
+def isolate_failed_audit_session(monkeypatch):
+    """Impide que los tests HTTP abran la base real al auditar respuestas fallidas."""
+    audit_db = MagicMock()
+    audit_db.commit = AsyncMock()
+
+    class FakeSessionContext:
+        async def __aenter__(self):
+            return audit_db
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr(
+        "app.modules.audit.infrastructure.failed_mutation_middleware.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    return audit_db
 
 
 @pytest.fixture
@@ -115,9 +158,24 @@ def override_update_uc(mock_update_transaction_uc):
 
 
 @pytest.fixture
-def client(override_create_uc, override_update_uc):
+def client(override_create_uc, override_update_uc, mock_update_transaction_uc):
     """Cliente HTTP para tests."""
-    return TestClient(app)
+    db = MagicMock()
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    app.dependency_overrides[get_db] = lambda: db
+    from app.modules.transactions.adapters.dependencies.transaction_dependencies import (
+        get_transaction_by_id_uc,
+    )
+    get_use_case = MagicMock()
+    get_use_case.execute = AsyncMock(return_value=mock_update_transaction_uc.execute.return_value)
+    app.dependency_overrides[get_transaction_by_id_uc] = lambda: get_use_case
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_transaction_by_id_uc, None)
 
 
 @pytest.fixture

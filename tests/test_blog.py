@@ -1,11 +1,12 @@
 # tests/test_blog.py
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.db.base import get_db
 from app.modules.blog.application.schemas import BlogReadDTO, BlogListPage
 from app.modules.blog.adapters.dependencies.blog_dependencies import (
     get_blog_by_id_uc,
@@ -19,7 +20,11 @@ from app.modules.blog.adapters.dependencies.blog_dependencies import (
 
 @pytest.fixture
 def mock_get_blog_by_id_uc():
-    return AsyncMock()
+    use_case = AsyncMock()
+    # Un resultado no configurado debe representar "no encontrado", no otro
+    # AsyncMock cuyo model_dump produciría una coroutine sin esperar.
+    use_case.execute.return_value = None
+    return use_case
 
 
 @pytest.fixture
@@ -62,6 +67,11 @@ def blog_client(
     app.dependency_overrides[create_blog_uc] = lambda: mock_create_blog_uc
     app.dependency_overrides[update_blog_uc] = lambda: mock_update_blog_uc
     app.dependency_overrides[delete_blog_uc] = lambda: mock_delete_blog_uc
+    db = MagicMock()
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    app.dependency_overrides[get_db] = lambda: db
 
     yield TestClient(app)
 
@@ -71,6 +81,7 @@ def blog_client(
     app.dependency_overrides.pop(create_blog_uc, None)
     app.dependency_overrides.pop(update_blog_uc, None)
     app.dependency_overrides.pop(delete_blog_uc, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 def test_create_blog(blog_client, mock_create_blog_uc):

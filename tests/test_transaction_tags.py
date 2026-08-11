@@ -1,12 +1,13 @@
 """Catálogo de etiquetas de transacción: rutas y reglas de negocio."""
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.db.base import get_db
 from app.modules.transactions.adapters.dependencies.transaction_dependencies import (
     create_tag_uc,
     delete_tag_uc,
@@ -209,12 +210,25 @@ class TestReglasDeNegocio:
 
 # --------------------------------------------------------------- rutas
 class TestRutas:
+    @pytest.fixture(autouse=True)
+    def _audit_dependencies(self):
+        db = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        get_uc = AsyncMock()
+        get_uc.execute = AsyncMock(return_value=_dto())
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_tag_by_id_uc] = lambda: get_uc
+        yield
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_tag_by_id_uc, None)
+
     def test_listado(self):
         uc = AsyncMock()
         uc.execute = AsyncMock(return_value=[_dto()])
         app.dependency_overrides[list_tags_uc] = lambda: uc
 
-        r = TestClient(app).get("/transactions/tags/")
+        r = TestClient(app).get("/transactions/tags")
 
         assert r.status_code == 200
         body = r.json()
@@ -226,7 +240,7 @@ class TestRutas:
         uc.execute = AsyncMock(return_value=[])
         app.dependency_overrides[list_tags_uc] = lambda: uc
 
-        TestClient(app).get("/transactions/tags/?only_active=true")
+        TestClient(app).get("/transactions/tags?only_active=true")
 
         uc.execute.assert_awaited_once_with(only_active=True)
 
@@ -245,7 +259,7 @@ class TestRutas:
         app.dependency_overrides[create_tag_uc] = lambda: uc
 
         r = TestClient(app).post(
-            "/transactions/tags/",
+            "/transactions/tags",
             json={"label": "Cliente nuevo", "color": "amber", "counts_as_new_client": True},
         )
 
@@ -256,7 +270,7 @@ class TestRutas:
         uc.execute = AsyncMock(side_effect=ValueError("Ya existe una etiqueta llamada «X»"))
         app.dependency_overrides[create_tag_uc] = lambda: uc
 
-        r = TestClient(app).post("/transactions/tags/", json={"label": "X"})
+        r = TestClient(app).post("/transactions/tags", json={"label": "X"})
 
         assert r.status_code == 400
         assert "Ya existe" in r.json()["detail"]
@@ -267,7 +281,7 @@ class TestRutas:
         app.dependency_overrides[update_tag_uc] = lambda: uc
 
         r = TestClient(app).put(
-            "/transactions/tags/", json={"id": str(NEW_TAG_ID), "label": "X"}
+            "/transactions/tags", json={"id": str(NEW_TAG_ID), "label": "X"}
         )
 
         assert r.status_code == 400
@@ -278,7 +292,7 @@ class TestRutas:
         app.dependency_overrides[update_tag_uc] = lambda: uc
 
         r = TestClient(app).put(
-            "/transactions/tags/", json={"id": str(NEW_TAG_ID), "label": "X"}
+            "/transactions/tags", json={"id": str(NEW_TAG_ID), "label": "X"}
         )
 
         assert r.status_code == 404
