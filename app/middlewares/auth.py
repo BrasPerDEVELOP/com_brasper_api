@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta
 
 from app.core.settings import get_settings
+from app.modules.auth.infrastructure.cookies import MEDIA_COOKIE_NAME
 from app.modules.auth.infrastructure.jwt_service import decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,10 @@ _PUBLIC_MEDIA_PATTERN = re.compile(
 )
 _LEGACY_PROFILE_MEDIA_PATTERN = re.compile(
     r"^/media/profile_[a-zA-Z0-9\-]+\.(?:jpg|jpeg|png|webp|gif)/?$",
+    re.IGNORECASE,
+)
+_PRIVATE_TRANSACTION_MEDIA_PATTERN = re.compile(
+    r"^/media/transaction_vouchers/[^/]+/?$",
     re.IGNORECASE,
 )
 _BLOG_SLUG_PATTERN = re.compile(r"^/blog/slug/[^/]+/?$", re.IGNORECASE)
@@ -127,15 +132,28 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     def _extract_token(self, request: Request) -> Optional[str]:
-        """Extrae el token del header Authorization"""
+        """Extrae Bearer o, solo para comprobantes, la cookie confinada a /media."""
         authorization = request.headers.get("Authorization")
-        if not authorization:
+        if authorization:
+            if authorization.startswith("Bearer "):
+                return authorization[7:]
             return None
 
-        if authorization.startswith("Bearer "):
-            return authorization[7:]
+        if self._is_private_media_path(request):
+            return request.cookies.get(MEDIA_COOKIE_NAME)
 
         return None
+
+    def _is_private_media_path(self, request: Request) -> bool:
+        """Limita el transporte por cookie a GET /media/transaction_vouchers/{archivo}."""
+        path = request.url.path
+        raw = request.scope.get("raw_path", b"")
+        raw_path = raw.decode("latin-1") if isinstance(raw, bytes) else str(raw or path)
+        if request.method.upper() != "GET":
+            return False
+        if "//" in path or ".." in path or "%" in raw_path:
+            return False
+        return bool(_PRIVATE_TRANSACTION_MEDIA_PATTERN.match(path))
 
     async def _authenticate_token(self, token: str) -> Optional[dict]:
         settings = get_settings()

@@ -5,7 +5,6 @@ import app.models_registry
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -174,33 +173,7 @@ _PROFILE_PLACEHOLDER_SVG = (
 )
 
 
-def _user_from_media_cookie(request: Request) -> Optional[dict]:
-    """
-    Identifica al usuario por la cookie de `/media` cuando no hay cabecera.
-
-    El navegador no envía `Authorization` al cargar un `<img>` ni al abrir el
-    comprobante en otra pestaña, así que sin esto toda imagen respondía 401. La
-    cookie lleva el mismo access token y caduca igual, de modo que no concede
-    más acceso del que ya tenía la sesión.
-    """
-    from app.modules.auth.adapters.router.auth_routes import MEDIA_COOKIE_NAME
-    from app.modules.auth.infrastructure.jwt_service import decode_access_token
-
-    token = request.cookies.get(MEDIA_COOKIE_NAME)
-    if not token:
-        return None
-    try:
-        claims = decode_access_token(token)
-    except Exception:
-        return None
-    return {
-        "user_id": claims.get("sub"),
-        "session_id": claims.get("sid"),
-        "client_app": claims.get("client_app"),
-    }
-
-
-async def _authorize_private_media(file_path: str, request: Request) -> None:
+async def _authorize_private_media(file_path: str) -> None:
     """Vouchers: solo dueño de la transacción o personal con transactions.view."""
     if not file_path.startswith("transaction_vouchers/") or not settings.AUTH_REQUIRED:
         return
@@ -211,7 +184,7 @@ async def _authorize_private_media(file_path: str, request: Request) -> None:
     from app.modules.auth.infrastructure.dependencies import _load_permissions
     from app.modules.transactions.domain.models import Transaction
 
-    current_user = get_current_user() or _user_from_media_cookie(request)
+    current_user = get_current_user()
     if not current_user or not current_user.get("user_id"):
         raise HTTPException(status_code=401, detail="Autenticación requerida")
 
@@ -241,12 +214,12 @@ async def _authorize_private_media(file_path: str, request: Request) -> None:
 
 
 @app.get("/media/{file_path:path}")
-async def serve_media(file_path: str, request: Request):
+async def serve_media(file_path: str):
     """Sirve archivos desde Cloudflare R2. Fallback: profile_xxx.jpg → profile_images/ o placeholder."""
     if ".." in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=404, detail="Not found")
 
-    await _authorize_private_media(file_path, request)
+    await _authorize_private_media(file_path)
     is_private = file_path.startswith("transaction_vouchers/")
 
     if settings.R2_PUBLIC_URL and not is_private:

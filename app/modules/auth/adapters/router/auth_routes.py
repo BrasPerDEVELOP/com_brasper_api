@@ -166,6 +166,7 @@ from app.db.base import get_db
 from app.modules.auth.domain.models import AuthSessionModel
 from app.modules.auth.infrastructure.auth_session_repository import AuthSessionRepository
 from app.modules.auth.infrastructure.jwt_service import create_access_token, hash_refresh_token
+from app.modules.auth.infrastructure.cookies import MEDIA_COOKIE_NAME, MEDIA_COOKIE_PATH
 from app.middlewares.security import resolve_client_ip
 
 
@@ -189,10 +190,6 @@ def set_refresh_cookie(response: JSONResponse, raw_refresh_token: str) -> None:
         path="/auth",
         max_age=settings.REFRESH_TOKEN_TTL_DAYS * 86400,
     )
-
-
-MEDIA_COOKIE_NAME = "brasper_media_token"
-MEDIA_COOKIE_PATH = "/media"
 
 
 def set_media_cookie(response: JSONResponse, access_token: str) -> None:

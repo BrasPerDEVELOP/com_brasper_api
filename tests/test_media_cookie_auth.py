@@ -1,65 +1,80 @@
-"""
-El navegador no manda `Authorization` al cargar un `<img>` ni al abrir el
-comprobante en otra pestaña, así que /media respondía 401 para todos los
-vouchers del panel. La cookie de `/media` transporta el mismo access token.
-"""
-import uuid
+"""Regresión del transporte autenticado para comprobantes en ``<img src>``."""
 
-import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.core.settings import get_settings
-from app.main import _user_from_media_cookie
-from app.modules.auth.adapters.router.auth_routes import MEDIA_COOKIE_NAME, MEDIA_COOKIE_PATH
-from app.modules.auth.infrastructure.jwt_service import create_access_token
+from app.middlewares.auth import TokenAuthMiddleware, get_current_user
+from app.modules.auth.infrastructure.cookies import MEDIA_COOKIE_NAME, MEDIA_COOKIE_PATH
 
 
-class _Request:
-    def __init__(self, cookies):
-        self.cookies = cookies
+def _media_test_app() -> FastAPI:
+    app = FastAPI()
+    app.add_middleware(TokenAuthMiddleware)
+
+    @app.get("/media/transaction_vouchers/{filename}")
+    async def private_media(filename: str):
+        return {"filename": filename, "user": get_current_user()}
+
+    @app.get("/private")
+    async def private_route():
+        return {"ok": True}
+
+    return app
 
 
-def _token(user_id: uuid.UUID) -> str:
-    token, _ = create_access_token(
-        user_id=user_id, session_id=uuid.uuid4(), client_app="backoffice"
-    )
-    return token
+def test_cookie_de_media_atraviesa_middleware_y_autentica(monkeypatch):
+    async def authenticate(_self, token: str):
+        assert token == "access-token"
+        return {"user_id": "user-1", "session_id": "session-1"}
 
-
-def test_identifica_al_usuario_desde_la_cookie():
-    user_id = uuid.uuid4()
-    resultado = _user_from_media_cookie(_Request({MEDIA_COOKIE_NAME: _token(user_id)}))
-    assert resultado is not None
-    assert resultado["user_id"] == str(user_id)
-    assert resultado["client_app"] == "backoffice"
-
-
-@pytest.mark.parametrize(
-    "cookies",
-    [
-        {},
-        {MEDIA_COOKIE_NAME: "no-es-un-jwt"},
-        {MEDIA_COOKIE_NAME: ""},
-        {"otra_cookie": "irrelevante"},
-    ],
-)
-def test_sin_cookie_valida_no_identifica_a_nadie(cookies):
-    assert _user_from_media_cookie(_Request(cookies)) is None
-
-
-def test_una_cookie_firmada_con_otro_secreto_se_rechaza():
-    import jwt
-
+    monkeypatch.setattr(TokenAuthMiddleware, "_authenticate_token", authenticate)
     settings = get_settings()
-    ajeno = jwt.encode(
-        {"sub": str(uuid.uuid4()), "sid": str(uuid.uuid4()), "jti": "x",
-         "iss": settings.JWT_ISSUER, "aud": settings.JWT_AUDIENCE,
-         "iat": 0, "nbf": 0, "exp": 9999999999, "client_app": "backoffice"},
-        "secreto-que-no-es-el-nuestro",
-        algorithm="HS256",
-    )
-    assert _user_from_media_cookie(_Request({MEDIA_COOKIE_NAME: ajeno})) is None
+    previous = settings.AUTH_REQUIRED
+    settings.AUTH_REQUIRED = True
+    try:
+        client = TestClient(_media_test_app())
+        client.cookies.set(MEDIA_COOKIE_NAME, "access-token", path=MEDIA_COOKIE_PATH)
+        response = client.get("/media/transaction_vouchers/send_test.png")
+    finally:
+        settings.AUTH_REQUIRED = previous
+
+    assert response.status_code == 200
+    assert response.json()["user"]["user_id"] == "user-1"
 
 
-def test_la_cookie_queda_confinada_a_media():
-    """Fuera de /media no debe viajar: no sustituye a la sesión."""
+def test_comprobante_sin_cookie_sigue_protegido():
+    settings = get_settings()
+    previous = settings.AUTH_REQUIRED
+    settings.AUTH_REQUIRED = True
+    try:
+        response = TestClient(_media_test_app()).get(
+            "/media/transaction_vouchers/send_test.png"
+        )
+    finally:
+        settings.AUTH_REQUIRED = previous
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Autenticación requerida"}
+
+
+def test_cookie_de_media_no_autentica_otras_rutas(monkeypatch):
+    async def must_not_authenticate(_self, _token: str):
+        raise AssertionError("la cookie de media escapó de /media/transaction_vouchers")
+
+    monkeypatch.setattr(TokenAuthMiddleware, "_authenticate_token", must_not_authenticate)
+    settings = get_settings()
+    previous = settings.AUTH_REQUIRED
+    settings.AUTH_REQUIRED = True
+    try:
+        client = TestClient(_media_test_app())
+        client.cookies.set(MEDIA_COOKIE_NAME, "access-token", path="/")
+        response = client.get("/private")
+    finally:
+        settings.AUTH_REQUIRED = previous
+
+    assert response.status_code == 401
+
+
+def test_cookie_queda_confinada_a_media():
     assert MEDIA_COOKIE_PATH == "/media"
