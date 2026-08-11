@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Literal, Optional
+from ipaddress import IPv4Address, IPv6Address
+from typing import Annotated, Literal, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,20 @@ from app.modules.auth.infrastructure.dependencies import require_permission
 
 
 router = LegacyAliasRouter(prefix="/audit", tags=["audit"])
+
+
+def _ip_to_str(value: object) -> object:
+    """
+    Las columnas `ip_address` son INET, así que el driver devuelve objetos
+    `IPv4Address`/`IPv6Address` y no cadenas. Sin esta coerción, serializar la
+    fila falla con 422 y la bitácora entera queda inaccesible.
+    """
+    if isinstance(value, (IPv4Address, IPv6Address)):
+        return str(value)
+    return value
+
+
+IpAddressStr = Annotated[Optional[str], BeforeValidator(_ip_to_str)]
 
 
 class AuditEventDTO(BaseModel):
@@ -30,7 +45,7 @@ class AuditEventDTO(BaseModel):
     old_values: Optional[dict] = None
     new_values: Optional[dict] = None
     source: str
-    ip_address: Optional[str] = None
+    ip_address: IpAddressStr = None
     user_agent: Optional[str] = None
     method: Optional[str] = None
     path: Optional[str] = None
@@ -55,7 +70,7 @@ class AuditEventSummaryDTO(BaseModel):
     entity_id: Optional[str] = None
     description: Optional[str] = None
     source: str
-    ip_address: Optional[str] = None
+    ip_address: IpAddressStr = None
     method: Optional[str] = None
     path: Optional[str] = None
     status_code: Optional[int] = None
@@ -72,7 +87,7 @@ class LoginEventDTO(BaseModel):
     attempted_username: Optional[str] = None
     success: bool
     failure_reason: Optional[str] = None
-    ip_address: Optional[str] = None
+    ip_address: IpAddressStr = None
     user_agent: Optional[str] = None
     browser: Optional[str] = None
     os: Optional[str] = None
