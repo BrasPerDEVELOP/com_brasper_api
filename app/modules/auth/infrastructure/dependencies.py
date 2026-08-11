@@ -46,6 +46,21 @@ def get_current_user() -> dict:
     return user  # type: ignore[return-value]
 
 
+def get_optional_current_user() -> dict:
+    """
+    Igual que `get_current_user()` pero sin exigir autenticación: devuelve `{}`
+    cuando no hay access token válido.
+
+    Lo necesita el logout: el access token vive 15 minutos, así que el usuario
+    normalmente lo cierra con un token ya expirado. Si esa ruta respondiera 401,
+    la familia de sesión no se revocaría y la cookie de refresh seguiría siendo
+    válida durante días aunque el frontend ya hubiera limpiado su estado.
+    """
+    from app.middlewares.auth import get_current_user as get_user
+
+    return get_user() or {}
+
+
 def get_current_token() -> str:
     """Obtiene el token actual desde el middleware."""
     from app.middlewares.auth import get_current_token as get_token
@@ -78,6 +93,10 @@ async def get_current_user_permissions(
 
     if not get_settings().AUTH_REQUIRED:
         return []
+    return await _load_permissions(current_user, db)
+
+
+async def _load_permissions(current_user: dict, db: AsyncSession) -> list[str]:
     user_id = current_user.get("user_id")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
@@ -96,6 +115,37 @@ async def get_current_user_permissions(
     if role_permissions and role_permissions.permissions:
         return list(role_permissions.permissions)
     return default_permissions_for_role(user.role)
+
+
+async def authorize_user_creation(db: AsyncSession = Depends(get_db)) -> bool:
+    """Devuelve False para registro anónimo y exige users.create si hay actor."""
+    from app.middlewares.auth import get_current_user as get_middleware_user
+
+    current_user = get_middleware_user()
+    if not current_user:
+        return False
+    permissions = await _load_permissions(current_user, db)
+    if "users.create" not in permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permiso requerido: users.create",
+        )
+    return True
+
+
+def has_permission(permission: str):
+    """Permiso opcional para rutas públicas con una vista administrativa ampliada."""
+    async def dependency(db: AsyncSession = Depends(get_db)) -> bool:
+        if not get_settings().AUTH_REQUIRED:
+            return True
+        from app.middlewares.auth import get_current_user as get_middleware_user
+
+        current_user = get_middleware_user()
+        if not current_user:
+            return False
+        return permission in await _load_permissions(current_user, db)
+
+    return dependency
 
 
 def require_permission(permission: str):

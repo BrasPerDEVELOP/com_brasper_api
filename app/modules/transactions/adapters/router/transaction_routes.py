@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
@@ -33,11 +33,49 @@ from app.modules.transactions.application.use_cases.transaction_use_cases import
     _parse_currency_filter,
 )
 
-router = APIRouter(tags=["transactions"])
+from app.core.routing import LegacyAliasRouter
+from app.core.settings import get_settings
+from app.modules.auth.infrastructure.dependencies import (
+    get_current_user,
+    get_current_user_permissions,
+    require_permission,
+)
+
+router = LegacyAliasRouter(tags=["transactions"])
 
 # Constantes de mensajes de error
 MSG_TRANSACTION_NOT_FOUND = "Transacción no encontrada"
 MSG_INVALID_JSON = "JSON inválido"
+
+
+def _scope_transaction_user(
+    requested_user_id: Optional[UUID],
+    current_user: dict,
+    permissions: list[str],
+) -> Optional[UUID]:
+    """Sin permiso global, fuerza el acceso a las transacciones del propio usuario."""
+    if not get_settings().AUTH_REQUIRED or "transactions.view" in permissions:
+        return requested_user_id
+    caller_id = current_user.get("user_id")
+    if not caller_id:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    caller_uuid = UUID(str(caller_id))
+    if requested_user_id is not None and requested_user_id != caller_uuid:
+        raise HTTPException(status_code=403, detail="No puede acceder a transacciones de otro usuario")
+    return caller_uuid
+
+
+def _ensure_transaction_owner_or_permission(
+    owner_id: UUID,
+    current_user: dict,
+    permissions: list[str],
+    permission: str,
+) -> None:
+    if not get_settings().AUTH_REQUIRED or permission in permissions:
+        return
+    caller_id = current_user.get("user_id")
+    if not caller_id or str(owner_id) != str(caller_id):
+        raise HTTPException(status_code=403, detail=f"Permiso requerido: {permission}")
 
 def _is_form_request(content_type: str) -> bool:
     """Indica si el Content-Type corresponde a form-data."""
@@ -132,9 +170,11 @@ async def _apply_transaction_uploads(
 # =============================================================================
 
 
-@router.get("/", response_model=TransactionListPage)
+@router.get("", response_model=TransactionListPage)
 async def list_transactions(
     use_case: ListTransactionsUseCaseDep,
+    permissions: list[str] = Depends(get_current_user_permissions),
+    current_user: dict = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[TransactionStatus] = Query(
@@ -173,6 +213,7 @@ async def list_transactions(
             status_code=400,
             detail="Moneda no válida. Use PEN, USD o BRL.",
         )
+    user_id = _scope_transaction_user(user_id, current_user, permissions)
     return await use_case.execute(
         limit=limit,
         skip=skip,
@@ -193,13 +234,19 @@ async def list_transactions(
 
 
 @router.get("/metrics", response_model=TransactionMetricsDTO)
-async def transaction_metrics(use_case: GetTransactionMetricsUseCaseDep):
+async def transaction_metrics(
+    use_case: GetTransactionMetricsUseCaseDep,
+    _permissions=Depends(require_permission("metrics.view")),
+):
     """Métricas agregadas para el dashboard (sobre todas las transacciones)."""
     return await use_case.execute()
 
 
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
 @router.post(
-    "/import/",
+    "/import",
     response_model=ImportResponseDTO,
     status_code=status.HTTP_201_CREATED,
     summary="Importar datos (JSON)",
@@ -208,8 +255,15 @@ async def transaction_metrics(use_case: GetTransactionMetricsUseCaseDep):
         400: {"description": "Datos inválidos"},
     },
 )
-async def import_data(use_case: ImportTransactionsUseCaseDep, body: ImportRequestCmd):
+async def import_data(
+    use_case: ImportTransactionsUseCaseDep,
+    body: ImportRequestCmd,
+    _permissions=Depends(require_permission("transactions.create")),
+    audit_event=Depends(stage_mutation_audit("transactions.import", "transaction")),
+):
     """Recibe JSON con datos parseados. El frontend parsea el archivo localmente y envía los datos."""
+    if audit_event:
+        audit_event.meta_data = {"items_received": len(body.items)}
     try:
         return await use_case.execute(body)
     except ValueError as e:
@@ -224,16 +278,24 @@ async def import_data(use_case: ImportTransactionsUseCaseDep, body: ImportReques
 
 
 @router.get("/{transaction_id}", response_model=TransactionReadDTO)
-async def get_transaction_by_id(transaction_id: UUID, use_case: GetTransactionByIdUseCaseDep):
+async def get_transaction_by_id(
+    transaction_id: UUID,
+    use_case: GetTransactionByIdUseCaseDep,
+    permissions: list[str] = Depends(get_current_user_permissions),
+    current_user: dict = Depends(get_current_user),
+):
     """Obtiene una transacción por ID."""
     entity = await use_case.execute(transaction_id)
     if not entity:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=MSG_TRANSACTION_NOT_FOUND)
+    _ensure_transaction_owner_or_permission(
+        entity.user_id, current_user, permissions, "transactions.view"
+    )
     return entity
 
 
 @router.post(
-    "/",
+    "",
     response_model=TransactionReadDTO,
     status_code=status.HTTP_201_CREATED,
     summary="Create Transaction",
@@ -244,12 +306,25 @@ async def get_transaction_by_id(transaction_id: UUID, use_case: GetTransactionBy
     },
     openapi_extra={"requestBody": TransactionCreateCmd.openapi_request_body()},
 )
-async def create_transaction(request: Request, use_case: CreateTransactionUseCaseDep):
+async def create_transaction(
+    request: Request,
+    use_case: CreateTransactionUseCaseDep,
+    permissions: list[str] = Depends(get_current_user_permissions),
+    current_user: dict = Depends(get_current_user),
+    audit_event=Depends(stage_mutation_audit("transactions.create", "transaction")),
+):
     """Crea transacción. Acepta JSON o form-data (multipart)."""
     try:
         cmd, send_f, pay_f, checked_img_f = await _parse_create_request(request)
+        _ensure_transaction_owner_or_permission(
+            cmd.user_id, current_user, permissions, "transactions.create"
+        )
         await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
-        return await use_case.execute(cmd)
+        created = await use_case.execute(cmd)
+        if audit_event and created:
+            audit_event.entity_id = str(created.id)
+            audit_event.new_values = cmd.model_dump(mode="json")
+        return created
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
     except ValidationError as e:
@@ -264,7 +339,7 @@ async def create_transaction(request: Request, use_case: CreateTransactionUseCas
 
 
 @router.put(
-    "/",
+    "",
     response_model=TransactionReadDTO,
     responses={
         200: {"description": "Transacción actualizada"},
@@ -272,12 +347,24 @@ async def create_transaction(request: Request, use_case: CreateTransactionUseCas
         404: {"description": "Transacción no encontrada"},
     },
 )
-async def update_transaction(request: Request, use_case: UpdateTransactionUseCaseDep):
+async def update_transaction(
+    request: Request,
+    use_case: UpdateTransactionUseCaseDep,
+    get_use_case: GetTransactionByIdUseCaseDep,
+    _permissions=Depends(require_permission("transactions.update")),
+    audit_event=Depends(stage_mutation_audit("transactions.update", "transaction")),
+):
     """Actualiza transacción. Acepta JSON o form-data (multipart)."""
     try:
         cmd, send_f, pay_f, checked_img_f = await _parse_update_request(request)
+        previous = await get_use_case.execute(cmd.id)
+        if audit_event and previous:
+            audit_event.old_values = previous.model_dump(mode="json")
         await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
         entity = await use_case.execute(cmd)
+        if audit_event and entity:
+            audit_event.entity_id = str(entity.id)
+            audit_event.new_values = cmd.model_dump(mode="json")
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
     except ValidationError as e:
@@ -294,6 +381,16 @@ async def update_transaction(request: Request, use_case: UpdateTransactionUseCas
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Transaction",
 )
-async def delete_transaction(transaction_id: UUID, use_case: DeleteTransactionUseCaseDep):
+async def delete_transaction(
+    transaction_id: UUID,
+    use_case: DeleteTransactionUseCaseDep,
+    get_use_case: GetTransactionByIdUseCaseDep,
+    _permissions=Depends(require_permission("transactions.delete")),
+    audit_event=Depends(stage_mutation_audit("transactions.delete", "transaction")),
+):
     """Elimina una transacción por ID."""
+    previous = await get_use_case.execute(transaction_id)
+    if audit_event:
+        audit_event.entity_id = str(transaction_id)
+        audit_event.old_values = previous.model_dump(mode="json") if previous else None
     await use_case.execute(transaction_id)

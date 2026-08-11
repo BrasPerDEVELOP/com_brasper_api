@@ -21,6 +21,7 @@ from app.modules.home_image.adapters.router import router as home_banner_router
 from app.modules.brasper.adapters.router import router as brasper_router
 from app.modules.blog.adapters.router import router as blog_router
 from app.modules.metrics.adapters.router import router as metrics_router
+from app.modules.audit.adapters.router import router as audit_router
 
 settings = get_settings()
 
@@ -102,12 +103,17 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Middleware de auth (interno): debe ir antes que CORS en el registro.
-# CORS se registra después para quedar en el borde del stack: así las respuestas
-# cortas (p. ej. 401 sin token válido) siguen pasando por CORSMiddleware.
+# Middleware de auth (interno)
 from app.middlewares.auth import TokenAuthMiddleware
 
 app.add_middleware(TokenAuthMiddleware)
+
+# Middleware de Seguridad e IP/Request ID/Rate limits (debe envolver a Auth para adjuntar X-Request-ID incluso en 401/403)
+from app.middlewares.security import SecurityHeadersMiddleware
+from app.modules.audit.infrastructure.failed_mutation_middleware import FailedMutationAuditMiddleware
+
+app.add_middleware(FailedMutationAuditMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Handlers globales: sin ellos, cualquier excepción no manejada se convierte en
 # un 500 emitido por ServerErrorMiddleware SIN cabeceras CORS, que el navegador
@@ -133,10 +139,18 @@ async def value_error_handler(request: Request, exc: ValueError):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Client-App",
+        "X-Request-ID",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
 )
 
 # Archivos estáticos (imágenes, etc.)
@@ -159,13 +173,56 @@ _PROFILE_PLACEHOLDER_SVG = (
 )
 
 
+async def _authorize_private_media(file_path: str) -> None:
+    """Vouchers: solo dueño de la transacción o personal con transactions.view."""
+    if not file_path.startswith("transaction_vouchers/") or not settings.AUTH_REQUIRED:
+        return
+
+    from sqlalchemy import or_, select
+    from app.db.base import AsyncSessionLocal
+    from app.middlewares.auth import get_current_user
+    from app.modules.auth.infrastructure.dependencies import _load_permissions
+    from app.modules.transactions.domain.models import Transaction
+
+    current_user = get_current_user()
+    if not current_user or not current_user.get("user_id"):
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+
+    async with AsyncSessionLocal() as db:
+        statement = (
+            select(Transaction.user_id)
+            .where(
+                or_(
+                    Transaction.send_voucher == file_path,
+                    Transaction.payment_voucher == file_path,
+                    Transaction.checked_image == file_path,
+                    Transaction.send_vouchers.contains([file_path]),
+                    Transaction.payment_vouchers.contains([file_path]),
+                    Transaction.checked_images.contains([file_path]),
+                )
+            )
+            .limit(1)
+        )
+        owner_id = (await db.execute(statement)).scalar_one_or_none()
+        if owner_id is None:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        if str(owner_id) == str(current_user["user_id"]):
+            return
+        permissions = await _load_permissions(current_user, db)
+        if "transactions.view" not in permissions:
+            raise HTTPException(status_code=403, detail="No puede acceder a este comprobante")
+
+
 @app.get("/media/{file_path:path}")
 async def serve_media(file_path: str):
     """Sirve archivos desde Cloudflare R2. Fallback: profile_xxx.jpg → profile_images/ o placeholder."""
     if ".." in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=404, detail="Not found")
 
-    if settings.R2_PUBLIC_URL:
+    await _authorize_private_media(file_path)
+    is_private = file_path.startswith("transaction_vouchers/")
+
+    if settings.R2_PUBLIC_URL and not is_private:
         key = file_path
         if _PROFILE_SINGLE.match(file_path):
             key = f"profile_images/{file_path}"
@@ -179,7 +236,8 @@ async def serve_media(file_path: str):
         result = await file_service.read_file(key)
         if result:
             content, media_type = result
-            return Response(content=content, media_type=media_type)
+            headers = {"Cache-Control": "private, no-store"} if is_private else None
+            return Response(content=content, media_type=media_type, headers=headers)
 
     if _PROFILE_SINGLE.match(file_path):
         return Response(
@@ -201,7 +259,13 @@ app.include_router(home_banner_router)
 app.include_router(brasper_router)
 app.include_router(blog_router)
 app.include_router(metrics_router)
+app.include_router(audit_router)
 
 @app.get("/")
 async def root():
     return {"message": "Com Brasper API", "version": "1.0.0"}
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}

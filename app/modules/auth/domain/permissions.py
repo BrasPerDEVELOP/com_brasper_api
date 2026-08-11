@@ -52,6 +52,15 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "key": "company_bank_accounts",
+        "permissions": (
+            "company_bank_accounts.view",
+            "company_bank_accounts.create",
+            "company_bank_accounts.update",
+            "company_bank_accounts.delete",
+        ),
+    },
+    {
         "key": "commissions",
         "permissions": (
             "commissions.view",
@@ -69,6 +78,17 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
         "permissions": ("tags.view", "tags.create", "tags.update", "tags.delete"),
     },
     {"key": "home_banner", "permissions": ("home_banner.view", "home_banner.update")},
+    {"key": "audit", "permissions": ("audit.view",)},
+    {"key": "contact_forms", "permissions": ("contact_forms.view",)},
+    {
+        "key": "integrations",
+        "permissions": (
+            "integrations.view",
+            "integrations.create",
+            "integrations.update",
+            "integrations.delete",
+        ),
+    },
     {
         "key": "blog",
         "permissions": (
@@ -109,6 +129,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "users.view",
         "users.create",
         "users.update",
+        "bank_accounts.view",
+        "bank_accounts.create",
+        "bank_accounts.update",
         "transactions.view",
         "transactions.create",
         "transactions.update",

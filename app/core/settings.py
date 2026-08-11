@@ -1,9 +1,28 @@
 # app/core/settings.py
 from typing import Optional
-from urllib.parse import quote
+import ipaddress
+from urllib.parse import quote, urlparse
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from aiocache import caches
+
+# Sufijos públicos de dos etiquetas relevantes para los dominios de Brasper. La
+# lista completa (PSL) no justifica una dependencia extra aquí: si un sufijo no
+# está, el cálculo agrupa de más y la validación de cookies deja pasar la
+# configuración en vez de rechazar un despliegue válido.
+_MULTI_LABEL_PUBLIC_SUFFIXES = frozenset({"com.pe", "com.br", "com.mx", "com.ar", "co.uk"})
+
+
+def _registrable_domain(host: Optional[str]) -> Optional[str]:
+    """Dominio registrable (eTLD+1) de un host, que es la unidad de `SameSite`."""
+    if not host:
+        return None
+    labels = host.lower().strip(".").split(".")
+    if len(labels) < 2:
+        return host.lower()
+    if len(labels) > 2 and ".".join(labels[-2:]) in _MULTI_LABEL_PUBLIC_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
 
 
 class Settings(BaseSettings):
@@ -32,6 +51,35 @@ class Settings(BaseSettings):
     # Secreto compartido exclusivamente con com_brasper_ia. Si está vacío,
     # los endpoints /brasper/ai responden 503 y nunca quedan abiertos.
     BRASPER_IA_SHARED_SECRET: str = ""
+
+    # Seguridad y Middleware (Fase 1)
+    CORS_ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ]
+    TRUSTED_PROXY_CIDRS: list[str] = ["127.0.0.1/32", "::1/128"]
+    REQUEST_ID_HEADER: str = "X-Request-ID"
+
+    # Limits por IP (requests / minuto)
+    RATE_LIMIT_LOGIN: int = 10
+    RATE_LIMIT_REGISTER: int = 5
+    RATE_LIMIT_PASSWORD_RESET: int = 5
+    RATE_LIMIT_CONTACT_FORM: int = 5
+
+    # JWT y Sesiones (Fase 2)
+    AUTH_MODE: str = "dual"  # legacy | dual | jwt
+    JWT_SECRET_KEY: str = "dev-jwt-secret-key-change-in-production-32-chars-minimum"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ISSUER: str = "com.brasper.api"
+    JWT_AUDIENCE: str = "com.brasper.app"
+    JWT_ACCESS_TTL_MINUTES: int = 15
+    REFRESH_TOKEN_TTL_DAYS: int = 7
+    REFRESH_COOKIE_NAME: str = "brasper_refresh_token"
+    REFRESH_COOKIE_SECURE: bool = False
+    REFRESH_COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_DOMAIN: Optional[str] = None
 
     TIMEZONE: str = "America/Lima"
     # Variables del módulo world_cup (retirado el 2026-07-22). Se conservan
@@ -73,11 +121,76 @@ class Settings(BaseSettings):
                 "Cloudflare R2 es obligatorio. Configura en .env: "
                 + ", ".join(missing)
             )
+        if self.AUTH_MODE.lower() not in ("legacy", "dual", "jwt"):
+            raise ValueError("AUTH_MODE debe ser uno de: legacy, dual, jwt")
+        if self.JWT_ALGORITHM != "HS256":
+            raise ValueError("JWT_ALGORITHM debe ser exactamente HS256")
+        if self.REFRESH_COOKIE_SAMESITE.lower() not in ("lax", "strict", "none"):
+            raise ValueError("REFRESH_COOKIE_SAMESITE debe ser lax, strict o none")
+        if self.REFRESH_COOKIE_SAMESITE.lower() == "none" and not self.REFRESH_COOKIE_SECURE:
+            raise ValueError("REFRESH_COOKIE_SECURE=True es obligatorio cuando SameSite=None")
+        if not 1 <= self.JWT_ACCESS_TTL_MINUTES <= 60:
+            raise ValueError("JWT_ACCESS_TTL_MINUTES debe estar entre 1 y 60")
+        if not 1 <= self.REFRESH_TOKEN_TTL_DAYS <= 30:
+            raise ValueError("REFRESH_TOKEN_TTL_DAYS debe estar entre 1 y 30")
+        if any(origin == "*" for origin in self.CORS_ALLOWED_ORIGINS):
+            raise ValueError("CORS_ALLOWED_ORIGINS no puede contener '*' con credenciales")
+        for cidr in self.TRUSTED_PROXY_CIDRS:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"TRUSTED_PROXY_CIDRS contiene un CIDR inválido: {cidr}") from exc
+        if self.ENVIRONMENT.lower() != "development":
+            if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.startswith("dev-") or len(self.JWT_SECRET_KEY) < 32:
+                raise ValueError("JWT_SECRET_KEY separado y seguro (mínimo 32 caracteres) es obligatorio fuera de desarrollo")
+            if not self.REFRESH_COOKIE_SECURE:
+                raise ValueError("REFRESH_COOKIE_SECURE=True es obligatorio fuera de desarrollo")
+            if not self.AUTH_REQUIRED:
+                raise ValueError("AUTH_REQUIRED=True es obligatorio fuera de desarrollo")
+            if self.JWT_SECRET_KEY == self.SECRET_KEY:
+                raise ValueError("JWT_SECRET_KEY debe ser diferente de SECRET_KEY")
+            if self.PUBLIC_URL and urlparse(self.PUBLIC_URL).scheme != "https":
+                raise ValueError("PUBLIC_URL debe usar HTTPS fuera de desarrollo")
+            for origin in self.CORS_ALLOWED_ORIGINS:
+                parsed = urlparse(origin)
+                if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1"}:
+                    raise ValueError(f"Origen CORS remoto sin HTTPS: {origin}")
+            self._validate_refresh_cookie_reaches_frontends()
         return self
+
+    def _validate_refresh_cookie_reaches_frontends(self) -> None:
+        """
+        Falla al arrancar si la cookie de refresh no llegaría a algún frontend.
+
+        `SameSite=Lax` solo acompaña navegaciones de primer nivel, no peticiones
+        XHR. Como `POST /auth/refresh` se hace por XHR, un frontend en otro
+        dominio registrable que el de la API nunca enviaría la cookie: todos los
+        usuarios quedarían en un bucle de 401 sin poder mantener la sesión.
+        """
+        if self.REFRESH_COOKIE_SAMESITE.lower() == "none":
+            return
+        api_domain = _registrable_domain(urlparse(self.PUBLIC_URL).hostname) if self.PUBLIC_URL else None
+        if not api_domain:
+            return
+        for origin in self.CORS_ALLOWED_ORIGINS:
+            host = urlparse(origin).hostname
+            if not host or host in {"localhost", "127.0.0.1"}:
+                continue
+            origin_domain = _registrable_domain(host)
+            if origin_domain != api_domain:
+                raise ValueError(
+                    f"El origen {origin} es cross-site respecto a la API ({api_domain}), "
+                    "así que la cookie de refresh no viajaría en el XHR de /auth/refresh. "
+                    "Configura REFRESH_COOKIE_SAMESITE=none con REFRESH_COOKIE_SECURE=True, "
+                    "o sirve la API y el frontend bajo el mismo dominio registrable."
+                )
 
     def media_public_url(self, relative_path: str) -> str:
         """URL pública de un archivo (R2 directo o /media/ vía API)."""
         path = relative_path.lstrip("/")
+        if path.startswith("transaction_vouchers/"):
+            base = self.PUBLIC_URL.rstrip("/") if self.PUBLIC_URL else ""
+            return f"{base}/media/{path}" if base else f"/media/{path}"
         if self.R2_PUBLIC_URL:
             return f"{self.R2_PUBLIC_URL.rstrip('/')}/{path}"
         base = self.PUBLIC_URL.rstrip("/") if self.PUBLIC_URL else ""

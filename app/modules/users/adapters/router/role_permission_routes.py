@@ -11,7 +11,9 @@ from app.modules.auth.domain.permissions import ALL_PERMISSIONS, default_permiss
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.users.domain.enums import UserRole
 
-router = APIRouter(prefix="/roles", tags=["roles"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(prefix="/roles", tags=["roles"])
 
 
 class RolePermissionsDTO(BaseModel):
@@ -45,7 +47,7 @@ async def _get_role_permission(
     return result.scalar_one_or_none()
 
 
-@router.get("/permissions/", response_model=list[RolePermissionsDTO])
+@router.get("/permissions", response_model=list[RolePermissionsDTO])
 async def list_role_permissions(
     _permissions=Depends(require_permission("roles.permissions.view")),
     db: AsyncSession = Depends(get_db),
@@ -66,12 +68,16 @@ async def list_role_permissions(
     ]
 
 
-@router.put("/{role}/permissions/", response_model=RolePermissionsDTO)
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
+@router.put("/{role}/permissions", response_model=RolePermissionsDTO)
 async def update_role_permissions(
     role: UserRole,
     request: RolePermissionsUpdateRequest,
     _permissions=Depends(require_permission("roles.permissions.update")),
     db: AsyncSession = Depends(get_db),
+    audit_event=Depends(stage_mutation_audit("roles.permissions.update", "role_permission")),
 ):
     if role == UserRole.admin:
         critical = {"roles.permissions.view", "roles.permissions.update"}
@@ -82,6 +88,8 @@ async def update_role_permissions(
             )
 
     row = await _get_role_permission(db, role)
+    old_values = {"permissions": list(row.permissions)} if row else None
+
     if row is None:
         row = RolePermissionModel(
             role=role.value,
@@ -91,6 +99,11 @@ async def update_role_permissions(
     else:
         row.permissions = request.permissions
         row.enable = True
+
+    if audit_event:
+        audit_event.entity_id = role.value
+        audit_event.old_values = old_values
+        audit_event.new_values = {"permissions": list(request.permissions)}
 
     await db.commit()
     await db.refresh(row)

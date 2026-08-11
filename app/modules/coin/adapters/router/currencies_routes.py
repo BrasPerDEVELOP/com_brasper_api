@@ -5,7 +5,9 @@ from typing import List
 from app.modules.coin.application.schemas import CurrencyReadDTO
 from app.modules.coin.domain.enums import Currency
 
-router = APIRouter(tags=["currencies"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(tags=["currencies"])
 
 
 @router.get("/currencies", response_model=List[CurrencyReadDTO])

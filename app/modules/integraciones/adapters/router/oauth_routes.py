@@ -15,7 +15,9 @@ from app.modules.integraciones.adapters.dependencies import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/oauth", tags=["oauth"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(prefix="/oauth", tags=["oauth"])
 
 
 def _base_callback_url(provider: str) -> str:
@@ -46,10 +48,6 @@ async def oauth_google_callback(
     code: str = Query(..., description="Código de autorización de Google"),
     state: Optional[str] = Query(None),
     redirect_uri: Optional[str] = Query(None),
-    redirect: Optional[str] = Query(
-        None,
-        description="Si se envía, redirige al frontend con token en query (ej. URL del frontend)",
-    ),
 ):
     """Recibe el callback de Google, intercambia código por token y devuelve sesión (token + user)."""
     try:
@@ -57,13 +55,6 @@ async def oauth_google_callback(
         result: TokenInfoDTO = await use_case.execute(
             provider="google", code=code, redirect_uri=callback
         )
-        if redirect:
-            # Redirigir al frontend con token en query (el frontend debe guardarlo y quitar de URL)
-            sep = "&" if "?" in redirect else "?"
-            return RedirectResponse(
-                url=f"{redirect}{sep}access_token={result.token}&token_type=bearer",
-                status_code=status.HTTP_302_FOUND,
-            )
         return result
     except ValueError as e:
         logger.warning(f"OAuth Google callback error: {e}")
@@ -92,10 +83,6 @@ async def oauth_facebook_callback(
     code: str = Query(..., description="Código de autorización de Facebook"),
     state: Optional[str] = Query(None),
     redirect_uri: Optional[str] = Query(None),
-    redirect: Optional[str] = Query(
-        None,
-        description="Si se envía, redirige al frontend con token en query",
-    ),
 ):
     """Recibe el callback de Facebook, intercambia código por token y devuelve sesión (token + user)."""
     try:
@@ -103,12 +90,6 @@ async def oauth_facebook_callback(
         result: TokenInfoDTO = await use_case.execute(
             provider="facebook", code=code, redirect_uri=callback
         )
-        if redirect:
-            sep = "&" if "?" in redirect else "?"
-            return RedirectResponse(
-                url=f"{redirect}{sep}access_token={result.token}&token_type=bearer",
-                status_code=status.HTTP_302_FOUND,
-            )
         return result
     except ValueError as e:
         logger.warning(f"OAuth Facebook callback error: {e}")

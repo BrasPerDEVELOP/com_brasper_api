@@ -4,11 +4,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.permissions import require_permission
+from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.metrics.adapters.dependencies import GetWeeklyMetricsUseCaseDep
 from app.modules.metrics.application.schemas import WeeklyMetricsDTO
 
-router = APIRouter(tags=["metrics"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(tags=["metrics"])
 
 
 @router.get(

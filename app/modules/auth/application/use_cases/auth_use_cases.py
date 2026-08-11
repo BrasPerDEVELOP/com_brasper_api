@@ -33,7 +33,7 @@ class LoginUseCase:
         self._uow = uow
         self.security_utils = security_utils
 
-    async def execute(self, data: AuthCreateCmd, ip_address: str) -> TokenInfoDTO:
+    async def execute(self, data: AuthCreateCmd, ip_address: str, defer_commit: bool = False) -> TokenInfoDTO:
         logger.info(f"Login attempt from IP: {ip_address} for user: {data.username}")
 
         credentials = await self._uow.auth_repository.get_by_username(data.username)
@@ -58,7 +58,8 @@ class LoginUseCase:
             username=credentials.username,
         )
         await self._uow.auth_repository.update_token(credentials.id, access_token)
-        await self._uow.commit()
+        if not defer_commit:
+            await self._uow.commit()
 
         logger.info(f"Login successful for user: {credentials.username} - New session created")
         user_info = UserInfoDTO.model_validate(user)

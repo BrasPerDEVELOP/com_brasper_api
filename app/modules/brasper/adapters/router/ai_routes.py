@@ -17,7 +17,9 @@ from app.modules.brasper.application.ai_schemas import (
 )
 from app.modules.brasper.application.ai_service import BrasperAIService
 
-router = APIRouter(prefix="/ai", tags=["brasper-ai"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(prefix="/ai", tags=["brasper-ai"])
 
 
 def require_ai_secret(x_brasper_ia_secret: Annotated[str | None, Header()] = None) -> None:
@@ -43,13 +45,24 @@ async def lookup_client(
     return await service.lookup_client(code_phone=code_phone, phone=phone, full_name=full_name)
 
 
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
 @router.post("/clients/upsert", response_model=AIClientUpsertDTO,
              dependencies=[Depends(require_ai_secret)])
 async def upsert_client(
     cmd: AIClientUpsertCmd,
     service: Annotated[BrasperAIService, Depends(get_ai_service)],
+    audit_event=Depends(stage_mutation_audit("ai.upsert_client", "client")),
 ):
-    return await service.upsert_client(cmd)
+    result = await service.upsert_client(cmd)
+    if audit_event and result:
+        audit_event.entity_id = str(result.id)
+        audit_event.meta_data = {
+            "created": result.created,
+            "fields_received": sorted(cmd.model_fields_set),
+        }
+    return result
 
 
 @router.get("/deposit-accounts", response_model=AIDepositAccountsDTO,

@@ -6,7 +6,11 @@ from typing import Annotated, List, Optional
 from app.shared.services.file_service import save_profile_image
 
 from app.modules.auth.application.schemas.auth_schema import AdminResetPasswordRequest, UserInfoDTO
-from app.modules.auth.infrastructure.dependencies import require_any_permission, require_permission
+from app.modules.auth.infrastructure.dependencies import (
+    authorize_user_creation,
+    require_any_permission,
+    require_permission,
+)
 from app.modules.users.application.schemas.user_schema import (
     UserCreateCmd,
     UserNameDTO,
@@ -14,7 +18,9 @@ from app.modules.users.application.schemas.user_schema import (
     UserUpdateCmd,
     UserReadDTO,
 )
+from app.modules.users.domain.enums import UserRole
 from app.modules.users.application.user_service import (
+    GetUserByIdUseCase,
     GetUserByEmailUseCase,
     GetUserByAuthIdUseCase,
     CreateUserUseCase,
@@ -26,6 +32,7 @@ from app.modules.users.application.user_service import (
     DeleteUserUseCase,
 )
 from app.core.container import (
+    get_user_by_id_uc,
     get_user_by_email_uc,
     get_user_by_auth_id_uc,
     create_user_uc,
@@ -38,7 +45,9 @@ from app.core.container import (
     get_auth_service,
 )
 
-router = APIRouter(prefix="/user", tags=["user"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(prefix="/user", tags=["user"])
 
 
 @router.get("/email/{email}", response_model=UserReadDTO)
@@ -65,46 +74,82 @@ async def get_user_by_auth_id(
     return user
 
 
-@router.post("/", response_model=UserReadDTO, status_code=status.HTTP_201_CREATED)
+from app.modules.audit.infrastructure.redactor import redact_data
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
+@router.post("", response_model=UserReadDTO, status_code=status.HTTP_201_CREATED)
 async def create_user(
     form_data: Annotated[tuple[UserCreateCmd, Optional[UploadFile]], Depends(UserCreateCmd.from_form)],
     use_case: CreateUserUseCase = Depends(create_user_uc),
-    _permissions=Depends(require_permission("users.create")),
+    is_internal_creation: bool = Depends(authorize_user_creation),
+    audit_event=Depends(stage_mutation_audit("users.create", "user")),
 ):
     cmd, image = form_data
-    return await use_case.execute(cmd, image)
+    if not is_internal_creation:
+        if not cmd.email or not cmd.password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Email y contraseña son obligatorios para el registro",
+            )
+        cmd = cmd.model_copy(
+            update={"role": UserRole.client, "is_agent": False, "auth_id": None}
+        )
+    created = await use_case.execute(cmd, image)
+    if audit_event and created:
+        audit_event.entity_id = str(created.id)
+        audit_event.new_values = redact_data(cmd.model_dump(mode="json"))
+    return created
 
 
-@router.put("/", response_model=UserReadDTO)
+@router.put("", response_model=UserReadDTO)
 async def update_user(
     form_data: Annotated[tuple[UserUpdateCmd, Optional[UploadFile]], Depends(UserUpdateCmd.from_form)],
     use_case: UpdateUserUseCase = Depends(update_user_uc),
+    get_use_case: GetUserByIdUseCase = Depends(get_user_by_id_uc),
     _permissions=Depends(require_permission("users.update")),
+    audit_event=Depends(stage_mutation_audit("users.update", "user")),
 ):
     cmd, profile_image_file = form_data
+    previous = await get_use_case.execute(cmd.id)
+    if audit_event and previous:
+        audit_event.old_values = previous.model_dump(mode="json")
     if profile_image_file and profile_image_file.filename:
         image_path = await save_profile_image(profile_image_file)
         if image_path:
             cmd.profile_image = image_path
-    return await use_case.execute(cmd)
+    updated = await use_case.execute(cmd)
+    if audit_event and updated:
+        audit_event.entity_id = str(updated.id)
+        audit_event.new_values = redact_data(cmd.model_dump(mode="json"))
+    return updated
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: UUID,
     use_case: DeleteUserUseCase = Depends(delete_user_uc),
+    get_use_case: GetUserByIdUseCase = Depends(get_user_by_id_uc),
     _permissions=Depends(require_permission("users.delete")),
+    audit_event=Depends(stage_mutation_audit("users.delete", "user")),
 ):
+    previous = await get_use_case.execute(user_id)
+    if audit_event:
+        audit_event.entity_id = str(user_id)
+        audit_event.old_values = previous.model_dump(mode="json") if previous else None
     await use_case.execute(user_id)
 
 
-@router.post("/{user_id}/reset-password/", response_model=dict)
+@router.post("/{user_id}/reset-password", response_model=dict)
 async def reset_user_password(
     user_id: UUID,
     request: AdminResetPasswordRequest,
     _permissions=Depends(require_permission("users.reset_password")),
     auth_service=Depends(get_auth_service),
+    audit_event=Depends(stage_mutation_audit("users.reset_password", "user")),
 ):
+    if audit_event:
+        audit_event.entity_id = str(user_id)
     try:
         await auth_service.admin_reset_password(user_id, request.new_password)
         return {"message": "Temporary password assigned successfully"}
@@ -112,7 +157,7 @@ async def reset_user_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.get("/sales-ids/", response_model=List[UUID])
+@router.get("/sales-ids", response_model=List[UUID])
 async def list_sales_user_ids(
     use_case: ListSalesUserIdsUseCase = Depends(list_sales_user_ids_uc),
     _permissions=Depends(require_any_permission("users.view", "transactions.view", "transactions.create")),
@@ -121,7 +166,7 @@ async def list_sales_user_ids(
     return await use_case.execute()
 
 
-@router.get("/detail/", response_model=List[UserInfoDTO])
+@router.get("/detail", response_model=List[UserInfoDTO])
 async def list_users_with_details(
     use_case: ListUsersWithDetailsUseCase = Depends(list_users_with_details_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
@@ -132,7 +177,7 @@ async def list_users_with_details(
     return await use_case.execute(user_id=user_id, role=role)
 
 
-@router.get("/", response_model=List[UserReadGeneralDTO])
+@router.get("", response_model=List[UserReadGeneralDTO])
 async def list_users(
     use_case: ListUserUseCase = Depends(list_users_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
@@ -146,7 +191,7 @@ async def list_users(
     return users
 
 
-@router.get("/name-list/", response_model=List[UserNameDTO])
+@router.get("/name-list", response_model=List[UserNameDTO])
 async def list_user_name(
     use_case: ListUserNameUseCase = Depends(list_user_name_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),

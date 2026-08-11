@@ -22,7 +22,9 @@ from app.modules.transactions.adapters.dependencies import (
     DeleteBankAccountUseCaseDep,
 )
 
-router = APIRouter(prefix="/bank-accounts", tags=["bank-accounts"])
+from app.core.routing import LegacyAliasRouter
+
+router = LegacyAliasRouter(prefix="/bank-accounts", tags=["bank-accounts"])
 
 PermissionsDep = Annotated[List[str], Depends(get_current_user_permissions)]
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]
@@ -67,7 +69,7 @@ def _ensure_access(
         )
 
 
-@router.get("/", response_model=List[BankAccountReadDTO])
+@router.get("", response_model=List[BankAccountReadDTO])
 async def list_bank_accounts(
     use_case: ListBankAccountsUseCaseDep,
     permissions: PermissionsDep,
@@ -100,27 +102,36 @@ async def get_bank_account_by_id(
     return entity
 
 
-@router.post("/", response_model=BankAccountReadDTO, status_code=status.HTTP_201_CREATED)
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
+@router.post("", response_model=BankAccountReadDTO, status_code=status.HTTP_201_CREATED)
 async def create_bank_account(
     cmd: BankAccountCreateCmd,
     use_case: CreateBankAccountUseCaseDep,
     permissions: PermissionsDep,
     current_user: CurrentUserDep,
+    audit_event=Depends(stage_mutation_audit("bank_accounts.create", "bank_account")),
 ):
     _ensure_access("bank_accounts.create", cmd.user_id, permissions, current_user)
     try:
-        return await use_case.execute(cmd)
+        created = await use_case.execute(cmd)
+        if audit_event and created:
+            audit_event.entity_id = str(created.id)
+            audit_event.new_values = cmd.model_dump(mode="json")
+        return created
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.put("/", response_model=BankAccountReadDTO)
+@router.put("", response_model=BankAccountReadDTO)
 async def update_bank_account(
     cmd: BankAccountUpdateCmd,
     use_case: UpdateBankAccountUseCaseDep,
     get_use_case: GetBankAccountByIdUseCaseDep,
     permissions: PermissionsDep,
     current_user: CurrentUserDep,
+    audit_event=Depends(stage_mutation_audit("bank_accounts.update", "bank_account")),
 ):
     existing = await get_use_case.execute(cmd.id)
     if not existing:
@@ -129,6 +140,12 @@ async def update_bank_account(
     if cmd.user_id is not None and str(cmd.user_id) != str(existing.user_id):
         # Mover la cuenta a otro usuario no es una operación de dueño.
         _ensure_access("bank_accounts.update", None, permissions, current_user)
+
+    if audit_event:
+        audit_event.entity_id = str(cmd.id)
+        audit_event.old_values = existing.model_dump(mode="json")
+        audit_event.new_values = cmd.model_dump(mode="json")
+
     try:
         entity = await use_case.execute(cmd)
     except ValueError as e:
@@ -145,10 +162,16 @@ async def delete_bank_account(
     get_use_case: GetBankAccountByIdUseCaseDep,
     permissions: PermissionsDep,
     current_user: CurrentUserDep,
+    audit_event=Depends(stage_mutation_audit("bank_accounts.delete", "bank_account")),
 ):
     existing = await get_use_case.execute(bank_account_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
     _ensure_access("bank_accounts.delete", existing.user_id, permissions, current_user)
+
+    if audit_event:
+        audit_event.entity_id = str(bank_account_id)
+        audit_event.old_values = existing.model_dump(mode="json")
+
     if not await use_case.execute(bank_account_id):
         raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")

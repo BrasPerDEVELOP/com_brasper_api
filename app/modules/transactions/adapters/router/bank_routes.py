@@ -2,7 +2,7 @@
 from uuid import UUID
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.modules.transactions.application.schemas import (
     BankCreateCmd,
@@ -21,10 +21,13 @@ from app.modules.transactions.adapters.dependencies import (
     DeleteBankUseCaseDep,
 )
 
-router = APIRouter(prefix="/banks", tags=["banks"])
+from app.core.routing import LegacyAliasRouter
+from app.modules.auth.infrastructure.dependencies import require_permission
+
+router = LegacyAliasRouter(prefix="/banks", tags=["banks"])
 
 
-@router.get("/", response_model=List[BankReadDTO])
+@router.get("", response_model=List[BankReadDTO])
 async def list_banks(
     use_case: ListBanksUseCaseDep,
     bank: Optional[str] = Query(None, description="Filtro por nombre de banco (parcial)"),
@@ -69,22 +72,56 @@ async def get_bank_by_id(bank_id: UUID, use_case: GetBankByIdUseCaseDep):
     return entity
 
 
-@router.post("/", response_model=BankReadDTO, status_code=status.HTTP_201_CREATED)
-async def create_bank(cmd: BankCreateCmd, use_case: CreateBankUseCaseDep):
+from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
+
+
+@router.post("", response_model=BankReadDTO, status_code=status.HTTP_201_CREATED)
+async def create_bank(
+    cmd: BankCreateCmd,
+    use_case: CreateBankUseCaseDep,
+    _permissions=Depends(require_permission("company_bank_accounts.create")),
+    audit_event=Depends(stage_mutation_audit("banks.create", "bank")),
+):
     try:
-        return await use_case.execute(cmd)
+        created = await use_case.execute(cmd)
+        if audit_event and created:
+            audit_event.entity_id = str(created.id)
+            audit_event.new_values = cmd.model_dump(mode="json")
+        return created
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.put("/", response_model=BankReadDTO)
-async def update_bank(cmd: BankUpdateCmd, use_case: UpdateBankUseCaseDep):
+@router.put("", response_model=BankReadDTO)
+async def update_bank(
+    cmd: BankUpdateCmd,
+    use_case: UpdateBankUseCaseDep,
+    get_use_case: GetBankByIdUseCaseDep,
+    _permissions=Depends(require_permission("company_bank_accounts.update")),
+    audit_event=Depends(stage_mutation_audit("banks.update", "bank")),
+):
+    previous = await get_use_case.execute(cmd.id)
+    if audit_event and previous:
+        audit_event.old_values = previous.model_dump(mode="json")
     entity = await use_case.execute(cmd)
+    if audit_event and entity:
+        audit_event.entity_id = str(entity.id)
+        audit_event.new_values = cmd.model_dump(mode="json")
     if not entity:
         raise HTTPException(status_code=404, detail="Banco no encontrado")
     return entity
 
 
 @router.delete("/{bank_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_bank(bank_id: UUID, use_case: DeleteBankUseCaseDep):
+async def delete_bank(
+    bank_id: UUID,
+    use_case: DeleteBankUseCaseDep,
+    get_use_case: GetBankByIdUseCaseDep,
+    _permissions=Depends(require_permission("company_bank_accounts.delete")),
+    audit_event=Depends(stage_mutation_audit("banks.delete", "bank")),
+):
+    previous = await get_use_case.execute(bank_id)
+    if audit_event:
+        audit_event.entity_id = str(bank_id)
+        audit_event.old_values = previous.model_dump(mode="json") if previous else None
     await use_case.execute(bank_id)

@@ -200,14 +200,14 @@ class UserUpdateCmd(BaseModel):
 
 class UpdateCurrentUserCmd(BaseModel):
     """Campos actualizables para PUT /auth/me (usuario autenticado)."""
+    model_config = ConfigDict(extra="forbid")
+
     names: Optional[str] = None
     lastnames: Optional[str] = None
     email: Optional[EmailStr] = None
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     document_type: Optional[DocumentType] = None
-    is_agent: Optional[bool] = None
-    role: Optional[UserRole] = None
     phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
     code_phone: Optional[PhoneCode] = None
 
