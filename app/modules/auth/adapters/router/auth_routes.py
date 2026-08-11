@@ -15,7 +15,6 @@ from app.modules.auth.application.schemas.auth_schema import (
     ChangePasswordRequest,
     PasswordResetRequest,
     PasswordResetConfirmRequest,
-    TokenInfoDTO,
 )
 from app.modules.auth.infrastructure.dependencies import (
     get_security_utils,
@@ -294,6 +293,54 @@ from app.middlewares.auth import get_current_token
 from app.modules.auth.domain.models import AuthModel, AuthSessionModel
 
 
+def _resolve_client_app(request: Request) -> str:
+    """Solo `backoffice` y `www` son clientes válidos; cualquier otro se normaliza."""
+    client_app = request.headers.get("X-Client-App", "backoffice")
+    return client_app if client_app in ("backoffice", "www") else "backoffice"
+
+
+async def _create_jwt_session(
+    db,
+    user_id: UUID,
+    client_app: str,
+    user_agent: Optional[str],
+    client_ip: Optional[str],
+) -> tuple[AuthSessionModel, str, str]:
+    """Crea la sesión en BD y su access token. No hace commit: lo decide quien llama."""
+    session_model, raw_refresh_token = await AuthSessionRepository(db).create_session(
+        user_id=user_id,
+        client_app=client_app,
+        user_agent=user_agent,
+        ip_address=client_ip,
+    )
+    access_token, _ = create_access_token(
+        user_id=user_id,
+        session_id=session_model.id,
+        client_app=client_app,
+    )
+    return session_model, raw_refresh_token, access_token
+
+
+def _session_json_response(user_data: dict, access_token: str, raw_refresh_token: str) -> JSONResponse:
+    """
+    Respuesta de sesión con sus dos cookies. Ambas son obligatorias para el panel:
+    sin la de refresh, `POST /auth/refresh` no tiene nada que rotar y la sesión
+    muere al primer 401; sin la de media, las miniaturas de comprobantes —que el
+    navegador pide por `<img src>`, sin cabecera `Authorization`— responden 401 y
+    la columna se queda vacía sin ningún error visible.
+    """
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user_data,
+        }
+    )
+    set_refresh_cookie(response, raw_refresh_token)
+    set_media_cookie(response, access_token)
+    return response
+
+
 @router.post("/login", response_model=None)
 async def login(
     request: Request,
@@ -303,19 +350,18 @@ async def login(
 ):
     client_ip = resolve_client_ip(request)
     user_agent = request.headers.get("user-agent")
-    client_app = request.headers.get("X-Client-App", "backoffice")
-    if client_app not in ("backoffice", "www"):
-        client_app = "backoffice"
+    client_app = _resolve_client_app(request)
 
     try:
         result = await use_case.execute(login_data, client_ip, defer_commit=True)
         settings = get_settings()
         user_data = result.user.model_dump(mode="json")
+        req_id_str = getattr(request.state, "request_id", None)
+        req_id = UUID(req_id_str) if req_id_str else uuid.uuid4()
+        audit_repo = AuditRepository(db)
 
         if settings.AUTH_MODE.lower() == "legacy":
-            req_id_str = getattr(request.state, "request_id", None)
-            req_id = UUID(req_id_str) if req_id_str else uuid.uuid4()
-            await AuditRepository(db).log_login_event(
+            await audit_repo.log_login_event(
                 success=True,
                 request_id=req_id,
                 attempted_username=login_data.username,
@@ -329,36 +375,118 @@ async def login(
                 content={
                     "access_token": result.token,
                     "token_type": "bearer",
-                    "user": result.user.model_dump(mode="json"),
+                    "user": user_data,
                 }
             )
-        return result
-    except ValueError as e:
+
+        session_model, raw_refresh_token, access_token = await _create_jwt_session(
+            db, result.user.id, client_app, user_agent, client_ip
+        )
+        await audit_repo.log_login_event(
+            success=True,
+            request_id=req_id,
+            attempted_username=login_data.username,
+            user_id=result.user.id,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            source=client_app,
+            session_id=session_model.id,
+        )
+        # El caso de uso corre con defer_commit: este commit es el que persiste
+        # tanto el token opaco como la sesión recién creada.
+        await db.commit()
+
+        return _session_json_response(user_data, access_token, raw_refresh_token)
+    except Exception as e:
+        await db.rollback()
+        # El intento fallido se audita en una transacción aislada, porque la del
+        # request acaba de descartarse.
+        from app.db.base import AsyncSessionLocal
+        async with AsyncSessionLocal() as audit_db:
+            await _log_failed_login_best_effort(
+                audit_db,
+                request=request,
+                attempted_username=login_data.username,
+                failure_reason=_login_failure_reason(e),
+                client_app=client_app,
+            )
+
+        if isinstance(e, HTTPException):
+            raise e
+        if isinstance(e, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al procesar el inicio de sesión",
         )
 
 
-@router.post("/facebook/", response_model=TokenInfoDTO)
+@router.post("/facebook", response_model=None)
 async def login_with_facebook(
+    request: Request,
     payload: FacebookLoginRequest,
     use_case: OAuthCallbackUseCaseDep,
+    db=Depends(get_db),
 ):
     """Canjea el `code` de Facebook Login por una sesión Brasper.
 
     El frontend hace la redirección al diálogo de Meta y vuelve con `?code=`;
     aquí se intercambia usando el app secret guardado en
     `integrations.integration` (provider `facebook`), así el secreto nunca sale
-    al navegador. Devuelve la misma forma que `POST /auth/login/`.
+    al navegador. Devuelve la misma forma que `POST /auth/login/`, cookies
+    incluidas: quien entra por Facebook necesita renovar sesión y ver
+    comprobantes igual que quien entra por contraseña.
     """
     try:
-        return await use_case.execute(
+        result = await use_case.execute(
             provider="facebook",
             code=payload.code,
             redirect_uri=payload.redirect_uri,
         )
+        user_data = result.user.model_dump(mode="json")
+        client_app = _resolve_client_app(request)
+        client_ip = resolve_client_ip(request)
+        user_agent = request.headers.get("user-agent")
+        req_id_str = getattr(request.state, "request_id", None)
+        req_id = UUID(req_id_str) if req_id_str else uuid.uuid4()
+
+        session_id = None
+        raw_refresh_token = access_token = None
+        if get_settings().AUTH_MODE.lower() != "legacy":
+            # El caso de uso ya hizo commit de su propio trabajo (usuario, cuenta
+            # social, token opaco); la sesión JWT necesita el suyo.
+            session_model, raw_refresh_token, access_token = await _create_jwt_session(
+                db, result.user.id, client_app, user_agent, client_ip
+            )
+            session_id = session_model.id
+
+        # El login por Facebook es un evento de auth como el de contraseña, así
+        # que se audita aquí y no con stage_mutation_audit.
+        await AuditRepository(db).log_login_event(
+            success=True,
+            request_id=req_id,
+            attempted_username=result.user.email,
+            user_id=result.user.id,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            source=client_app,
+            session_id=session_id,
+        )
+        await db.commit()
+
+        if access_token is None:
+            return JSONResponse(
+                content={
+                    "access_token": result.token,
+                    "token_type": "bearer",
+                    "user": user_data,
+                }
+            )
+        return _session_json_response(user_data, access_token, raw_refresh_token)
     except ValueError as e:
         logger.warning(f"Facebook login error: {e}")
         raise HTTPException(

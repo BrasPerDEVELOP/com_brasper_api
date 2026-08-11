@@ -22,6 +22,11 @@ def _mock_db():
     return db
 
 
+# Rutas de auth que auditan su propio evento (log_login_event / log_audit_event)
+# en vez de pasar por stage_mutation_audit.
+AUTH_DEDICATED_ROUTES = {"/auth/login", "/auth/facebook", "/auth/refresh", "/auth/logout"}
+
+
 # --- 1. Verificación contra OpenAPI Schema y coincidencia exacta del inventario ---
 
 def test_all_openapi_mutations_match_audited_inventory_and_routes_have_audit_dependency():
@@ -34,7 +39,7 @@ def test_all_openapi_mutations_match_audited_inventory_and_routes_have_audit_dep
             m_upper = method.upper()
             if m_upper in ("POST", "PUT", "PATCH", "DELETE"):
                 norm_path = path if path == "/" else path.rstrip("/")
-                if norm_path in ("/auth/login", "/auth/refresh", "/auth/logout"):
+                if norm_path in AUTH_DEDICATED_ROUTES:
                     continue
                 openapi_mutations.add((m_upper, norm_path))
 
@@ -47,14 +52,13 @@ def test_all_openapi_mutations_match_audited_inventory_and_routes_have_audit_dep
 
     # Inspeccionar que cada APIRoute tenga la dependencia stage_mutation_audit
     from fastapi.routing import APIRoute
-    auth_dedicated_routes = {"/auth/login", "/auth/refresh", "/auth/logout"}
 
     for route in main_app.routes:
         if isinstance(route, APIRoute) and route.include_in_schema:
             for method in route.methods:
                 if method.upper() in ("POST", "PUT", "PATCH", "DELETE"):
                     clean_path = route.path if route.path == "/" else route.path.rstrip("/")
-                    if clean_path in auth_dedicated_routes:
+                    if clean_path in AUTH_DEDICATED_ROUTES:
                         continue
                     # Verificar dependencias
                     dep_calls = [dep.call for dep in route.dependant.dependencies]

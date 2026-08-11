@@ -205,6 +205,39 @@ def test_legacy_login_returns_opaque_token_without_refresh_cookie():
     db.commit.assert_awaited_once()  # Token opaco y auditoría confirman juntos
 
 
+def test_facebook_login_issues_same_session_cookies_as_password_login():
+    """Quien entra por Facebook necesita las mismas dos cookies que quien usa contraseña."""
+    app = FastAPI()
+    from app.modules.integraciones.adapters.dependencies.integration_dependencies import (
+        get_oauth_callback_uc,
+    )
+    from app.modules.auth.adapters.router.auth_routes import router
+    from app.modules.auth.infrastructure.cookies import MEDIA_COOKIE_NAME
+
+    db = _mock_db()
+    app.dependency_overrides[get_db] = lambda: db
+
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.email = "social@example.com"
+    user.model_dump.return_value = {"id": str(user.id), "email": user.email}
+    use_case = AsyncMock()
+    use_case.execute.return_value = MagicMock(user=user, token="opaque-from-oauth")
+    app.dependency_overrides[get_oauth_callback_uc] = lambda: use_case
+    app.include_router(router)
+
+    response = TestClient(app).post("/auth/facebook", json={"code": "fb-code"})
+
+    assert response.status_code == 200
+    settings = get_settings()
+    cookies = response.headers.get_list("set-cookie")
+    assert any(settings.REFRESH_COOKIE_NAME in cookie for cookie in cookies)
+    assert any(MEDIA_COOKIE_NAME in cookie for cookie in cookies)
+    # El access token es el JWT de la sesión nueva, no el token opaco del canje.
+    assert response.json()["access_token"] != "opaque-from-oauth"
+    db.commit.assert_awaited_once()
+
+
 def test_refresh_rejects_body_and_requires_cookie():
     app = FastAPI()
     from app.modules.auth.adapters.router.auth_routes import router
