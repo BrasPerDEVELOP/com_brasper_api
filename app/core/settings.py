@@ -214,6 +214,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # El .env es compartido con docker-compose (API_PORT, etc.). Sin esto,
+        # pydantic-settings usa extra="forbid" y cualquier clave ajena a la app
+        # hace fallar el arranque.
+        extra = "ignore"
 
 
 _settings: Optional[Settings] = None
