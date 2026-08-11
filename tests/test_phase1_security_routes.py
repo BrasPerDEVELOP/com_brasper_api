@@ -292,22 +292,47 @@ def test_unit_rate_limiter():
     assert not check_rate_limit(ip, scope, max_requests=3, window_seconds=10)
 
 
-def test_transaction_voucher_urls_never_use_public_r2_domain():
+def test_transaction_voucher_urls_are_never_public_without_a_signature():
+    """Un comprobante sale firmado y con caducidad, o por /media/ con la API
+    comprobando el acceso. Nunca como URL desnuda del dominio público."""
+    import time
+    from urllib.parse import parse_qs, urlparse
+
     settings = get_settings()
-    previous_public_url = settings.PUBLIC_URL
-    previous_r2_url = settings.R2_PUBLIC_URL
+    previous = (settings.PUBLIC_URL, settings.R2_PUBLIC_URL, settings.MEDIA_SIGNING_SECRET)
+    voucher = "transaction_vouchers/send.pdf"
     try:
         settings.PUBLIC_URL = "https://api.example.test"
         settings.R2_PUBLIC_URL = "https://public-r2.example.test"
+
+        # Sin secreto compartido con el Worker, el comprobante no sale al CDN.
+        settings.MEDIA_SIGNING_SECRET = ""
         assert settings.media_public_url("home_banner/banner.webp") == (
             "https://public-r2.example.test/home_banner/banner.webp"
         )
-        assert settings.media_public_url("transaction_vouchers/send.pdf") == (
+        assert settings.media_public_url(voucher) == (
             "https://api.example.test/media/transaction_vouchers/send.pdf"
         )
+
+        # Con secreto: sí va al Worker, pero firmado y caducando.
+        settings.MEDIA_SIGNING_SECRET = "shared-secret"
+        url = settings.media_public_url(voucher)
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        assert parsed.netloc == "public-r2.example.test"
+        assert parsed.path == f"/{voucher}"
+
+        expires_at = int(query["exp"][0])
+        assert expires_at > time.time()
+        assert query["sig"][0] == settings.sign_media_key(voucher, expires_at)
+        # La firma cubre la caducidad, así que no se puede estirar reescribiendo exp.
+        assert query["sig"][0] != settings.sign_media_key(voucher, expires_at + 60)
+        # Y cubre la key, así que no vale para otro comprobante.
+        assert query["sig"][0] != settings.sign_media_key(
+            "transaction_vouchers/otro.pdf", expires_at
+        )
     finally:
-        settings.PUBLIC_URL = previous_public_url
-        settings.R2_PUBLIC_URL = previous_r2_url
+        settings.PUBLIC_URL, settings.R2_PUBLIC_URL, settings.MEDIA_SIGNING_SECRET = previous
 
 
 def test_oauth_callbacks_do_not_accept_redirect_token_queries():

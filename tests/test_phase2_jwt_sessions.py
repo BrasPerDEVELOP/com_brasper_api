@@ -205,8 +205,9 @@ def test_legacy_login_returns_opaque_token_without_refresh_cookie():
     db.commit.assert_awaited_once()  # Token opaco y auditoría confirman juntos
 
 
-def test_facebook_login_issues_same_session_cookies_as_password_login():
-    """Quien entra por Facebook necesita las mismas dos cookies que quien usa contraseña."""
+@pytest.mark.parametrize("provider", ["facebook", "google"])
+def test_social_login_issues_same_session_cookies_as_password_login(provider):
+    """Quien entra por una red social necesita las mismas dos cookies que quien usa contraseña."""
     app = FastAPI()
     from app.modules.integraciones.adapters.dependencies.integration_dependencies import (
         get_oauth_callback_uc,
@@ -226,7 +227,7 @@ def test_facebook_login_issues_same_session_cookies_as_password_login():
     app.dependency_overrides[get_oauth_callback_uc] = lambda: use_case
     app.include_router(router)
 
-    response = TestClient(app).post("/auth/facebook", json={"code": "fb-code"})
+    response = TestClient(app).post(f"/auth/{provider}", json={"code": "oauth-code"})
 
     assert response.status_code == 200
     settings = get_settings()

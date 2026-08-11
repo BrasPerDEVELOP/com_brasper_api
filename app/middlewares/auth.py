@@ -55,10 +55,11 @@ _EXACT_PUBLIC_ROUTES = {
     ("GET", "/coin/commission"),
     ("GET", "/transactions/coupons/automatic"),
     ("POST", "/auth/login"),
-    # Punto de entrada de sesión: el navegador llega sin Bearer, igual que a
+    # Puntos de entrada de sesión: el navegador llega sin Bearer, igual que a
     # /auth/login. No confundir con /integraciones/oauth/*, que son privadas a
     # propósito (ver test_oauth_callbacks_do_not_accept_redirect_token_queries).
     ("POST", "/auth/facebook"),
+    ("POST", "/auth/google"),
     ("POST", "/auth/refresh"),
     # La autoridad para cerrar sesión es la cookie de refresh, no el access
     # token: exigirlo dejaría sesiones vivas cada vez que el usuario cierra

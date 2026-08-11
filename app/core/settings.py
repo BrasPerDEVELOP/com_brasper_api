@@ -1,6 +1,9 @@
 # app/core/settings.py
 from typing import Optional
+import hashlib
+import hmac
 import ipaddress
+import time
 from urllib.parse import quote, urlparse
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
@@ -103,6 +106,11 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str
     # URL pública del bucket (dominio custom o r2.dev). Si está vacía, /media/ hace proxy desde R2.
     R2_PUBLIC_URL: str = ""
+    # Secreto compartido con el Worker para firmar las URL de comprobantes. Sin
+    # él, los comprobantes siguen sirviéndose por /media/ con proxy autenticado:
+    # el fallback nunca los expone, solo renuncia al CDN.
+    MEDIA_SIGNING_SECRET: str = ""
+    MEDIA_SIGNED_URL_TTL_SECONDS: int = 1800
 
     @model_validator(mode="after")
     def validate_r2_config(self) -> "Settings":
@@ -185,16 +193,39 @@ class Settings(BaseSettings):
                     "o sirve la API y el frontend bajo el mismo dominio registrable."
                 )
 
+    def sign_media_key(self, key: str, expires_at: int) -> str:
+        """Firma HMAC-SHA256 de `key` hasta `expires_at`, verificada por el Worker."""
+        message = f"{key}\n{expires_at}".encode()
+        return hmac.new(
+            self.MEDIA_SIGNING_SECRET.encode(), message, hashlib.sha256
+        ).hexdigest()
+
+    def signed_media_url(self, key: str, now: Optional[int] = None) -> str:
+        """URL del Worker con caducidad corta para un archivo privado."""
+        expires_at = (int(time.time()) if now is None else now) + self.MEDIA_SIGNED_URL_TTL_SECONDS
+        signature = self.sign_media_key(key, expires_at)
+        return f"{self.R2_PUBLIC_URL.rstrip('/')}/{key}?exp={expires_at}&sig={signature}"
+
     def media_public_url(self, relative_path: str) -> str:
-        """URL pública de un archivo (R2 directo o /media/ vía API)."""
+        """
+        URL pública de un archivo (Worker/R2 directo o /media/ vía API).
+
+        Los comprobantes nunca salen con una URL desnuda del Worker: o van
+        firmados y con caducidad, o se sirven por `/media/`, donde la API
+        comprueba que quien pide es el dueño de la transacción o tiene
+        `transactions.view`.
+        """
         path = relative_path.lstrip("/")
+        api_fallback = (
+            f"{self.PUBLIC_URL.rstrip('/')}/media/{path}" if self.PUBLIC_URL else f"/media/{path}"
+        )
         if path.startswith("transaction_vouchers/"):
-            base = self.PUBLIC_URL.rstrip("/") if self.PUBLIC_URL else ""
-            return f"{base}/media/{path}" if base else f"/media/{path}"
+            if self.R2_PUBLIC_URL and self.MEDIA_SIGNING_SECRET:
+                return self.signed_media_url(path)
+            return api_fallback
         if self.R2_PUBLIC_URL:
             return f"{self.R2_PUBLIC_URL.rstrip('/')}/{path}"
-        base = self.PUBLIC_URL.rstrip("/") if self.PUBLIC_URL else ""
-        return f"{base}/media/{path}" if base else f"/media/{path}"
+        return api_fallback
 
     @property
     def database_url(self) -> str:

@@ -24,7 +24,13 @@ def _mock_db():
 
 # Rutas de auth que auditan su propio evento (log_login_event / log_audit_event)
 # en vez de pasar por stage_mutation_audit.
-AUTH_DEDICATED_ROUTES = {"/auth/login", "/auth/facebook", "/auth/refresh", "/auth/logout"}
+AUTH_DEDICATED_ROUTES = {
+    "/auth/login",
+    "/auth/facebook",
+    "/auth/google",
+    "/auth/refresh",
+    "/auth/logout",
+}
 
 
 # --- 1. Verificación contra OpenAPI Schema y coincidencia exacta del inventario ---

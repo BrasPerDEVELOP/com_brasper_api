@@ -47,8 +47,8 @@ class CreateAuthRequest(BaseModel):
     password: str
 
 
-class FacebookLoginRequest(BaseModel):
-    """`code` del diálogo OAuth de Facebook, tal como lo envía el frontend."""
+class OAuthLoginRequest(BaseModel):
+    """`code` del diálogo OAuth del proveedor, tal como lo envía el frontend."""
     code: str
     # Debe ser el mismo redirect_uri usado al pedir el code; si falta, se usa el
     # de la config de la integración.
@@ -425,25 +425,27 @@ async def login(
         )
 
 
-@router.post("/facebook", response_model=None)
-async def login_with_facebook(
+async def _login_with_oauth_provider(
+    provider: str,
+    display_name: str,
     request: Request,
-    payload: FacebookLoginRequest,
-    use_case: OAuthCallbackUseCaseDep,
-    db=Depends(get_db),
-):
-    """Canjea el `code` de Facebook Login por una sesión Brasper.
+    payload: OAuthLoginRequest,
+    use_case,
+    db,
+) -> JSONResponse:
+    """
+    Canjea el `code` de un proveedor OAuth por una sesión Brasper.
 
-    El frontend hace la redirección al diálogo de Meta y vuelve con `?code=`;
-    aquí se intercambia usando el app secret guardado en
-    `integrations.integration` (provider `facebook`), así el secreto nunca sale
-    al navegador. Devuelve la misma forma que `POST /auth/login/`, cookies
-    incluidas: quien entra por Facebook necesita renovar sesión y ver
-    comprobantes igual que quien entra por contraseña.
+    El frontend hace la redirección al diálogo del proveedor y vuelve con
+    `?code=`; aquí se intercambia usando el secreto guardado en
+    `integrations.integration`, así nunca sale al navegador. Devuelve la misma
+    forma que `POST /auth/login/`, cookies incluidas: quien entra por una red
+    social necesita renovar sesión y ver comprobantes igual que quien entra por
+    contraseña.
     """
     try:
         result = await use_case.execute(
-            provider="facebook",
+            provider=provider,
             code=payload.code,
             redirect_uri=payload.redirect_uri,
         )
@@ -464,8 +466,8 @@ async def login_with_facebook(
             )
             session_id = session_model.id
 
-        # El login por Facebook es un evento de auth como el de contraseña, así
-        # que se audita aquí y no con stage_mutation_audit.
+        # El login social es un evento de auth como el de contraseña, así que se
+        # audita aquí y no con stage_mutation_audit.
         await AuditRepository(db).log_login_event(
             success=True,
             request_id=req_id,
@@ -488,19 +490,45 @@ async def login_with_facebook(
             )
         return _session_json_response(user_data, access_token, raw_refresh_token)
     except ValueError as e:
-        logger.warning(f"Facebook login error: {e}")
+        logger.warning(f"{display_name} login error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
     except httpx.HTTPError as e:
-        # Facebook rechazó el canje (code usado/expirado, redirect_uri distinto).
-        logger.warning(f"Facebook code exchange failed: {e}")
+        # El proveedor rechazó el canje (code usado/expirado, redirect_uri distinto).
+        logger.warning(f"{display_name} code exchange failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Facebook rechazó el código de autorización. Vuelve a intentarlo.",
+            detail=f"{display_name} rechazó el código de autorización. Vuelve a intentarlo.",
         )
+
+
+@router.post("/facebook", response_model=None)
+async def login_with_facebook(
+    request: Request,
+    payload: OAuthLoginRequest,
+    use_case: OAuthCallbackUseCaseDep,
+    db=Depends(get_db),
+):
+    """Canjea el `code` de Facebook Login por una sesión Brasper."""
+    return await _login_with_oauth_provider(
+        "facebook", "Facebook", request, payload, use_case, db
+    )
+
+
+@router.post("/google", response_model=None)
+async def login_with_google(
+    request: Request,
+    payload: OAuthLoginRequest,
+    use_case: OAuthCallbackUseCaseDep,
+    db=Depends(get_db),
+):
+    """Canjea el `code` de Google Login por una sesión Brasper."""
+    return await _login_with_oauth_provider(
+        "google", "Google", request, payload, use_case, db
+    )
 
 
 @router.post("/refresh", response_model=dict)
