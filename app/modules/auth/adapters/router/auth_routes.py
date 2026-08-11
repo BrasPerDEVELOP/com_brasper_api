@@ -1,6 +1,7 @@
 import uuid
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, File, Form, Depends, HTTPException, status, Request, UploadFile
 from typing import Optional
 
@@ -14,6 +15,7 @@ from app.modules.auth.application.schemas.auth_schema import (
     ChangePasswordRequest,
     PasswordResetRequest,
     PasswordResetConfirmRequest,
+    TokenInfoDTO,
 )
 from app.modules.auth.infrastructure.dependencies import (
     get_security_utils,
@@ -24,6 +26,7 @@ from app.modules.auth.infrastructure.dependencies import (
     require_permission,
 )
 from app.modules.auth.interfaces.auth_repository import AuthRepositoryInterface
+from app.modules.integraciones.adapters.dependencies import OAuthCallbackUseCaseDep
 from app.modules.users.application.schemas.user_schema import (
     UpdateCurrentUserCmd,
     UserReadDTO,
@@ -43,6 +46,14 @@ router = LegacyAliasRouter(prefix="/auth", tags=["authentication"])
 class CreateAuthRequest(BaseModel):
     username: str
     password: str
+
+
+class FacebookLoginRequest(BaseModel):
+    """`code` del diálogo OAuth de Facebook, tal como lo envía el frontend."""
+    code: str
+    # Debe ser el mismo redirect_uri usado al pedir el code; si falta, se usa el
+    # de la config de la integración.
+    redirect_uri: Optional[str] = None
 
 
 async def get_login_data(
@@ -318,75 +329,49 @@ async def login(
                 content={
                     "access_token": result.token,
                     "token_type": "bearer",
-                    "user": user_data,
+                    "user": result.user.model_dump(mode="json"),
                 }
             )
-
-        # Crear sesión JWT y refresh token en BD
-        session_repo = AuthSessionRepository(db)
-        session_model, raw_refresh_token = await session_repo.create_session(
-            user_id=result.user.id,
-            client_app=client_app,
-            user_agent=user_agent,
-            ip_address=client_ip,
-        )
-
-        audit_repo = AuditRepository(db)
-        req_id_str = getattr(request.state, "request_id", None)
-        req_id = UUID(req_id_str) if req_id_str else uuid.uuid4()
-
-        await audit_repo.log_login_event(
-            success=True,
-            request_id=req_id,
-            attempted_username=login_data.username,
-            user_id=result.user.id,
-            ip_address=client_ip,
-            user_agent=user_agent,
-            source=client_app,
-            session_id=session_model.id,
-        )
-        await db.commit()
-
-        access_token, _ = create_access_token(
-            user_id=result.user.id,
-            session_id=session_model.id,
-            client_app=client_app,
-        )
-
-        response_data = {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": user_data,
-        }
-
-        response = JSONResponse(content=response_data)
-        set_refresh_cookie(response, raw_refresh_token)
-        set_media_cookie(response, access_token)
-        return response
-    except Exception as e:
-        await db.rollback()
-        # Registrar intento de login fallido en transacción aislada
-        from app.db.base import AsyncSessionLocal
-        async with AsyncSessionLocal() as audit_db:
-            await _log_failed_login_best_effort(
-                audit_db,
-                request=request,
-                attempted_username=login_data.username,
-                failure_reason=_login_failure_reason(e),
-                client_app=client_app,
-            )
-
-        if isinstance(e, HTTPException):
-            raise e
-        if isinstance(e, ValueError):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(e),
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        return result
+    except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al procesar el inicio de sesión",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.post("/facebook/", response_model=TokenInfoDTO)
+async def login_with_facebook(
+    payload: FacebookLoginRequest,
+    use_case: OAuthCallbackUseCaseDep,
+):
+    """Canjea el `code` de Facebook Login por una sesión Brasper.
+
+    El frontend hace la redirección al diálogo de Meta y vuelve con `?code=`;
+    aquí se intercambia usando el app secret guardado en
+    `integrations.integration` (provider `facebook`), así el secreto nunca sale
+    al navegador. Devuelve la misma forma que `POST /auth/login/`.
+    """
+    try:
+        return await use_case.execute(
+            provider="facebook",
+            code=payload.code,
+            redirect_uri=payload.redirect_uri,
+        )
+    except ValueError as e:
+        logger.warning(f"Facebook login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except httpx.HTTPError as e:
+        # Facebook rechazó el canje (code usado/expirado, redirect_uri distinto).
+        logger.warning(f"Facebook code exchange failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Facebook rechazó el código de autorización. Vuelve a intentarlo.",
         )
 
 

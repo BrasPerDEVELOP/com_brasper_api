@@ -132,6 +132,26 @@ En la tabla `integrations.integration` crea o actualiza un registro:
 
 `redirect_uri` debe coincidir **exactamente** con una de las URIs que configuraste en Meta.
 
+### 2.7 Flujo usado por el backoffice (`POST /auth/facebook/`)
+
+El backoffice Vue (`com_brasper_backofice`) **no** usa `GET /integraciones/oauth/facebook`: hace él mismo la redirección al diálogo de Meta (con un `state` antifalsificación en `sessionStorage`) y, al volver con `?code=`, lo canjea con:
+
+```http
+POST /auth/facebook/
+Content-Type: application/json
+
+{ "code": "AQD...", "redirect_uri": "https://dashboard.brasper.com/" }
+```
+
+Respuesta: la misma forma que `POST /auth/login/` → `{ "token": "...", "user": { ... } }`.
+
+Internamente reutiliza `OAuthCallbackUseCase`, así que las credenciales salen del mismo registro `integrations.integration` (provider `facebook`). La diferencia es que el token **no viaja en la query del navegador** y que el `redirect_uri` registrado en Meta es la **URL del frontend**, no la del API:
+
+- Producción: `https://dashboard.brasper.com/`
+- Desarrollo: `http://localhost:5173/` (el puerto de `npm run dev`)
+
+Con *Use Strict Mode for redirect URIs* activo en Meta la barra final importa: el front envía `origin + '/'`.
+
 ---
 
 ## 3. Variables de entorno (API)
