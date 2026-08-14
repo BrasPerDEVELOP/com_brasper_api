@@ -776,17 +776,39 @@ class UpdateTransactionUseCase:
         self._tax_rate_repo = tax_rate_repo
         self._session = session
 
-    async def execute(self, cmd: TransactionUpdateCmd) -> Optional[TransactionReadDTO]:
+    async def execute(
+        self,
+        cmd: TransactionUpdateCmd,
+        *,
+        can_update_agent: bool = False,
+    ) -> Optional[TransactionReadDTO]:
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
         if not entity:
             return None
 
+        fields_set = cmd.model_fields_set
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        # Defensa en profundidad: la ruta habilita este campo únicamente para admin.
+        if not can_update_agent:
+            updates.pop("agent_id", None)
         updates.pop("tag_ids", None)
         updates.pop("destinations", None)
         requested_destinations = (
-            cmd.destinations if "destinations" in cmd.model_fields_set else None
+            cmd.destinations if "destinations" in fields_set else None
         )
+        if "user_id" in fields_set:
+            requested_user_id = updates.get("user_id")
+            if requested_user_id is None:
+                raise ValueError("Debe indicar un cliente válido")
+            if requested_user_id != entity.user_id:
+                if requested_destinations is None:
+                    raise ValueError(
+                        "Debe enviar destinations al cambiar el cliente"
+                    )
+                # La cuenta de origen es opcional y pertenece al cliente anterior.
+                # Si el request no envía una nueva, se limpia para no dejar FKs cruzadas.
+                if "bank_account_origin" not in fields_set:
+                    updates["bank_account_origin_id"] = None
         removes = {
             "remove_send_voucher": bool(updates.pop("remove_send_voucher", None)),
             "remove_payment_voucher": bool(updates.pop("remove_payment_voucher", None)),
@@ -804,7 +826,6 @@ class UpdateTransactionUseCase:
         # existentes listados (borrado individual) y los uploads siempre se agregan.
         _apply_voucher_updates(entity, updates, removes, keeps)
 
-        fields_set = cmd.model_fields_set
         social_reason_was_sent = "social_reason_bank_id" in fields_set
         company_name_was_sent = "company_name" in fields_set
         if requested_destinations:

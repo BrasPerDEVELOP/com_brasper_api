@@ -10,8 +10,12 @@ from app.middlewares.auth import _EXACT_PUBLIC_ROUTES
 from app.middlewares.auth import current_user_var
 from app.modules.auth.domain.permissions import default_permissions_for_role
 from app.modules.transactions.adapters.router.transaction_routes import (
+    _ensure_transaction_agent_update_allowed,
     _ensure_transaction_owner_or_permission,
     _scope_transaction_user,
+)
+from app.modules.transactions.application.schemas.transaction_schema import (
+    TransactionUpdateCmd,
 )
 
 
@@ -86,6 +90,30 @@ def test_transaction_create_allows_owner_or_privileged_actor_only():
                 other_id, {"user_id": str(owner_id)}, [], "transactions.create"
             )
         assert exc.value.status_code == 403
+    finally:
+        settings.AUTH_REQUIRED = previous
+
+
+def test_only_admin_can_update_transaction_agent():
+    settings = get_settings()
+    previous = settings.AUTH_REQUIRED
+    settings.AUTH_REQUIRED = True
+    try:
+        cmd = TransactionUpdateCmd(id=uuid4(), agent_id=uuid4())
+        assert _ensure_transaction_agent_update_allowed(cmd, {"role": "admin"}) is True
+
+        with pytest.raises(HTTPException) as exc:
+            _ensure_transaction_agent_update_allowed(cmd, {"role": "sales"})
+        assert exc.value.status_code == 403
+
+        without_agent = TransactionUpdateCmd(id=uuid4())
+        assert (
+            _ensure_transaction_agent_update_allowed(
+                without_agent,
+                {"role": "sales"},
+            )
+            is False
+        )
     finally:
         settings.AUTH_REQUIRED = previous
 

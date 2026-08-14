@@ -1122,15 +1122,19 @@ def test_create_multipart_parses_destinations_json():
 
 @pytest.mark.asyncio
 async def test_update_transaction_replaces_multiple_destinations(monkeypatch):
+    previous_user_id = uuid4()
     user_id = uuid4()
     first_id, second_id = uuid4(), uuid4()
     tax_rate_id = uuid4()
+    original_agent_id = uuid4()
     entity = MagicMock(
         checked=False,
         status=TransactionStatus.verification,
         social_reason_bank_id=None,
+        bank_account_origin_id=uuid4(),
         bank_account_destination_id=first_id,
-        user_id=user_id,
+        user_id=previous_user_id,
+        agent_id=original_agent_id,
         tax_rate_id=tax_rate_id,
         destination_amount=630,
         destinations=[],
@@ -1165,6 +1169,8 @@ async def test_update_transaction_replaces_multiple_destinations(monkeypatch):
     )
     await use_case.execute(TransactionUpdateCmd(
         id=uuid4(),
+        user_id=user_id,
+        agent_id=uuid4(),
         bank_account_destination=first_id,
         destination_amount=630,
         destinations=[
@@ -1177,6 +1183,77 @@ async def test_update_transaction_replaces_multiple_destinations(monkeypatch):
         (first_id, 300),
         (second_id, 330),
     ]
+    assert entity.user_id == user_id
+    assert entity.bank_account_origin_id is None
+    assert entity.agent_id == original_agent_id
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_client_change_without_destination_accounts(monkeypatch):
+    uc, entity, _ = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    entity.user_id = uuid4()
+
+    with pytest.raises(ValueError, match="destinations al cambiar el cliente"):
+        await uc.execute(
+            TransactionUpdateCmd(id=uuid4(), user_id=uuid4())
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_allows_admin_to_change_transaction_agent(monkeypatch):
+    uc, entity, _ = _build_update_uc(
+        monkeypatch, dest_bank_company="Empresa de cuenta destino"
+    )
+    previous_agent_id = uuid4()
+    next_agent_id = uuid4()
+    entity.agent_id = previous_agent_id
+
+    await uc.execute(
+        TransactionUpdateCmd(id=uuid4(), agent_id=next_agent_id),
+        can_update_agent=True,
+    )
+
+    assert entity.agent_id == next_agent_id
+
+
+@pytest.mark.asyncio
+async def test_update_replaces_and_clears_transaction_tags(monkeypatch):
+    old_tag = MagicMock(id=uuid4())
+    new_tag = MagicMock(id=uuid4())
+    entity = MagicMock(
+        checked=False,
+        status=TransactionStatus.verification,
+        social_reason_bank_id=None,
+        tags=[old_tag],
+    )
+    transaction_repo = AsyncMock()
+    transaction_repo.get = AsyncMock(return_value=entity)
+    session_result = MagicMock()
+    session_result.scalars.return_value.all.return_value = [new_tag]
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=session_result)
+    monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
+
+    use_case = UpdateTransactionUseCase(
+        transaction_repo,
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        session=session,
+    )
+    await use_case.execute(
+        TransactionUpdateCmd(id=uuid4(), tag_ids=[new_tag.id])
+    )
+
+    assert entity.tags == [new_tag]
+
+    await use_case.execute(
+        TransactionUpdateCmd(id=uuid4(), tag_ids=[])
+    )
+
+    assert entity.tags == []
 
 
 @pytest.mark.asyncio
