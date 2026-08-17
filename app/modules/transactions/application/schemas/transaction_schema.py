@@ -825,6 +825,29 @@ class TransactionListPage(BaseModel):
     has_previous: bool
 
 
+class TransactionAccountingReadDTO(TransactionReadDTO):
+    """Transacción con su snapshot contable.
+
+    Mismos campos que ``TransactionReadDTO`` más las columnas contables. Van
+    aparte porque contabilidad es el único consumidor que las necesita y el
+    listado principal lo usan roles que no deben verlas.
+
+    Todas son opcionales: las transacciones anteriores a estas columnas no las
+    tienen y nada las rellena todavía.
+    """
+
+    commission_accounting_id: Optional[UUID] = None
+    accounting_destination_amount: Optional[float] = None
+    accounting_commision: Optional[float] = None
+    accounting_tax_final: Optional[float] = None
+
+
+class TransactionAccountingListPage(TransactionListPage):
+    """Misma página que ``TransactionListPage`` con los ítems contables."""
+
+    items: list[TransactionAccountingReadDTO]
+
+
 class TransactionMetricsDTO(BaseModel):
     """Agregados globales para el dashboard (sobre todas las transacciones)."""
 

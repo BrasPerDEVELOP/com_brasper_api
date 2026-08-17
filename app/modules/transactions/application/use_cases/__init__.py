@@ -4,6 +4,7 @@ from . import transaction_use_cases
 from app.modules.transactions.application.use_cases.transaction_use_cases import (
     GetTransactionByIdUseCase,
     ListTransactionsUseCase,
+    ListTransactionsAccountingUseCase,
     GetTransactionMetricsUseCase,
     CreateTransactionUseCase,
     UpdateTransactionUseCase,
@@ -45,6 +46,7 @@ from app.modules.transactions.application.use_cases.tag_use_cases import (
 __all__ = [
     "GetTransactionByIdUseCase",
     "ListTransactionsUseCase",
+    "ListTransactionsAccountingUseCase",
     "GetTransactionMetricsUseCase",
     "CreateTransactionUseCase",
     "UpdateTransactionUseCase",

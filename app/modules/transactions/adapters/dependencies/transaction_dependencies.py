@@ -27,6 +27,7 @@ from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.application.use_cases import (
     GetTransactionByIdUseCase,
     ListTransactionsUseCase,
+    ListTransactionsAccountingUseCase,
     GetTransactionMetricsUseCase,
     CreateTransactionUseCase,
     UpdateTransactionUseCase,
@@ -87,6 +88,12 @@ def list_transactions_uc(
     return ListTransactionsUseCase(repo)
 
 
+def list_transactions_accounting_uc(
+    repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
+) -> ListTransactionsAccountingUseCase:
+    return ListTransactionsAccountingUseCase(repo)
+
+
 def get_transaction_metrics_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
 ) -> GetTransactionMetricsUseCase:
@@ -142,6 +149,9 @@ def delete_transaction_uc(
 
 GetTransactionByIdUseCaseDep = Annotated[GetTransactionByIdUseCase, Depends(get_transaction_by_id_uc)]
 ListTransactionsUseCaseDep = Annotated[ListTransactionsUseCase, Depends(list_transactions_uc)]
+ListTransactionsAccountingUseCaseDep = Annotated[
+    ListTransactionsAccountingUseCase, Depends(list_transactions_accounting_uc)
+]
 GetTransactionMetricsUseCaseDep = Annotated[GetTransactionMetricsUseCase, Depends(get_transaction_metrics_uc)]
 CreateTransactionUseCaseDep = Annotated[CreateTransactionUseCase, Depends(create_transaction_uc)]
 UpdateTransactionUseCaseDep = Annotated[UpdateTransactionUseCase, Depends(update_transaction_uc)]

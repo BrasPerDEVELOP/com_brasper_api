@@ -3,6 +3,7 @@ from app.modules.coin.adapters.dependencies.coin_dependencies import (
     get_tax_rate_repository,
     get_tax_rate_trial_repository,
     get_commission_repository,
+    get_commission_accounting_repository,
     get_commission_trial_repository,
     GetTaxRateByIdUseCaseDep,
     ListTaxRatesUseCaseDep,
@@ -24,6 +25,11 @@ from app.modules.coin.adapters.dependencies.coin_dependencies import (
     CreateCommissionUseCaseDep,
     UpdateCommissionUseCaseDep,
     DeleteCommissionUseCaseDep,
+    GetCommissionAccountingByIdUseCaseDep,
+    ListCommissionAccountingsUseCaseDep,
+    CreateCommissionAccountingUseCaseDep,
+    UpdateCommissionAccountingUseCaseDep,
+    DeleteCommissionAccountingUseCaseDep,
 )
 
 __all__ = [
@@ -51,4 +57,10 @@ __all__ = [
     "CreateCommissionUseCaseDep",
     "UpdateCommissionUseCaseDep",
     "DeleteCommissionUseCaseDep",
+    "get_commission_accounting_repository",
+    "GetCommissionAccountingByIdUseCaseDep",
+    "ListCommissionAccountingsUseCaseDep",
+    "CreateCommissionAccountingUseCaseDep",
+    "UpdateCommissionAccountingUseCaseDep",
+    "DeleteCommissionAccountingUseCaseDep",
 ]

@@ -9,11 +9,15 @@ from app.db.base import get_db
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.coin.interfaces.tax_rate_trial_repository import TaxRateTrialRepositoryInterface
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
+from app.modules.coin.interfaces.commission_accounting_repository import (
+    CommissionAccountingRepositoryInterface,
+)
 from app.modules.coin.interfaces.commission_trial_repository import CommissionTrialRepositoryInterface
 from app.modules.coin.infrastructure.repository import (
     SQLAlchemyTaxRateRepository,
     SQLAlchemyTaxRateTrialRepository,
     SQLAlchemyCommissionRepository,
+    SQLAlchemyCommissionAccountingRepository,
     SQLAlchemyCommissionTrialRepository,
 )
 from app.modules.coin.application.use_cases import (
@@ -32,6 +36,11 @@ from app.modules.coin.application.use_cases import (
     CreateCommissionUseCase,
     UpdateCommissionUseCase,
     DeleteCommissionUseCase,
+    GetCommissionAccountingByIdUseCase,
+    ListCommissionAccountingsUseCase,
+    CreateCommissionAccountingUseCase,
+    UpdateCommissionAccountingUseCase,
+    DeleteCommissionAccountingUseCase,
     GetCommissionTrialByIdUseCase,
     ListCommissionTrialsUseCase,
     CreateCommissionTrialUseCase,
@@ -52,6 +61,12 @@ def get_commission_repository(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CommissionRepositoryInterface:
     return SQLAlchemyCommissionRepository(db)
+
+
+def get_commission_accounting_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CommissionAccountingRepositoryInterface:
+    return SQLAlchemyCommissionAccountingRepository(db)
 
 
 def get_commission_trial_repository(
@@ -194,6 +209,38 @@ def delete_commission_uc(
     return DeleteCommissionUseCase(repo)
 
 
+# --- CommissionAccounting (comisión contable): factories de casos de uso ---
+
+def get_commission_accounting_by_id_uc(
+    repo: Annotated[CommissionAccountingRepositoryInterface, Depends(get_commission_accounting_repository)],
+) -> GetCommissionAccountingByIdUseCase:
+    return GetCommissionAccountingByIdUseCase(repo)
+
+
+def list_commission_accountings_uc(
+    repo: Annotated[CommissionAccountingRepositoryInterface, Depends(get_commission_accounting_repository)],
+) -> ListCommissionAccountingsUseCase:
+    return ListCommissionAccountingsUseCase(repo)
+
+
+def create_commission_accounting_uc(
+    repo: Annotated[CommissionAccountingRepositoryInterface, Depends(get_commission_accounting_repository)],
+) -> CreateCommissionAccountingUseCase:
+    return CreateCommissionAccountingUseCase(repo)
+
+
+def update_commission_accounting_uc(
+    repo: Annotated[CommissionAccountingRepositoryInterface, Depends(get_commission_accounting_repository)],
+) -> UpdateCommissionAccountingUseCase:
+    return UpdateCommissionAccountingUseCase(repo)
+
+
+def delete_commission_accounting_uc(
+    repo: Annotated[CommissionAccountingRepositoryInterface, Depends(get_commission_accounting_repository)],
+) -> DeleteCommissionAccountingUseCase:
+    return DeleteCommissionAccountingUseCase(repo)
+
+
 # --- Tipos anotados para inyección en rutas (sin Depends explícito en el handler) ---
 
 GetTaxRateByIdUseCaseDep = Annotated[GetTaxRateByIdUseCase, Depends(get_tax_rate_by_id_uc)]
@@ -218,3 +265,19 @@ ListCommissionsUseCaseDep = Annotated[ListCommissionsUseCase, Depends(list_commi
 CreateCommissionUseCaseDep = Annotated[CreateCommissionUseCase, Depends(create_commission_uc)]
 UpdateCommissionUseCaseDep = Annotated[UpdateCommissionUseCase, Depends(update_commission_uc)]
 DeleteCommissionUseCaseDep = Annotated[DeleteCommissionUseCase, Depends(delete_commission_uc)]
+
+GetCommissionAccountingByIdUseCaseDep = Annotated[
+    GetCommissionAccountingByIdUseCase, Depends(get_commission_accounting_by_id_uc)
+]
+ListCommissionAccountingsUseCaseDep = Annotated[
+    ListCommissionAccountingsUseCase, Depends(list_commission_accountings_uc)
+]
+CreateCommissionAccountingUseCaseDep = Annotated[
+    CreateCommissionAccountingUseCase, Depends(create_commission_accounting_uc)
+]
+UpdateCommissionAccountingUseCaseDep = Annotated[
+    UpdateCommissionAccountingUseCase, Depends(update_commission_accounting_uc)
+]
+DeleteCommissionAccountingUseCaseDep = Annotated[
+    DeleteCommissionAccountingUseCase, Depends(delete_commission_accounting_uc)
+]

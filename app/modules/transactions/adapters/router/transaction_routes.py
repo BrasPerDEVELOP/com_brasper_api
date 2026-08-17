@@ -16,6 +16,7 @@ from app.modules.transactions.application.schemas import (
     TransactionUpdateCmd,
     TransactionReadDTO,
     TransactionListPage,
+    TransactionAccountingListPage,
     TransactionMetricsDTO,
     ImportRequestCmd,
     ImportResponseDTO,
@@ -23,6 +24,7 @@ from app.modules.transactions.application.schemas import (
 from app.modules.transactions.adapters.dependencies import (
     GetTransactionByIdUseCaseDep,
     ListTransactionsUseCaseDep,
+    ListTransactionsAccountingUseCaseDep,
     GetTransactionMetricsUseCaseDep,
     CreateTransactionUseCaseDep,
     UpdateTransactionUseCaseDep,
@@ -204,6 +206,75 @@ async def list_transactions(
     ),
 ):
     """Lista transacciones con filtros opcionales y paginación."""
+    try:
+        currency_filter = _parse_currency_filter(currency)
+        origin_currency_filter = _parse_currency_filter(origin_currency)
+        destination_currency_filter = _parse_currency_filter(destination_currency)
+    except (ValueError, KeyError):
+        raise HTTPException(
+            status_code=400,
+            detail="Moneda no válida. Use PEN, USD o BRL.",
+        )
+    user_id = _scope_transaction_user(user_id, current_user, permissions)
+    return await use_case.execute(
+        limit=limit,
+        skip=skip,
+        status=status,
+        user_id=user_id,
+        bank_account_origin_id=bank_account_origin_id,
+        bank_account_destination_id=bank_account_destination_id,
+        bank_account_id=bank_account_id,
+        created_at_from=created_at_from,
+        created_at_to=created_at_to,
+        send_date_from=send_date_from,
+        send_date_to=send_date_to,
+        search=search,
+        currency=currency_filter,
+        origin_currency=origin_currency_filter,
+        destination_currency=destination_currency_filter,
+    )
+
+
+@router.get("/accounting", response_model=TransactionAccountingListPage)
+async def list_transactions_accounting(
+    use_case: ListTransactionsAccountingUseCaseDep,
+    _permissions=Depends(require_permission("accounting.view")),
+    permissions: list[str] = Depends(get_current_user_permissions),
+    current_user: dict = Depends(get_current_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[TransactionStatus] = Query(
+        None,
+        description="Filtro por estado (verification, verified, completed, failed, pending, checked, …)",
+    ),
+    user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
+    bank_account_origin_id: Optional[UUID] = Query(None, description="Filtro por cuenta origen"),
+    bank_account_destination_id: Optional[UUID] = Query(None, description="Filtro por cuenta destino"),
+    bank_account_id: Optional[UUID] = Query(None, description="Filtro por cuenta (origen o destino)"),
+    created_at_from: Optional[datetime] = Query(None, description="Filtro: transacciones desde esta fecha (ISO)"),
+    created_at_to: Optional[datetime] = Query(None, description="Filtro: transacciones hasta esta fecha (ISO)"),
+    send_date_from: Optional[datetime] = Query(None, description="Filtro: send_date desde esta fecha (ISO)"),
+    send_date_to: Optional[datetime] = Query(None, description="Filtro: send_date hasta esta fecha (ISO)"),
+    search: Optional[str] = Query(None, description="Búsqueda de texto libre por código, nº de operación o id"),
+    currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda (PEN, USD, BRL): origen o destino de la tasa",
+    ),
+    origin_currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda origen de la tasa (coin_a)",
+    ),
+    destination_currency: Optional[str] = Query(
+        None,
+        description="Filtro por moneda destino de la tasa (coin_b)",
+    ),
+):
+    """Lista transacciones con sus campos contables.
+
+    Mismos filtros y paginación que `GET /transactions`; el DTO agrega
+    `commission_accounting_id`, `accounting_destination_amount`,
+    `accounting_commision` y `accounting_tax_final`.
+    """
     try:
         currency_filter = _parse_currency_filter(currency)
         origin_currency_filter = _parse_currency_filter(origin_currency)

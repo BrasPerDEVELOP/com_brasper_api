@@ -1,11 +1,14 @@
 # app/modules/coin/domain/models.py
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.modules.coin.domain.enums import Currency, CurrencyEnumType
 from app.shared.model_base import ORMBaseModel
+
+if TYPE_CHECKING:
+    from app.modules.transactions.domain.models import Transaction
 
 
 class TaxRate(ORMBaseModel):
@@ -39,6 +42,26 @@ class Commission(ORMBaseModel):
     reverse: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=0)
     min_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     max_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+
+
+class CommissionAccounting(ORMBaseModel):
+    """Comisión contable entre dos monedas (coin_a → coin_b): porcentaje, reversa y montos min/max."""
+    __tablename__ = "commission_accounting"
+    __table_args__ = {"schema": "coin"}
+
+    coin_a: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
+    coin_b: Mapped[Currency] = mapped_column(CurrencyEnumType, nullable=False, index=True)
+    percentage: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=0)
+    reverse: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=0)
+    min_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    max_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        foreign_keys="[Transaction.commission_accounting_id]",
+        back_populates="commission_accounting",
+        lazy="noload",
+    )
 
 
 class CommissionTrial(ORMBaseModel):

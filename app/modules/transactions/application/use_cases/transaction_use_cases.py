@@ -38,6 +38,8 @@ from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionUpdateCmd,
     TransactionReadDTO,
     TransactionListPage,
+    TransactionAccountingReadDTO,
+    TransactionAccountingListPage,
     TransactionMetricsDTO,
     ImportRequestCmd,
     ImportResponseDTO,
@@ -410,6 +412,11 @@ class GetTransactionByIdUseCase:
 
 
 class ListTransactionsUseCase:
+    #: DTO de cada ítem y de la página. Las subclases los reemplazan para
+    #: exponer el mismo listado con otra proyección (ver contabilidad abajo).
+    item_dto: type[TransactionReadDTO] = TransactionReadDTO
+    page_dto: type[TransactionListPage] = TransactionListPage
+
     def __init__(self, repo: TransactionRepositoryInterface):
         self.repo = repo
 
@@ -454,8 +461,8 @@ class ListTransactionsUseCase:
             bank_account_id=bank_account_id,
         )
         if isinstance(raw, PaginatedResult):
-            items = [TransactionReadDTO.model_validate(x) for x in raw.items]
-            return TransactionListPage(
+            items = [self.item_dto.model_validate(x) for x in raw.items]
+            return self.page_dto(
                 items=items,
                 total=raw.total,
                 skip=raw.skip,
@@ -463,8 +470,8 @@ class ListTransactionsUseCase:
                 has_next=raw.has_next,
                 has_previous=raw.has_previous,
             )
-        items = [TransactionReadDTO.model_validate(x) for x in raw]
-        return TransactionListPage(
+        items = [self.item_dto.model_validate(x) for x in raw]
+        return self.page_dto(
             items=items,
             total=len(items),
             skip=skip,
@@ -472,6 +479,17 @@ class ListTransactionsUseCase:
             has_next=False,
             has_previous=skip > 0,
         )
+
+
+class ListTransactionsAccountingUseCase(ListTransactionsUseCase):
+    """Listado de transacciones con los campos contables en el DTO.
+
+    Idéntico a ``ListTransactionsUseCase`` en filtros, paginación y consulta:
+    solo cambia la proyección de salida.
+    """
+
+    item_dto = TransactionAccountingReadDTO
+    page_dto = TransactionAccountingListPage
 
 
 class GetTransactionMetricsUseCase:

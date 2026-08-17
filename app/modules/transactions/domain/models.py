@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from app.modules.coin.domain.models import CommissionAccounting
     from app.modules.users.domain.models import User
 
 from sqlalchemy import Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint
@@ -66,6 +67,13 @@ class Transaction(ORMBaseModel):
         nullable=False,
         index=True,
     )
+    # Nullable: las transacciones creadas antes de coin.commission_accounting no la tienen.
+    commission_accounting_id: Mapped[Optional[UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("coin.commission_accounting.id"),
+        nullable=True,
+        index=True,
+    )
     bank_id: Mapped[Optional[UUID]] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("transaction.banks.id"),
@@ -103,6 +111,11 @@ class Transaction(ORMBaseModel):
         nullable=True,
         index=True,
     )
+    # datos contabilidad
+    accounting_destination_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    accounting_commision: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+    accounting_tax_final: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
+
     # datos calculadora cupon
     coupon_discount_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     coupon_origin_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
@@ -145,6 +158,12 @@ class Transaction(ORMBaseModel):
         back_populates="transactions",
         lazy="noload",
     )
+    commission_accounting: Mapped[Optional["CommissionAccounting"]] = relationship(
+        "CommissionAccounting",
+        foreign_keys=[commission_accounting_id],
+        back_populates="transactions",
+        lazy="noload",
+    )
     coupon: Mapped["Coupon"] = relationship(
         "Coupon",
         foreign_keys=[coupon_id],
@@ -177,6 +196,7 @@ class Transaction(ORMBaseModel):
         order_by="Tag.position, Tag.label",
         lazy="noload",
     )
+
 
 
 class TransactionDestination(ORMBaseModel):
