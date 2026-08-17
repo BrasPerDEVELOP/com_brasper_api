@@ -50,6 +50,28 @@ MSG_TRANSACTION_NOT_FOUND = "Transacción no encontrada"
 MSG_INVALID_JSON = "JSON inválido"
 
 
+def _can_update_transaction_agent(current_user: dict) -> bool:
+    """El asesor solo puede reasignarse por un administrador autenticado."""
+    if not get_settings().AUTH_REQUIRED:
+        return True
+    role = current_user.get("role")
+    role_value = getattr(role, "value", role)
+    return str(role_value or "").strip().lower() == "admin"
+
+
+def _ensure_transaction_agent_update_allowed(
+    cmd: TransactionUpdateCmd,
+    current_user: dict,
+) -> bool:
+    can_update_agent = _can_update_transaction_agent(current_user)
+    if "agent_id" in cmd.model_fields_set and not can_update_agent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un administrador puede modificar el asesor",
+        )
+    return can_update_agent
+
+
 def _scope_transaction_user(
     requested_user_id: Optional[UUID],
     current_user: dict,
@@ -422,17 +444,22 @@ async def update_transaction(
     request: Request,
     use_case: UpdateTransactionUseCaseDep,
     get_use_case: GetTransactionByIdUseCaseDep,
+    current_user=Depends(get_current_user),
     _permissions=Depends(require_permission("transactions.update")),
     audit_event=Depends(stage_mutation_audit("transactions.update", "transaction")),
 ):
     """Actualiza transacción. Acepta JSON o form-data (multipart)."""
     try:
         cmd, send_f, pay_f, checked_img_f = await _parse_update_request(request)
+        can_update_agent = _ensure_transaction_agent_update_allowed(cmd, current_user)
         previous = await get_use_case.execute(cmd.id)
         if audit_event and previous:
             audit_event.old_values = previous.model_dump(mode="json")
         await _apply_transaction_uploads(cmd, send_f, pay_f, checked_img_f)
-        entity = await use_case.execute(cmd)
+        entity = await use_case.execute(
+            cmd,
+            can_update_agent=can_update_agent,
+        )
         if audit_event and entity:
             audit_event.entity_id = str(entity.id)
             audit_event.new_values = cmd.model_dump(mode="json")

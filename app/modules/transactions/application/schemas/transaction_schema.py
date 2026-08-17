@@ -432,7 +432,12 @@ class TransactionUpdateCmd(BaseModel):
     social_reason_bank_id: Optional[UUID] = None
     company_name: Optional[str] = None
     user_id: Optional[UUID] = None
-    agent_id: Optional[UUID] = None
+    agent_id: Optional[UUID] = Field(
+        default=None,
+        description=(
+            "Asesor asignado. En PUT solo un actor con rol admin puede modificarlo."
+        ),
+    )
     tax_rate_id: Optional[UUID] = None
     commission_id: Optional[UUID] = None
     status: Optional[TransactionStatus] = None
