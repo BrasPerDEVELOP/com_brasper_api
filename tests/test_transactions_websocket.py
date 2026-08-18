@@ -13,6 +13,7 @@ from app.modules.auth.infrastructure.jwt_service import create_access_token
 from app.modules.transactions.adapters.router import transactions_websocket as ws_module
 from app.modules.transactions.adapters.router.transactions_websocket import (
     PROCESS_ID,
+    _seconds_until,
     Subscriber,
     TransactionConnectionManager,
     _build_notify_payload,
@@ -153,6 +154,87 @@ def test_authenticate_websocket_rejects_missing_and_invalid_token():
         settings.AUTH_REQUIRED = False
 
 
+def test_authenticate_websocket_returns_token_expiry(monkeypatch):
+    """El handshake expone el `exp` del token para poder caducar el socket."""
+    import time
+
+    settings = get_settings()
+    settings.AUTH_REQUIRED = True
+    token, _ = create_access_token(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    try:
+        async def can_view_all(_user_id):
+            return True
+
+        monkeypatch.setattr(ws_module, "_user_can_view_all_transactions", can_view_all)
+        result = asyncio.run(authenticate_websocket(token))
+
+        assert result is not None
+        _user_id, _scope, expires_at = result
+        assert expires_at is not None
+        # El TTL por defecto son 15 min: debe vencer en el futuro cercano.
+        assert 0 < expires_at - time.time() <= 15 * 60 + 5
+    finally:
+        settings.AUTH_REQUIRED = False
+
+
+def test_seconds_until_expiry():
+    """`_seconds_until` mide lo que le queda al token, y no vence si no hay `exp`."""
+    import time
+
+    assert _seconds_until(None) is None
+    assert _seconds_until(int(time.time()) + 60) > 55
+    assert _seconds_until(int(time.time()) - 10) < 0
+
+
+def test_websocket_closes_when_token_expires(test_client, monkeypatch):
+    """Un socket con token ya vencido se cierra en vez de seguir recibiendo."""
+    from starlette.websockets import WebSocketDisconnect
+
+    settings = get_settings()
+    settings.AUTH_REQUIRED = True
+    try:
+        async def already_expired(_token):
+            # Autentica bien, pero el token venció hace un segundo.
+            import time
+            return ("user-1", True, int(time.time()) - 1)
+
+        monkeypatch.setattr(ws_module, "authenticate_websocket", already_expired)
+
+        with pytest.raises(WebSocketDisconnect):
+            with test_client.websocket_connect("/ws/transactions/?token=cualquiera") as websocket:
+                websocket.receive_json()
+    finally:
+        settings.AUTH_REQUIRED = False
+
+
+def test_expired_socket_is_removed_from_manager(monkeypatch):
+    """Al cerrarse por vencimiento, la conexión deja de contar como suscriptor."""
+    before = manager.connection_count
+
+    async def already_expired(_token):
+        import time
+        return ("user-1", True, int(time.time()) - 1)
+
+    monkeypatch.setattr(ws_module, "authenticate_websocket", already_expired)
+
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    settings = get_settings()
+    settings.AUTH_REQUIRED = True
+    try:
+        client = TestClient(app)
+        try:
+            with client.websocket_connect("/ws/transactions/?token=x") as ws:
+                ws.receive_json()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        settings.AUTH_REQUIRED = False
+
+    assert manager.connection_count == before
+
+
 def test_authenticate_websocket_resolves_scope_from_role_permissions(monkeypatch):
     """El alcance sale del permiso `transactions.view` del rol."""
     settings = get_settings()
@@ -164,13 +246,15 @@ def test_authenticate_websocket_resolves_scope_from_role_permissions(monkeypatch
             return True
 
         monkeypatch.setattr(ws_module, "_user_can_view_all_transactions", can_view_all)
-        assert asyncio.run(authenticate_websocket(token)) == (str(user_id), True)
+        user, scope, _exp = asyncio.run(authenticate_websocket(token))
+        assert (user, scope) == (str(user_id), True)
 
         async def cannot_view_all(_user_id):
             return False
 
         monkeypatch.setattr(ws_module, "_user_can_view_all_transactions", cannot_view_all)
-        assert asyncio.run(authenticate_websocket(token)) == (str(user_id), False)
+        user, scope, _exp = asyncio.run(authenticate_websocket(token))
+        assert (user, scope) == (str(user_id), False)
     finally:
         settings.AUTH_REQUIRED = False
 

@@ -17,6 +17,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -226,16 +227,19 @@ async def broadcast_transaction_event(
         logger.error("Failed to broadcast transaction event %s: %s", event_type, e)
 
 
-async def authenticate_websocket(token: Optional[str]) -> Optional[Tuple[str, bool]]:
+async def authenticate_websocket(token: Optional[str]) -> Optional[Tuple[str, bool, Optional[int]]]:
     """Valida el token del handshake y resuelve el alcance de lectura.
 
-    Devuelve `(user_id, can_view_all)`, o `None` si la conexión debe rechazarse.
-    `can_view_all` es cierto sólo si el rol del usuario tiene `transactions.view`,
-    el mismo permiso que gobierna el listado REST.
+    Devuelve `(user_id, can_view_all, expires_at)`, o `None` si la conexión debe
+    rechazarse. `can_view_all` es cierto sólo si el rol del usuario tiene
+    `transactions.view`, el mismo permiso que gobierna el listado REST.
+    `expires_at` es el `exp` del token en epoch: el socket se cierra al llegar,
+    porque una conexión abierta no vuelve a pasar por el handshake y seguiría
+    recibiendo transacciones con una sesión ya vencida o revocada.
     """
     settings = get_settings()
     if not settings.AUTH_REQUIRED:
-        return ("anonymous", True)
+        return ("anonymous", True, None)
 
     if not token or not token.strip():
         return None
@@ -261,7 +265,8 @@ async def authenticate_websocket(token: Optional[str]) -> Optional[Tuple[str, bo
         logger.error("No se pudo resolver permisos del WebSocket para %s: %s", user_id, e)
         return None
 
-    return (str(user_id), can_view_all)
+    expires_at = payload.get("exp")
+    return (str(user_id), can_view_all, int(expires_at) if expires_at else None)
 
 
 async def _user_can_view_all_transactions(user_id: str) -> bool:
@@ -360,6 +365,13 @@ class TransactionEventListener:
 event_listener = TransactionEventListener()
 
 
+def _seconds_until(expires_at: Optional[int]) -> Optional[float]:
+    """Segundos que le quedan al token, o `None` si no vence."""
+    if not expires_at:
+        return None
+    return expires_at - datetime.now(timezone.utc).timestamp()
+
+
 async def handle_transactions_websocket(websocket: WebSocket, token: Optional[str]) -> None:
     """Handler único del canal de transacciones: handshake, heartbeat y cierre."""
     from fastapi import WebSocketDisconnect, status
@@ -369,11 +381,24 @@ async def handle_transactions_websocket(websocket: WebSocket, token: Optional[st
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    user_id, can_view_all = auth
+    user_id, can_view_all, expires_at = auth
     await manager.connect(websocket, user_id=user_id, can_view_all=can_view_all)
     try:
         while True:
-            data = await websocket.receive_text()
+            remaining = _seconds_until(expires_at)
+            if remaining is not None and remaining <= 0:
+                # El cliente renueva el token y vuelve a conectar: cerrar es la
+                # única forma de forzar un handshake nuevo con permisos frescos.
+                logger.info("Cerrando WebSocket de %s: token vencido", user_id)
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                break
+
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=remaining)
+            except asyncio.TimeoutError:
+                # Venció mientras esperábamos: la comprobación de arriba cierra.
+                continue
+
             try:
                 parsed = json.loads(data)
             except Exception:
@@ -381,6 +406,8 @@ async def handle_transactions_websocket(websocket: WebSocket, token: Optional[st
             if isinstance(parsed, dict) and (parsed.get("type") == "ping" or parsed.get("event") == "ping"):
                 await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:
-        await manager.disconnect(websocket)
-    except Exception:
+        pass
+    except Exception as e:
+        logger.warning("WebSocket de %s cerrado por error: %s", user_id, e)
+    finally:
         await manager.disconnect(websocket)
