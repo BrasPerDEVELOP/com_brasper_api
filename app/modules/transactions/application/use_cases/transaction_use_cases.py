@@ -21,7 +21,7 @@ from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
-from app.modules.transactions.domain.models import Coupon, CouponRedemption, Tag, Transaction, TransactionDestination
+from app.modules.transactions.domain.models import BankAccount, Coupon, CouponRedemption, Tag, Transaction, TransactionDestination
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
 from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
 from app.modules.users.domain.enums import UserRole
@@ -37,6 +37,7 @@ from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionDetailDTO,
     TransactionListPage,
     TransactionAccountingReadDTO,
     TransactionAccountingListPage,
@@ -401,14 +402,22 @@ _TXN_LOAD_USER = (
     selectinload(Transaction.tags),
 )
 
+_TXN_LOAD_DETAIL = (
+    selectinload(Transaction.user),
+    selectinload(Transaction.destinations)
+    .selectinload(TransactionDestination.bank_account)
+    .selectinload(BankAccount.bank),
+    selectinload(Transaction.tags),
+)
+
 
 class GetTransactionByIdUseCase:
     def __init__(self, repo: TransactionRepositoryInterface):
         self.repo = repo
 
-    async def execute(self, transaction_id: UUID) -> Optional[TransactionReadDTO]:
-        entity = await self.repo.get(transaction_id, eager_options=_TXN_LOAD_USER)
-        return TransactionReadDTO.model_validate(entity) if entity else None
+    async def execute(self, transaction_id: UUID) -> Optional[TransactionDetailDTO]:
+        entity = await self.repo.get(transaction_id, eager_options=_TXN_LOAD_DETAIL)
+        return TransactionDetailDTO.model_validate(entity) if entity else None
 
 
 class ListTransactionsUseCase:

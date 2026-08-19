@@ -18,6 +18,7 @@ from app.modules.transactions.application.schemas import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionDetailDTO,
     TransactionListPage,
     TransactionAccountingListPage,
     TransactionMetricsDTO,
@@ -375,7 +376,7 @@ async def import_data(
         )
 
 
-@router.get("/{transaction_id}", response_model=TransactionReadDTO)
+@router.get("/{transaction_id}", response_model=TransactionDetailDTO)
 async def get_transaction_by_id(
     transaction_id: UUID,
     use_case: GetTransactionByIdUseCaseDep,

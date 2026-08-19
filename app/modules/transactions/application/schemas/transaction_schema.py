@@ -101,6 +101,74 @@ class TransactionDestinationDTO(TransactionDestinationInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TransactionDestinationAccountDTO(BaseModel):
+    """Proyección bancaria mínima usada únicamente por el detalle/preview.
+
+    El listado y los eventos WebSocket conservan el DTO compacto. Así los datos
+    bancarios no se difunden a todos los clientes cuando nadie abrió el detalle.
+    """
+
+    id: UUID
+    bank_id: UUID
+    account_holder_type: SocialActor
+    bank_country: BankCountry
+    holder_names: Optional[str] = None
+    holder_surnames: Optional[str] = None
+    document_number: Optional[str] = None
+    business_name: Optional[str] = None
+    ruc_number: Optional[str] = None
+    account_number: Optional[str] = None
+    cci_number: Optional[str] = None
+    pix_key: Optional[str] = None
+    cpf: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_currency: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_bank_snapshot(cls, data: Any) -> Any:
+        if data is None:
+            return data
+        fields = (
+            "id",
+            "bank_id",
+            "account_holder_type",
+            "bank_country",
+            "holder_names",
+            "holder_surnames",
+            "document_number",
+            "business_name",
+            "ruc_number",
+            "account_number",
+            "cci_number",
+            "pix_key",
+            "cpf",
+        )
+        if isinstance(data, dict):
+            payload = dict(data)
+            bank = data.get("bank")
+        else:
+            payload = {field: getattr(data, field, None) for field in fields}
+            bank = getattr(data, "bank", None)
+
+        if bank is not None:
+            if isinstance(bank, dict):
+                bank_name = bank.get("bank")
+                bank_currency = bank.get("currency")
+            else:
+                bank_name = getattr(bank, "bank", None)
+                bank_currency = getattr(bank, "currency", None)
+            payload["bank_name"] = bank_name
+            payload["bank_currency"] = getattr(bank_currency, "value", bank_currency)
+        return payload
+
+
+class TransactionDestinationDetailDTO(TransactionDestinationDTO):
+    bank_account: Optional[TransactionDestinationAccountDTO] = None
+
+
 def _parse_uuid_list(value: Any) -> Optional[List[UUID]]:
     """Lista de UUIDs desde form-data o JSON. Los ilegibles se descartan."""
     items = _parse_string_list(value)
@@ -819,6 +887,12 @@ class TransactionReadDTO(BaseModel):
                 "user": {"id": uid, "role": data.get("user_role")},
             }
         return data
+
+
+class TransactionDetailDTO(TransactionReadDTO):
+    """Detalle autorizado para previsualización, con cuentas destino resueltas."""
+
+    destinations: List[TransactionDestinationDetailDTO] = Field(default_factory=list)
 
 
 class TransactionListPage(BaseModel):
