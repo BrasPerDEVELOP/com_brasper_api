@@ -420,6 +420,10 @@ class ListTransactionsUseCase:
     def __init__(self, repo: TransactionRepositoryInterface):
         self.repo = repo
 
+    async def _build_items(self, entities) -> list[TransactionReadDTO]:
+        """Proyecta las entidades de la página. Las subclases lo extienden."""
+        return [self.item_dto.model_validate(x) for x in entities]
+
     async def execute(
         self,
         *,
@@ -461,7 +465,7 @@ class ListTransactionsUseCase:
             bank_account_id=bank_account_id,
         )
         if isinstance(raw, PaginatedResult):
-            items = [self.item_dto.model_validate(x) for x in raw.items]
+            items = await self._build_items(raw.items)
             return self.page_dto(
                 items=items,
                 total=raw.total,
@@ -470,7 +474,7 @@ class ListTransactionsUseCase:
                 has_next=raw.has_next,
                 has_previous=raw.has_previous,
             )
-        items = [self.item_dto.model_validate(x) for x in raw]
+        items = await self._build_items(raw)
         return self.page_dto(
             items=items,
             total=len(items),
@@ -484,12 +488,23 @@ class ListTransactionsUseCase:
 class ListTransactionsAccountingUseCase(ListTransactionsUseCase):
     """Listado de transacciones con los campos contables en el DTO.
 
-    Idéntico a ``ListTransactionsUseCase`` en filtros, paginación y consulta:
-    solo cambia la proyección de salida.
+    Idéntico a ``ListTransactionsUseCase`` en filtros y paginación: cambia la
+    proyección de salida y agrega el porcentaje del tramo contable
+    (`accounting_percentage`), que se resuelve contra el catálogo en una única
+    consulta por página en vez de una por fila.
     """
 
     item_dto = TransactionAccountingReadDTO
     page_dto = TransactionAccountingListPage
+
+    async def _build_items(self, entities) -> list[TransactionAccountingReadDTO]:
+        items = await super()._build_items(entities)
+        if not items:
+            return items
+        percentages = await self.repo.accounting_percentages([x.id for x in items])
+        for item in items:
+            item.accounting_percentage = percentages.get(item.id)
+        return items
 
 
 class GetTransactionMetricsUseCase:

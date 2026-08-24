@@ -845,6 +845,13 @@ class TransactionAccountingReadDTO(TransactionReadDTO):
     accounting_destination_amount: Optional[float] = None
     accounting_commision: Optional[float] = None
     accounting_tax_final: Optional[float] = None
+    #: "Descuento variable": porcentaje del tramo de `coin.commission_accounting`
+    #: que cubre el monto de envío (40 = 40%). No es una columna de la
+    #: transacción: el caso de uso lo resuelve por consulta contra el catálogo,
+    #: así que llega aunque `commission_accounting_id` siga en NULL. Es `None`
+    #: cuando ningún tramo cubre el monto (envíos por debajo del mínimo del par)
+    #: o el par no está sembrado.
+    accounting_percentage: Optional[float] = None
 
 
 class TransactionAccountingListPage(TransactionListPage):

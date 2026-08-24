@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination.offset import PageParams, PaginatedResult
 from app.modules.coin.domain.enums import Currency
-from app.modules.coin.domain.models import TaxRate
+from app.modules.coin.domain.models import CommissionAccounting, TaxRate
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.transactions.domain.models import Transaction, TransactionDestination
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
@@ -235,6 +235,66 @@ class SQLAlchemyTransactionRepository(
         if query_filter.eager_options:
             return result.unique().scalars().all()
         return result.scalars().all()
+
+    async def accounting_percentages(
+        self, transaction_ids: Sequence[UUID]
+    ) -> dict[UUID, float]:
+        """Porcentaje del tramo contable de cada transacción, resuelto al vuelo.
+
+        Busca en ``coin.commission_accounting`` el tramo del par de monedas de la
+        transacción (el de su ``tax_rate``) que cubre ``origin_amount``. Es la
+        misma resolución que hace la migración 072 al vincular
+        ``commission_accounting_id``, con la misma convención de rango:
+
+            min_amount <= origin_amount < max_amount
+
+        con el corte superior EXCLUSIVO, que es como la 069 alineó los tramos con
+        la fórmula original (``IF(N<300, 40%, IF(N<1000, 45%, ...))``). Cuidado al
+        reutilizarla: ``coin.commission`` usa el corte inclusivo, no comparten
+        convención.
+
+        Se resuelve por consulta en vez de leer ``commission_accounting_id``
+        porque esa FK solo la rellena el backfill: las transacciones nuevas la
+        tienen en NULL y el listado contable devolvería el porcentaje vacío.
+        """
+        ids = [i for i in transaction_ids if i is not None]
+        if not ids:
+            return {}
+
+        bracket_percentage = (
+            select(CommissionAccounting.percentage)
+            .where(
+                CommissionAccounting.deleted.is_(False),
+                CommissionAccounting.coin_a == TaxRate.coin_a,
+                CommissionAccounting.coin_b == TaxRate.coin_b,
+                or_(
+                    CommissionAccounting.min_amount.is_(None),
+                    Transaction.origin_amount >= CommissionAccounting.min_amount,
+                ),
+                or_(
+                    CommissionAccounting.max_amount.is_(None),
+                    Transaction.origin_amount < CommissionAccounting.max_amount,
+                ),
+            )
+            .order_by(
+                CommissionAccounting.min_amount.nulls_first(),
+                CommissionAccounting.max_amount.nulls_last(),
+            )
+            .limit(1)
+            .correlate(Transaction, TaxRate)
+            .scalar_subquery()
+        )
+
+        rows = await self.session.execute(
+            select(Transaction.id, bracket_percentage)
+            .join(TaxRate, TaxRate.id == Transaction.tax_rate_id)
+            .where(Transaction.id.in_(ids), TaxRate.deleted.is_(False))
+        )
+        return {
+            transaction_id: float(percentage)
+            for transaction_id, percentage in rows.all()
+            if percentage is not None
+        }
 
     # Estados considerados "volumen" (operaciones cerradas/verificadas de caja).
     _VOLUME_STATUSES = (TransactionStatus.completed, TransactionStatus.checked)

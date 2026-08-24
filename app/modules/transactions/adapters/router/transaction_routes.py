@@ -295,7 +295,10 @@ async def list_transactions_accounting(
 
     Mismos filtros y paginación que `GET /transactions`; el DTO agrega
     `commission_accounting_id`, `accounting_destination_amount`,
-    `accounting_commision` y `accounting_tax_final`.
+    `accounting_commision`, `accounting_tax_final` y `accounting_percentage`
+    (el "descuento variable": el porcentaje del tramo de
+    `coin.commission_accounting` que cubre el monto de envío, resuelto contra el
+    catálogo en cada consulta).
     """
     try:
         currency_filter = _parse_currency_filter(currency)
