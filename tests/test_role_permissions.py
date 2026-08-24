@@ -11,6 +11,22 @@ def test_world_cup_permissions_were_removed() -> None:
     assert not any(p.startswith("world_cup.") for p in ALL_PERMISSIONS)
 
 
+def test_accounting_can_fully_manage_users_and_bank_accounts() -> None:
+    permissions = set(default_permissions_for_role(UserRole.accounting.value))
+
+    assert {
+        "users.view",
+        "users.create",
+        "users.update",
+        "users.delete",
+        "users.reset_password",
+        "bank_accounts.view",
+        "bank_accounts.create",
+        "bank_accounts.update",
+        "bank_accounts.delete",
+    } <= permissions
+
+
 class TestTagPermissions:
     """Los permisos del catálogo de etiquetas tienen que existir en el backend.
 
