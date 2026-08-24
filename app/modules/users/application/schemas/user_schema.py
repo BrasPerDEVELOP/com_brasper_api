@@ -309,9 +309,11 @@ class UserReadGeneralDTO(BaseModel):
 
 
 class UserNameDTO(BaseModel):
-    """DTO mínimo para listar usuarios (id, nombres, apellidos)."""
+    """DTO mínimo para selectores, con señales de completitud no sensibles."""
     id: UUID
     names: Optional[str] = None
     lastnames: Optional[str] = None
+    has_email: bool = False
+    has_phone: bool = False
 
     model_config = ConfigDict(from_attributes=True)

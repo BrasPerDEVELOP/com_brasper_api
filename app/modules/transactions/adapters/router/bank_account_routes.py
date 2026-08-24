@@ -23,6 +23,9 @@ from app.modules.transactions.adapters.dependencies import (
 )
 
 from app.core.routing import LegacyAliasRouter
+from app.modules.transactions.adapters.router.transactions_websocket import (
+    broadcast_transaction_event,
+)
 
 router = LegacyAliasRouter(prefix="/bank-accounts", tags=["bank-accounts"])
 
@@ -119,6 +122,11 @@ async def create_bank_account(
         if audit_event and created:
             audit_event.entity_id = str(created.id)
             audit_event.new_values = cmd.model_dump(mode="json")
+        if created:
+            await broadcast_transaction_event(
+                "CLIENT_DATA_STATUS_UPDATED",
+                {"user_id": str(created.user_id)},
+            )
         return created
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -152,6 +160,12 @@ async def update_bank_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not entity:
         raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+    affected_user_ids = {str(existing.user_id), str(entity.user_id)}
+    for user_id in affected_user_ids:
+        await broadcast_transaction_event(
+            "CLIENT_DATA_STATUS_UPDATED",
+            {"user_id": user_id},
+        )
     return entity
 
 
@@ -175,3 +189,7 @@ async def delete_bank_account(
 
     if not await use_case.execute(bank_account_id):
         raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+    await broadcast_transaction_event(
+        "CLIENT_DATA_STATUS_UPDATED",
+        {"user_id": str(existing.user_id)},
+    )

@@ -378,6 +378,10 @@ class ListUserNameUseCase:
                     "id": user.id,
                     "names": user.names,
                     "lastnames": user.lastnames,
+                    # El selector sólo necesita saber si falta el dato. No
+                    # exponemos correo ni teléfono en este endpoint liviano.
+                    "has_email": bool(user.email and str(user.email).strip()),
+                    "has_phone": user.phone is not None,
                 })
                 for user in users
             ]

@@ -17,6 +17,7 @@ from app.modules.transactions.adapters.dependencies.transaction_dependencies imp
     list_bank_accounts_uc,
 )
 from app.modules.transactions.application.schemas import BankAccountReadDTO
+from app.modules.transactions.adapters.router import bank_account_routes
 
 OWNER_ID = UUID("11111111-1111-1111-1111-111111111111")
 STAFF_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -71,6 +72,8 @@ def bank_account_client(auth_required, monkeypatch):
     delete_uc.execute = AsyncMock(return_value=True)
     list_uc = AsyncMock()
     list_uc.execute = AsyncMock(return_value=[existing])
+    broadcast = AsyncMock()
+    monkeypatch.setattr(bank_account_routes, "broadcast_transaction_event", broadcast)
 
     db_mock = MagicMock()
     db_mock.flush = AsyncMock()
@@ -86,7 +89,12 @@ def bank_account_client(auth_required, monkeypatch):
 
     configure(STAFF_ID, [])
     client = TestClient(app, headers={"Authorization": "Bearer test-token"})
-    yield client, configure, {"get": get_uc, "delete": delete_uc, "list": list_uc}
+    yield client, configure, {
+        "get": get_uc,
+        "delete": delete_uc,
+        "list": list_uc,
+        "broadcast": broadcast,
+    }
 
     for dependency in (
         get_db,
@@ -118,6 +126,10 @@ def test_delete_with_permission_succeeds(bank_account_client):
 
     assert response.status_code == 204
     mocks["delete"].execute.assert_awaited_once_with(ACCOUNT_ID)
+    mocks["broadcast"].assert_awaited_once_with(
+        "CLIENT_DATA_STATUS_UPDATED",
+        {"user_id": str(OWNER_ID)},
+    )
 
 
 def test_owner_can_delete_own_account_without_permission(bank_account_client):

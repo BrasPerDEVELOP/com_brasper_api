@@ -46,6 +46,9 @@ from app.core.container import (
 )
 
 from app.core.routing import LegacyAliasRouter
+from app.modules.transactions.adapters.router.transactions_websocket import (
+    broadcast_transaction_event,
+)
 
 router = LegacyAliasRouter(prefix="/user", tags=["user"])
 
@@ -122,6 +125,11 @@ async def update_user(
     if audit_event and updated:
         audit_event.entity_id = str(updated.id)
         audit_event.new_values = redact_data(cmd.model_dump(mode="json"))
+    if updated and {"email", "phone"} & cmd.model_fields_set:
+        await broadcast_transaction_event(
+            "CLIENT_DATA_STATUS_UPDATED",
+            {"user_id": str(updated.id)},
+        )
     return updated
 
 
