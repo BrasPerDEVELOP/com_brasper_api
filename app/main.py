@@ -5,7 +5,7 @@ import app.models_registry
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import get_settings
@@ -48,6 +48,11 @@ async def lifespan(app: FastAPI):
 
     await file_service.verify_connection()
     logger.info(f"✓ Cloudflare R2 conectado (bucket: {settings.R2_BUCKET_NAME})")
+    logger.info("Iniciando listener de eventos de transacciones...")
+    from app.modules.transactions.adapters.router.transactions_websocket import event_listener
+
+    await event_listener.start()
+    logger.info("✓ Listener de eventos en tiempo real iniciado")
     logger.info("✓ Aplicación iniciada correctamente")
     logger.info("=" * 70)
     
@@ -55,6 +60,7 @@ async def lifespan(app: FastAPI):
     
     logger.info("=" * 70)
     logger.info("Cerrando aplicación...")
+    await event_listener.stop()
     logger.info("=" * 70)
 
 app = FastAPI(
@@ -269,3 +275,17 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.websocket("/ws/transactions")
+@app.websocket("/ws/transactions/")
+async def root_transactions_websocket(
+    websocket: WebSocket,
+    token: str = None,
+):
+    """Canal WebSocket para eventos en tiempo real de transacciones."""
+    from app.modules.transactions.adapters.router.transactions_websocket import (
+        handle_transactions_websocket,
+    )
+
+    await handle_transactions_websocket(websocket, token)

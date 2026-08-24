@@ -3,6 +3,7 @@ from app.modules.transactions.application.schemas import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionDetailDTO,
 )
 from app.modules.transactions.application.use_cases import (
     GetTransactionByIdUseCase,
@@ -16,6 +17,7 @@ __all__ = [
     "TransactionCreateCmd",
     "TransactionUpdateCmd",
     "TransactionReadDTO",
+    "TransactionDetailDTO",
     "GetTransactionByIdUseCase",
     "ListTransactionsUseCase",
     "CreateTransactionUseCase",

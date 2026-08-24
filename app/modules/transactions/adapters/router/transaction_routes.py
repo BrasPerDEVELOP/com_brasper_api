@@ -11,10 +11,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.shared.services.file_service import save_transaction_voucher
+from app.modules.transactions.adapters.router.transactions_websocket import (
+    broadcast_transaction_event,
+)
 from app.modules.transactions.application.schemas import (
     TransactionCreateCmd,
     TransactionUpdateCmd,
     TransactionReadDTO,
+    TransactionDetailDTO,
     TransactionListPage,
     TransactionAccountingListPage,
     TransactionMetricsDTO,
@@ -361,7 +365,9 @@ async def import_data(
     if audit_event:
         audit_event.meta_data = {"items_received": len(body.items)}
     try:
-        return await use_case.execute(body)
+        imported = await use_case.execute(body)
+        await broadcast_transaction_event("TRANSACTIONS_BULK_IMPORTED", {"count": len(body.items)})
+        return imported
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except ValidationError as e:
@@ -373,7 +379,7 @@ async def import_data(
         )
 
 
-@router.get("/{transaction_id}", response_model=TransactionReadDTO)
+@router.get("/{transaction_id}", response_model=TransactionDetailDTO)
 async def get_transaction_by_id(
     transaction_id: UUID,
     use_case: GetTransactionByIdUseCaseDep,
@@ -420,6 +426,12 @@ async def create_transaction(
         if audit_event and created:
             audit_event.entity_id = str(created.id)
             audit_event.new_values = cmd.model_dump(mode="json")
+        if created:
+            actor = {
+                "id": str(current_user.get("id", "") or current_user.get("user_id", "")),
+                "name": str(current_user.get("username", "") or current_user.get("full_name", "")),
+            }
+            await broadcast_transaction_event("TRANSACTION_CREATED", created, actor)
         return created
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
@@ -466,6 +478,12 @@ async def update_transaction(
         if audit_event and entity:
             audit_event.entity_id = str(entity.id)
             audit_event.new_values = cmd.model_dump(mode="json")
+        if entity:
+            actor = {
+                "id": str(current_user.get("id", "") or current_user.get("user_id", "")),
+                "name": str(current_user.get("username", "") or current_user.get("full_name", "")),
+            }
+            await broadcast_transaction_event("TRANSACTION_UPDATED", entity, actor)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
     except ValidationError as e:
@@ -495,3 +513,10 @@ async def delete_transaction(
         audit_event.entity_id = str(transaction_id)
         audit_event.old_values = previous.model_dump(mode="json") if previous else None
     await use_case.execute(transaction_id)
+    await broadcast_transaction_event(
+        "TRANSACTION_DELETED",
+        {
+            "id": str(transaction_id),
+            "user_id": str(previous.user_id) if previous and getattr(previous, "user_id", None) else None,
+        },
+    )
