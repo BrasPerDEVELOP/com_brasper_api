@@ -24,6 +24,10 @@ def test_accounting_can_fully_manage_users_and_bank_accounts() -> None:
         "bank_accounts.create",
         "bank_accounts.update",
         "bank_accounts.delete",
+        "commissions.view",
+        "commissions.create",
+        "commissions.update",
+        "commissions.delete",
     } <= permissions
 
 
