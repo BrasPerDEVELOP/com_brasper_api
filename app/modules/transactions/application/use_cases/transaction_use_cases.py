@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from uuid import UUID
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -40,6 +40,7 @@ from app.modules.transactions.application.schemas.transaction_schema import (
     TransactionDetailDTO,
     TransactionListPage,
     TransactionAccountingReadDTO,
+    TransactionAccountingUserRef,
     TransactionAccountingListPage,
     TransactionMetricsDTO,
     ImportRequestCmd,
@@ -497,23 +498,98 @@ class ListTransactionsUseCase:
 class ListTransactionsAccountingUseCase(ListTransactionsUseCase):
     """Listado de transacciones con los campos contables en el DTO.
 
-    Idéntico a ``ListTransactionsUseCase`` en filtros y paginación: cambia la
-    proyección de salida y agrega el porcentaje del tramo contable
-    (`accounting_percentage`), que se resuelve contra el catálogo en una única
-    consulta por página en vez de una por fila.
+    Idéntico a ``ListTransactionsUseCase`` en filtros y paginación, salvo el
+    estado: contabilidad solo opera sobre envíos ``completed`` (Finalizada),
+    aunque el cliente mande otro ``status``. Cambia la proyección de salida:
+    ``user`` lleva el documento principal del cliente, y agrega el porcentaje
+    del tramo contable (`accounting_percentage`) en una única consulta por
+    página.
     """
 
     item_dto = TransactionAccountingReadDTO
     page_dto = TransactionAccountingListPage
+
+    async def execute(self, **kwargs):
+        kwargs["status"] = TransactionStatus.completed
+        return await super().execute(**kwargs)
 
     async def _build_items(self, entities) -> list[TransactionAccountingReadDTO]:
         items = await super()._build_items(entities)
         if not items:
             return items
         percentages = await self.repo.accounting_percentages([x.id for x in items])
-        for item in items:
+        for item, entity in zip(items, entities):
             item.accounting_percentage = percentages.get(item.id)
+            document_type, document_number = _user_identity_documents(entity)
+            item.user = TransactionAccountingUserRef(
+                id=item.user.id,
+                role=item.user.role,
+                document_type=document_type,
+                document_number=document_number,
+            )
         return items
+
+
+def _clean_document_value(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _documents_from_identifications(idents: object) -> tuple[Optional[str], Optional[str]]:
+    try:
+        rows = list(idents or [])
+    except TypeError:
+        return None, None
+    primary = None
+    for item in rows:
+        is_primary = (
+            item.get("is_primary") if isinstance(item, dict) else getattr(item, "is_primary", False)
+        )
+        if is_primary:
+            primary = item
+            break
+    if primary is None and rows:
+        primary = rows[0]
+    if primary is None:
+        return None, None
+    if isinstance(primary, dict):
+        return (
+            _clean_document_value(primary.get("document_type")),
+            _clean_document_value(primary.get("document_number")),
+        )
+    return (
+        _clean_document_value(getattr(primary, "document_type", None)),
+        _clean_document_value(getattr(primary, "document_number", None)),
+    )
+
+
+def _user_identity_documents(entity: Any) -> tuple[Optional[str], Optional[str]]:
+    """Tipo y número de documento principal del cliente dueño de la transacción."""
+    user = entity.get("user") if isinstance(entity, dict) else getattr(entity, "user", None)
+    if isinstance(user, dict):
+        document_type = _clean_document_value(user.get("document_type"))
+        document_number = _clean_document_value(user.get("document_number"))
+        if document_type and document_number:
+            return document_type, document_number
+        fallback_type, fallback_number = _documents_from_identifications(user.get("identifications"))
+        return document_type or fallback_type, document_number or fallback_number
+    if user is not None:
+        document_type = _clean_document_value(getattr(user, "document_type", None))
+        document_number = _clean_document_value(getattr(user, "document_number", None))
+        if document_type and document_number:
+            return document_type, document_number
+        fallback_type, fallback_number = _documents_from_identifications(
+            getattr(user, "identifications", None)
+        )
+        return document_type or fallback_type, document_number or fallback_number
+    if isinstance(entity, dict):
+        return (
+            _clean_document_value(entity.get("user_document_type")),
+            _clean_document_value(entity.get("user_document_number")),
+        )
+    return None, None
 
 
 class GetTransactionMetricsUseCase:

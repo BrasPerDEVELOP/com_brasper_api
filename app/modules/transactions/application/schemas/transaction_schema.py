@@ -804,6 +804,13 @@ class TransactionUserRef(BaseModel):
             return None
 
 
+class TransactionAccountingUserRef(TransactionUserRef):
+    """Usuario en el listado contable, con el documento de identidad principal."""
+
+    document_type: Optional[str] = None
+    document_number: Optional[str] = None
+
+
 class TransactionReadDTO(BaseModel):
     id: UUID
     bank_account_origin_id: Optional[UUID] = None
@@ -878,6 +885,8 @@ class TransactionReadDTO(BaseModel):
             payload["user"] = {
                 "id": data.user_id,
                 "role": u.role if u is not None else None,
+                "document_type": getattr(u, "document_type", None) if u is not None else None,
+                "document_number": getattr(u, "document_number", None) if u is not None else None,
             }
             return payload
         if isinstance(data, dict) and "user_id" in data and "user" not in data:
@@ -911,10 +920,12 @@ class TransactionAccountingReadDTO(TransactionReadDTO):
     aparte porque contabilidad es el único consumidor que las necesita y el
     listado principal lo usan roles que no deben verlas.
 
-    Todas son opcionales: las transacciones anteriores a estas columnas no las
-    tienen y nada las rellena todavía.
+    ``user`` incluye ``document_type`` y ``document_number`` del cliente (el
+    documento principal de ``user.user``). Las columnas contables son
+    opcionales: las transacciones anteriores a ellas no las tienen.
     """
 
+    user: TransactionAccountingUserRef
     commission_accounting_id: Optional[UUID] = None
     accounting_destination_amount: Optional[float] = None
     accounting_commision: Optional[float] = None

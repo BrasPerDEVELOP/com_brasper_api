@@ -270,8 +270,11 @@ async def list_transactions_accounting(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[TransactionStatus] = Query(
-        None,
-        description="Filtro por estado (verification, verified, completed, failed, pending, checked, …)",
+        TransactionStatus.completed,
+        description=(
+            "Ignorado: GET /transactions/accounting siempre filtra por "
+            "completed (Finalizada)."
+        ),
     ),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     bank_account_origin_id: Optional[UUID] = Query(None, description="Filtro por cuenta origen"),
@@ -295,14 +298,16 @@ async def list_transactions_accounting(
         description="Filtro por moneda destino de la tasa (coin_b)",
     ),
 ):
-    """Lista transacciones con sus campos contables.
+    """Lista transacciones finalizadas con sus campos contables.
 
-    Mismos filtros y paginación que `GET /transactions`; el DTO agrega
-    `commission_accounting_id`, `accounting_destination_amount`,
-    `accounting_commision`, `accounting_tax_final` y `accounting_percentage`
-    (el "descuento variable": el porcentaje del tramo de
-    `coin.commission_accounting` que cubre el monto de envío, resuelto contra el
-    catálogo en cada consulta).
+    Siempre restringe a `status=completed` (Finalizada), con independencia
+    del query param. El resto de filtros y la paginación coinciden con
+    `GET /transactions`. El DTO agrega en `user` el `document_type` y
+    `document_number` del cliente, más `commission_accounting_id`,
+    `accounting_destination_amount`, `accounting_commision`,
+    `accounting_tax_final` y `accounting_percentage` (el "descuento variable":
+    el porcentaje del tramo de `coin.commission_accounting` que cubre el monto
+    de envío, resuelto contra el catálogo en cada consulta).
     """
     try:
         currency_filter = _parse_currency_filter(currency)

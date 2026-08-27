@@ -16,6 +16,7 @@ from app.modules.transactions.application.use_cases.transaction_use_cases import
     ListTransactionsAccountingUseCase,
     ListTransactionsUseCase,
 )
+from app.modules.transactions.domain.enums import TransactionStatus
 
 
 def _transaction_row(**overrides) -> dict:
@@ -45,8 +46,10 @@ class _FakeRepo:
         self._rows = rows
         self._percentages = percentages or {}
         self.accounting_calls: list[list[UUID]] = []
+        self.list_calls: list[dict] = []
 
-    async def list(self, **_kwargs):
+    async def list(self, **kwargs):
+        self.list_calls.append(kwargs)
         return PaginatedResult(
             total=len(self._rows),
             items=self._rows,
@@ -98,6 +101,78 @@ async def test_empty_page_does_not_query_the_catalog():
 
     assert page.items == []
     assert repo.accounting_calls == []
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_includes_user_document_from_the_backend():
+    row = _transaction_row()
+    row["user"] = {
+        "id": row["user_id"],
+        "role": "client",
+        "document_type": "dni",
+        "document_number": "12345678",
+    }
+    repo = _FakeRepo([row])
+
+    page = await ListTransactionsAccountingUseCase(repo).execute(limit=20, skip=0)
+
+    assert page.items[0].user.document_type == "dni"
+    assert page.items[0].user.document_number == "12345678"
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_uses_primary_identification_when_user_columns_are_empty():
+    row = _transaction_row()
+    row["user"] = {
+        "id": row["user_id"],
+        "role": "client",
+        "document_type": None,
+        "document_number": None,
+        "identifications": [
+            {
+                "document_type": "cpf",
+                "document_number": "39053344705",
+                "is_primary": True,
+            }
+        ],
+    }
+    repo = _FakeRepo([row])
+
+    page = await ListTransactionsAccountingUseCase(repo).execute(limit=20, skip=0)
+
+    assert page.items[0].user.document_type == "cpf"
+    assert page.items[0].user.document_number == "39053344705"
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_leaves_user_document_empty_when_the_client_has_none():
+    repo = _FakeRepo([_transaction_row()])
+
+    page = await ListTransactionsAccountingUseCase(repo).execute(limit=20, skip=0)
+
+    assert page.items[0].user.document_type is None
+    assert page.items[0].user.document_number is None
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_always_filters_completed_on_the_backend():
+    """Contabilidad no lista Verificado ni otros estados, aunque el cliente los pida."""
+    repo = _FakeRepo([_transaction_row()])
+
+    await ListTransactionsAccountingUseCase(repo).execute(
+        limit=20, skip=0, status=TransactionStatus.verified
+    )
+
+    assert repo.list_calls[0]["effective_status"] == TransactionStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_filters_completed_when_status_is_omitted():
+    repo = _FakeRepo([_transaction_row()])
+
+    await ListTransactionsAccountingUseCase(repo).execute(limit=20, skip=0)
+
+    assert repo.list_calls[0]["effective_status"] == TransactionStatus.completed.value
 
 
 @pytest.mark.asyncio
