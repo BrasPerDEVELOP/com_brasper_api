@@ -34,7 +34,7 @@ from app.modules.transactions.domain.models import Tag, Transaction, Transaction
 from app.modules.users.domain.models import User
 
 # Granularidades soportadas (valor aceptado por date_trunc de PostgreSQL).
-VALID_GRANULARITIES = ("day", "week", "month")
+VALID_GRANULARITIES = ("day", "week", "month", "year")
 SUPPORTED_CORRIDORS = {
     "PEN_BRL": (Currency.pen, Currency.brl),
     "BRL_PEN": (Currency.brl, Currency.pen),
@@ -52,12 +52,14 @@ def _align(d: date, granularity: str) -> date:
     """Inicio del periodo que contiene ``d`` según la granularidad.
 
     Coincide con lo que devuelve ``date_trunc(granularity, ...)``:
-    día → mismo día; semana → lunes; mes → día 1.
+    día → mismo día; semana → lunes; mes → día 1; año → 1 de enero.
     """
     if granularity == "week":
         return d - timedelta(days=d.weekday())
     if granularity == "month":
         return d.replace(day=1)
+    if granularity == "year":
+        return d.replace(month=1, day=1)
     return d
 
 
@@ -67,6 +69,8 @@ def _advance(d: date, granularity: str) -> date:
         return d + timedelta(days=7)
     if granularity == "month":
         return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+    if granularity == "year":
+        return date(d.year + 1, 1, 1)
     return d + timedelta(days=1)
 
 

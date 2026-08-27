@@ -26,7 +26,7 @@ async def metrics_overview(
     corridor: str = Query("all", description="all | PEN_BRL | BRL_PEN | USD_BRL | BRL_USD"),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD (opcional)"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD (opcional)"),
-    granularity: Optional[str] = Query("week", description="day | week | month"),
+    granularity: Optional[str] = Query("week", description="day | week | month | year"),
     status: Optional[str] = Query(None, description="Estado de transacción (opcional)"),
     agent_id: Optional[str] = Query(None, description="Filtra por asesor (UUID, opcional)"),
     tag_ids: Optional[list[str]] = Query(None, description="Una o más etiquetas (OR)"),
@@ -54,7 +54,7 @@ async def weekly_metrics(
     destination_currency: str = Query(..., description="Moneda de destino (PEN|BRL|USD)"),
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD (opcional)"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD (opcional)"),
-    granularity: Optional[str] = Query("week", description="day | week | month"),
+    granularity: Optional[str] = Query("week", description="day | week | month | year"),
     status: Optional[str] = Query(None, description="Estado de transacción (opcional)"),
     agent_id: Optional[str] = Query(None, description="Filtra por asesor (UUID, opcional)"),
 ):

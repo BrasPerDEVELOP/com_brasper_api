@@ -40,6 +40,6 @@ class MetricsRepositoryInterface(ABC):
     ) -> dict:
         """Devuelve el dict con ``weeks`` (buckets del periodo) y ``totals``.
 
-        ``granularity`` es uno de ``day`` | ``week`` | ``month``.
+        ``granularity`` es uno de ``day`` | ``week`` | ``month`` | ``year``.
         """
         raise NotImplementedError

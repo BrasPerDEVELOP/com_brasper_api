@@ -11,6 +11,7 @@ from app.main import app
 from app.modules.metrics.adapters.dependencies import get_metrics_overview_uc
 from app.modules.metrics.application.schemas import MetricsOverviewDTO
 from app.modules.metrics.application.use_cases import GetMetricsOverviewUseCase
+from app.modules.metrics.infrastructure.repository import _advance, _align
 
 
 OVERVIEW_PAYLOAD = {
@@ -100,6 +101,26 @@ async def test_overview_use_case_rejects_unknown_corridor():
     with pytest.raises(HTTPException) as exc:
         await use_case.execute(corridor="PEN_USD")
     assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_overview_use_case_accepts_year_granularity():
+    repo = FakeMetricsRepository()
+    use_case = GetMetricsOverviewUseCase(repo)
+
+    await use_case.execute(
+        corridor="all",
+        date_from="2022-01-01",
+        date_to="2026-12-31",
+        granularity="year",
+    )
+
+    assert repo.overview_metrics.await_args.kwargs["granularity"] == "year"
+
+
+def test_period_helpers_align_and_advance_years():
+    assert _align(date(2026, 8, 16), "year") == date(2026, 1, 1)
+    assert _advance(date(2026, 1, 1), "year") == date(2027, 1, 1)
 
 
 def test_overview_endpoint_returns_all_coordinated_blocks():

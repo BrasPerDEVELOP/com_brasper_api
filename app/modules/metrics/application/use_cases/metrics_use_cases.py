@@ -15,7 +15,7 @@ from app.modules.metrics.interfaces.metrics_repository import (
 )
 
 # Granularidades soportadas y nº de buckets por defecto cuando no se indica rango.
-VALID_GRANULARITIES = ("day", "week", "month")
+VALID_GRANULARITIES = ("day", "week", "month", "year")
 DEFAULT_SPAN_DAYS = {"day": 30, "week": 7 * 12, "month": 365}
 VALID_CORRIDORS = ("all", "PEN_BRL", "BRL_PEN", "USD_BRL", "BRL_USD")
 
@@ -79,13 +79,18 @@ def _resolve_range(
     if gran not in VALID_GRANULARITIES:
         raise HTTPException(
             status_code=422,
-            detail=f"granularity inválida: {granularity!r} (day|week|month)",
+            detail=f"granularity inválida: {granularity!r} (day|week|month|year)",
         )
     df = _parse_date(date_from, "date_from")
     dt = _parse_date(date_to, "date_to")
     today = datetime.now(timezone.utc).date()
     dt = dt or today
-    df = df or dt - timedelta(days=DEFAULT_SPAN_DAYS[gran] - 1)
+    if df is None:
+        df = (
+            date(dt.year - 4, 1, 1)
+            if gran == "year"
+            else dt - timedelta(days=DEFAULT_SPAN_DAYS[gran] - 1)
+        )
     if df > dt:
         df, dt = dt, df
     return df, dt, gran
