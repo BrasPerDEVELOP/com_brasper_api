@@ -12,6 +12,21 @@ from app.modules.coin.domain.enums import Currency
 
 class MetricsRepositoryInterface(ABC):
     @abstractmethod
+    async def overview_metrics(
+        self,
+        *,
+        corridor: str,
+        date_from: date,
+        date_to: date,
+        granularity: str = "week",
+        status: Optional[str] = None,
+        agent_id: Optional[UUID] = None,
+        tag_ids: Optional[list[UUID]] = None,
+    ) -> dict:
+        """Devuelve todos los agregados coordinados del panel unificado."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def period_metrics(
         self,
         *,

@@ -6,7 +6,10 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.modules.metrics.application.use_cases import GetWeeklyMetricsUseCase
+from app.modules.metrics.application.use_cases import (
+    GetMetricsOverviewUseCase,
+    GetWeeklyMetricsUseCase,
+)
 from app.modules.metrics.infrastructure.repository import SQLAlchemyMetricsRepository
 from app.modules.metrics.interfaces.metrics_repository import MetricsRepositoryInterface
 
@@ -23,4 +26,14 @@ def get_weekly_metrics_uc(
     return GetWeeklyMetricsUseCase(repo)
 
 
+def get_metrics_overview_uc(
+    repo: Annotated[MetricsRepositoryInterface, Depends(get_metrics_repository)],
+) -> GetMetricsOverviewUseCase:
+    return GetMetricsOverviewUseCase(repo)
+
+
 GetWeeklyMetricsUseCaseDep = Annotated[GetWeeklyMetricsUseCase, Depends(get_weekly_metrics_uc)]
+GetMetricsOverviewUseCaseDep = Annotated[
+    GetMetricsOverviewUseCase,
+    Depends(get_metrics_overview_uc),
+]
