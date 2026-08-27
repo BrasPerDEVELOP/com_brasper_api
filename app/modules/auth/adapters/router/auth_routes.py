@@ -557,12 +557,18 @@ async def refresh(
         audit_repo = AuditRepository(db)
         req_id_str = getattr(request.state, "request_id", None)
         req_id = UUID(req_id_str) if req_id_str else uuid.uuid4()
+        user = await db.get(User, new_session.user_id)
+        user_name = (user.email or user.username) if user else None
+        user_role = getattr(user, "role", None) if user else None
+
         await audit_repo.log_audit_event(
             action="auth.refresh",
             entity="auth_session",
             entity_id=str(new_session.id),
             request_id=req_id,
             actor_user_id=new_session.user_id,
+            actor_username=user_name,
+            actor_role=user_role,
             source=new_session.client_app,
             ip_address=client_ip,
             user_agent=user_agent,

@@ -53,6 +53,10 @@ class FailedMutationAuditMiddleware(BaseHTTPMiddleware):
                     actor_role = actor.get("role")
                     if actor.get("client_app") in ("backoffice", "www", "ia", "system"):
                         source = actor["client_app"]
+                # No atribuir identidad desde el JWT crudo: para una respuesta
+                # 401 el token puede estar vencido, alterado o directamente ser
+                # falso. Solo el contexto poblado por TokenAuthMiddleware contiene
+                # una identidad que ya pasó la validación de autenticación.
 
                 client_app_header = request.headers.get("X-Client-App")
                 if client_app_header in ("backoffice", "www", "ia", "system"):
@@ -67,6 +71,13 @@ class FailedMutationAuditMiddleware(BaseHTTPMiddleware):
                 entity = norm_path.split("/")[1] if len(norm_path.split("/")) > 1 else "api"
 
                 async with AsyncSessionLocal() as audit_db:
+                    if actor_id and not actor_username:
+                        from app.modules.users.domain.models import User
+                        user_row = await audit_db.get(User, actor_id)
+                        if user_row:
+                            actor_username = user_row.email or user_row.username
+                            actor_role = getattr(user_row, "role", None) or actor_role
+
                     repo = AuditRepository(audit_db)
                     await repo.log_audit_event(
                         action=action,

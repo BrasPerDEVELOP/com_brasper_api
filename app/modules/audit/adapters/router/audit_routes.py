@@ -158,9 +158,12 @@ async def list_audit_events(
         filters.append(AuditEventModel.request_id == request_id)
     if search and search.strip():
         needle = f"%{search.strip()}%"
+        from app.modules.users.domain.models import User
+        user_ids_subq = select(User.id).where(or_(User.email.ilike(needle), User.username.ilike(needle)))
         filters.append(
             or_(
                 AuditEventModel.actor_username.ilike(needle),
+                AuditEventModel.actor_user_id.in_(user_ids_subq),
                 AuditEventModel.description.ilike(needle),
                 AuditEventModel.entity_id.ilike(needle),
                 cast(AuditEventModel.request_id, String).ilike(needle),
@@ -175,9 +178,28 @@ async def list_audit_events(
         .offset(skip)
         .limit(limit)
     )
+    events = result.scalars().all()
+    missing_user_ids = {
+        e.actor_user_id
+        for e in events
+        if not getattr(e, "actor_username", None) and getattr(e, "actor_user_id", None)
+    }
+    user_map = {}
+    if missing_user_ids:
+        from app.modules.users.domain.models import User
+        users_res = await db.execute(select(User).where(User.id.in_(missing_user_ids)))
+        for u in users_res.scalars().all():
+            user_map[u.id] = u.email or u.username
+
+    items = []
+    for event in events:
+        if not getattr(event, "actor_username", None) and getattr(event, "actor_user_id", None) in user_map:
+            event.actor_username = user_map[event.actor_user_id]
+        items.append(AuditEventSummaryDTO.model_validate(event))
+
     return AuditEventPage(
         total=int(total or 0),
-        items=[AuditEventSummaryDTO.model_validate(item) for item in result.scalars().all()],
+        items=items,
         skip=skip,
         limit=limit,
     )
@@ -192,6 +214,11 @@ async def get_audit_event(
     event = await db.get(AuditEventModel, event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado")
+    if not getattr(event, "actor_username", None) and getattr(event, "actor_user_id", None):
+        from app.modules.users.domain.models import User
+        user = await db.get(User, event.actor_user_id)
+        if user:
+            event.actor_username = user.email or user.username
     return AuditEventDTO.model_validate(event)
 
 
