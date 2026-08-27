@@ -254,6 +254,50 @@ def test_refresh_rejects_body_and_requires_cookie():
     assert "cookie" in res.json()["detail"].lower()
 
 
+def test_refresh_rotates_cookie_and_loads_user_for_audit(monkeypatch):
+    from app.modules.auth.adapters.router import auth_routes
+
+    app = FastAPI()
+    db = _mock_db()
+    db.get = AsyncMock()
+    user_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    user = MagicMock(email="audit@example.com", username="audit", role="admin")
+    db.get.return_value = user
+    new_session = MagicMock(
+        id=session_id,
+        user_id=user_id,
+        client_app="backoffice",
+    )
+
+    rotate_refresh_token = AsyncMock(return_value=(new_session, "new-refresh-token"))
+    log_audit_event = AsyncMock()
+    monkeypatch.setattr(
+        auth_routes.AuthSessionRepository,
+        "rotate_refresh_token",
+        rotate_refresh_token,
+    )
+    monkeypatch.setattr(
+        auth_routes.AuditRepository,
+        "log_audit_event",
+        log_audit_event,
+    )
+
+    app.dependency_overrides[get_db] = lambda: db
+    app.include_router(auth_routes.router)
+    settings = get_settings()
+    client = TestClient(app)
+    client.cookies.set(settings.REFRESH_COOKIE_NAME, "old-refresh-token", path="/auth")
+    response = client.post("/auth/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    db.get.assert_awaited_once_with(UserModel, user_id)
+    log_audit_event.assert_awaited_once()
+    db.commit.assert_awaited_once()
+    assert settings.REFRESH_COOKIE_NAME in response.headers.get("set-cookie", "")
+
+
 def test_refresh_and_logout_reject_hostile_origin():
     app = FastAPI()
     from app.modules.auth.adapters.router.auth_routes import router

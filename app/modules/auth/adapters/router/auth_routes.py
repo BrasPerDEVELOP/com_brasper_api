@@ -31,6 +31,7 @@ from app.modules.users.application.schemas.user_schema import (
     UserReadDTO,
     UserUpdateCmd,
 )
+from app.modules.users.domain.models import User
 from app.core.container import get_login_uc, get_auth_service, get_user_by_id_uc, update_user_uc
 
 import logging
