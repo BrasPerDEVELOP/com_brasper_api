@@ -51,6 +51,7 @@ AUDITED_MUTATION_ROUTES = {
     ("DELETE", "/coin/commission/{commission_id}"),
     ("POST", "/coin/commission-accounting"),
     ("PUT", "/coin/commission-accounting"),
+    ("PUT", "/coin/commission-accounting/settings"),
     ("DELETE", "/coin/commission-accounting/{commission_accounting_id}"),
     ("POST", "/coin/commission-trial"),
     ("PUT", "/coin/commission-trial"),

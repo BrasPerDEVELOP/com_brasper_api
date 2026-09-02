@@ -36,8 +36,8 @@ async def list_commission_accountings(
 
 
 # `/settings` debe ir ANTES de `/{id}`: si no, FastAPI interpreta "settings" como UUID → 422.
+# Solo registrar el path canónico: LegacyAliasRouter ya añade el alias con `/` final.
 @router.get("/settings", response_model=CommissionAccountingSettingsReadDTO)
-@router.get("/settings/", response_model=CommissionAccountingSettingsReadDTO)
 async def get_commission_accounting_settings(
     use_case: GetCommissionAccountingSettingsUseCaseDep,
     _permissions=Depends(require_permission("commissions.view")),
@@ -46,7 +46,6 @@ async def get_commission_accounting_settings(
 
 
 @router.put("/settings", response_model=CommissionAccountingSettingsReadDTO)
-@router.put("/settings/", response_model=CommissionAccountingSettingsReadDTO)
 async def upsert_commission_accounting_settings(
     cmd: CommissionAccountingSettingsUpsertCmd,
     use_case: UpsertCommissionAccountingSettingsUseCaseDep,
@@ -57,7 +56,11 @@ async def upsert_commission_accounting_settings(
 ):
     updated = await use_case.execute(cmd)
     if audit_event:
-        audit_event.new_values = cmd.model_dump(mode="json")
+        audit_event.entity_id = None
+        audit_event.new_values = {
+            "amount_threshold": updated.amount_threshold,
+            "fixed_commission": updated.fixed_commission,
+        }
     return updated
 
 
