@@ -65,6 +65,62 @@ class _FakeRepo:
         return {i: self._percentages[i] for i in ids if i in self._percentages}
 
 
+class _FakeSettings:
+    def __init__(self, amount_threshold: float = 100.0, fixed_commission: float = 3.0):
+        self.amount_threshold = amount_threshold
+        self.fixed_commission = fixed_commission
+
+
+class _FakeSettingsRepo:
+    def __init__(self, settings: _FakeSettings | None):
+        self._settings = settings
+        self.calls = 0
+
+    async def get_current(self):
+        self.calls += 1
+        return self._settings
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_applies_settings_per_transaction():
+    """Umbral/fijo del settings + % del tramo recalculan importes por fila."""
+    under = _transaction_row(origin_amount=80.0)
+    over = _transaction_row(origin_amount=500.0)
+    repo = _FakeRepo(
+        [under, over],
+        percentages={over["id"]: 45.0},
+    )
+    settings_repo = _FakeSettingsRepo(_FakeSettings(amount_threshold=100, fixed_commission=3))
+
+    page = await ListTransactionsAccountingUseCase(repo, settings_repo=settings_repo).execute(
+        limit=20, skip=0
+    )
+
+    by_id = {item.id: item for item in page.items}
+    assert settings_repo.calls == 1
+    assert by_id[under["id"]].accounting_commision == 3.0
+    assert by_id[under["id"]].accounting_destination_amount == 77.0
+    assert by_id[under["id"]].accounting_tax_final == 0.54
+    assert by_id[over["id"]].accounting_commision == 225.0
+    assert by_id[over["id"]].accounting_destination_amount == 275.0
+    assert by_id[over["id"]].accounting_tax_final == 40.5
+
+
+@pytest.mark.asyncio
+async def test_accounting_list_falls_back_when_settings_missing():
+    under = _transaction_row(origin_amount=50.0)
+    repo = _FakeRepo([under])
+    settings_repo = _FakeSettingsRepo(None)
+
+    page = await ListTransactionsAccountingUseCase(repo, settings_repo=settings_repo).execute(
+        limit=20, skip=0
+    )
+
+    assert page.items[0].accounting_commision == 3.0
+    assert page.items[0].accounting_destination_amount == 47.0
+
+
+
 @pytest.mark.asyncio
 async def test_accounting_list_attaches_percentage_to_each_item():
     with_bracket = _transaction_row(origin_amount=500.0)

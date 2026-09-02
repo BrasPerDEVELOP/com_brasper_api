@@ -9,8 +9,19 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.modules.coin.adapters.dependencies.coin_dependencies import get_commission_repository, get_tax_rate_repository
+from app.modules.coin.adapters.dependencies.coin_dependencies import (
+    get_commission_repository,
+    get_commission_accounting_repository,
+    get_commission_accounting_settings_repository,
+    get_tax_rate_repository,
+)
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
+from app.modules.coin.interfaces.commission_accounting_repository import (
+    CommissionAccountingRepositoryInterface,
+)
+from app.modules.coin.interfaces.commission_accounting_settings_repository import (
+    CommissionAccountingSettingsRepositoryInterface,
+)
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
 from app.modules.transactions.interfaces.bank_repository import BankRepositoryInterface
@@ -90,8 +101,12 @@ def list_transactions_uc(
 
 def list_transactions_accounting_uc(
     repo: Annotated[TransactionRepositoryInterface, Depends(get_transaction_repository)],
+    settings_repo: Annotated[
+        CommissionAccountingSettingsRepositoryInterface,
+        Depends(get_commission_accounting_settings_repository),
+    ],
 ) -> ListTransactionsAccountingUseCase:
-    return ListTransactionsAccountingUseCase(repo)
+    return ListTransactionsAccountingUseCase(repo, settings_repo=settings_repo)
 
 
 def get_transaction_metrics_uc(
@@ -111,6 +126,14 @@ def create_transaction_uc(
     ],
     bank_repo: Annotated[BankRepositoryInterface, Depends(get_bank_repository)],
     commission_repo: Annotated[CommissionRepositoryInterface, Depends(get_commission_repository)],
+    settings_repo: Annotated[
+        CommissionAccountingSettingsRepositoryInterface,
+        Depends(get_commission_accounting_settings_repository),
+    ],
+    commission_accounting_repo: Annotated[
+        CommissionAccountingRepositoryInterface,
+        Depends(get_commission_accounting_repository),
+    ],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CreateTransactionUseCase:
     return CreateTransactionUseCase(
@@ -121,6 +144,8 @@ def create_transaction_uc(
         bank_repo=bank_repo,
         commission_repo=commission_repo,
         session=db,
+        settings_repo=settings_repo,
+        commission_accounting_repo=commission_accounting_repo,
     )
 
 

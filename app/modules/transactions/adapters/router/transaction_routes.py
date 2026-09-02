@@ -307,7 +307,8 @@ async def list_transactions_accounting(
     `accounting_destination_amount`, `accounting_commision`,
     `accounting_tax_final` y `accounting_percentage` (el "descuento variable":
     el porcentaje del tramo de `coin.commission_accounting` que cubre el monto
-    de envío, resuelto contra el catálogo en cada consulta).
+    de envío). Los importes se recalculan por fila con el singleton
+    `coin.commission_accounting_settings` (si monto < umbral → comisión fija).
     """
     try:
         currency_filter = _parse_currency_filter(currency)

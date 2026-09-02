@@ -20,9 +20,20 @@ if TYPE_CHECKING:
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
+from app.modules.coin.domain.accounting_settings_calc import (
+    DEFAULT_AMOUNT_THRESHOLD,
+    DEFAULT_FIXED_COMMISSION,
+    compute_transaction_accounting_amounts,
+)
 from app.modules.coin.interfaces.tax_rate_repository import TaxRateRepositoryInterface
 from app.modules.transactions.domain.models import BankAccount, Coupon, CouponRedemption, Tag, Transaction, TransactionDestination
 from app.modules.coin.interfaces.commission_repository import CommissionRepositoryInterface
+from app.modules.coin.interfaces.commission_accounting_repository import (
+    CommissionAccountingRepositoryInterface,
+)
+from app.modules.coin.interfaces.commission_accounting_settings_repository import (
+    CommissionAccountingSettingsRepositoryInterface,
+)
 from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
 from app.modules.users.domain.enums import UserRole
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
@@ -504,22 +515,60 @@ class ListTransactionsAccountingUseCase(ListTransactionsUseCase):
     ``user`` lleva el documento principal del cliente, y agrega el porcentaje
     del tramo contable (`accounting_percentage`) en una única consulta por
     página.
+
+    Los importes ``accounting_commision`` / ``accounting_destination_amount`` /
+    ``accounting_tax_final`` se recalculan por fila con el singleton
+    ``coin.commission_accounting_settings`` (umbral → comisión fija) y el % del
+    tramo. No hace falta FK a settings: es configuración global.
     """
 
     item_dto = TransactionAccountingReadDTO
     page_dto = TransactionAccountingListPage
 
+    def __init__(
+        self,
+        repo: TransactionRepositoryInterface,
+        settings_repo: Optional[CommissionAccountingSettingsRepositoryInterface] = None,
+    ):
+        super().__init__(repo)
+        self._settings_repo = settings_repo
+
     async def execute(self, **kwargs):
         kwargs["status"] = TransactionStatus.completed
         return await super().execute(**kwargs)
+
+    async def _load_fixed_rule(self) -> tuple[float, float]:
+        if self._settings_repo is None:
+            return DEFAULT_AMOUNT_THRESHOLD, DEFAULT_FIXED_COMMISSION
+        settings = await self._settings_repo.get_current()
+        if settings is None:
+            return DEFAULT_AMOUNT_THRESHOLD, DEFAULT_FIXED_COMMISSION
+        threshold = float(settings.amount_threshold)
+        fixed = float(settings.fixed_commission)
+        return (
+            threshold if threshold > 0 else DEFAULT_AMOUNT_THRESHOLD,
+            fixed if fixed >= 0 else DEFAULT_FIXED_COMMISSION,
+        )
 
     async def _build_items(self, entities) -> list[TransactionAccountingReadDTO]:
         items = await super()._build_items(entities)
         if not items:
             return items
         percentages = await self.repo.accounting_percentages([x.id for x in items])
+        amount_threshold, fixed_commission = await self._load_fixed_rule()
         for item, entity in zip(items, entities):
-            item.accounting_percentage = percentages.get(item.id)
+            percentage = percentages.get(item.id)
+            item.accounting_percentage = percentage
+            amounts = compute_transaction_accounting_amounts(
+                item.origin_amount,
+                percentage,
+                amount_threshold=amount_threshold,
+                fixed_commission=fixed_commission,
+            )
+            if amounts is not None:
+                item.accounting_commision = amounts.accounting_commision
+                item.accounting_destination_amount = amounts.accounting_destination_amount
+                item.accounting_tax_final = amounts.accounting_tax_final
             document_type, document_number = _user_identity_documents(entity)
             item.user = TransactionAccountingUserRef(
                 id=item.user.id,
@@ -626,6 +675,8 @@ class CreateTransactionUseCase:
         bank_repo: BankRepositoryInterface,
         commission_repo: Optional[CommissionRepositoryInterface] = None,
         session: Optional[AsyncSession] = None,
+        settings_repo: Optional[CommissionAccountingSettingsRepositoryInterface] = None,
+        commission_accounting_repo: Optional[CommissionAccountingRepositoryInterface] = None,
     ):
         self.repo = repo
         self._tax_rate_repo = tax_rate_repo
@@ -634,6 +685,61 @@ class CreateTransactionUseCase:
         self._bank_repo = bank_repo
         self._commission_repo = commission_repo
         self._session = session
+        self._settings_repo = settings_repo
+        self._commission_accounting_repo = commission_accounting_repo
+
+    async def _apply_accounting_amounts(self, tax_rate, entity_data: dict) -> None:
+        """Vincula tramo contable + settings y persiste importes por transacción."""
+        if self._commission_accounting_repo is None:
+            return
+        amount = float(entity_data.get("origin_amount") or 0)
+        amount_threshold, fixed_commission = DEFAULT_AMOUNT_THRESHOLD, DEFAULT_FIXED_COMMISSION
+        if self._settings_repo is not None:
+            settings = await self._settings_repo.get_current()
+            if settings is not None:
+                threshold = float(settings.amount_threshold)
+                fixed = float(settings.fixed_commission)
+                amount_threshold = threshold if threshold > 0 else DEFAULT_AMOUNT_THRESHOLD
+                fixed_commission = fixed if fixed >= 0 else DEFAULT_FIXED_COMMISSION
+
+        pair_accountings = await self._commission_accounting_repo.list(
+            query_filter=QueryFilter(
+                filters=[
+                    FilterSchema(field="coin_a", value=tax_rate.coin_a, operator=OperatorEnum.EQ),
+                    FilterSchema(field="coin_b", value=tax_rate.coin_b, operator=OperatorEnum.EQ),
+                ],
+                order_by=[("min_amount", "asc")],
+            )
+        )
+        brackets = (
+            pair_accountings.items
+            if isinstance(pair_accountings, PaginatedResult)
+            else pair_accountings
+        )
+        matching = next(
+            (
+                row
+                for row in brackets
+                if (row.min_amount is None or amount >= float(row.min_amount))
+                and (row.max_amount is None or amount < float(row.max_amount))
+            ),
+            None,
+        )
+        percentage = float(matching.percentage) if matching is not None else None
+        if matching is not None:
+            entity_data["commission_accounting_id"] = matching.id
+
+        amounts = compute_transaction_accounting_amounts(
+            amount,
+            percentage,
+            amount_threshold=amount_threshold,
+            fixed_commission=fixed_commission,
+        )
+        if amounts is None:
+            return
+        entity_data["accounting_commision"] = amounts.accounting_commision
+        entity_data["accounting_destination_amount"] = amounts.accounting_destination_amount
+        entity_data["accounting_tax_final"] = amounts.accounting_tax_final
 
     async def _apply_server_financials(self, cmd, tax_rate, entity_data) -> Optional[Coupon]:
         """Recalcula los importes y reserva el cupón; el guard permite tests/consumidores legacy."""
@@ -833,6 +939,7 @@ class CreateTransactionUseCase:
         if not tax_rate:
             raise ValueError(f"No existe tax_rate con id {cmd.tax_rate_id}")
         coupon = await self._apply_server_financials(cmd, tax_rate, entity_data)
+        await self._apply_accounting_amounts(tax_rate, entity_data)
         if requested_destinations is not None:
             requested_destinations = _sync_single_destination_amount(
                 requested_destinations,
