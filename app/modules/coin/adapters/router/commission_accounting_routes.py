@@ -45,8 +45,8 @@ async def get_commission_accounting_settings(
     return await use_case.execute()
 
 
-@router.post("/settings", response_model=CommissionAccountingSettingsReadDTO)
-@router.post("/settings/", response_model=CommissionAccountingSettingsReadDTO)
+@router.put("/settings", response_model=CommissionAccountingSettingsReadDTO)
+@router.put("/settings/", response_model=CommissionAccountingSettingsReadDTO)
 async def upsert_commission_accounting_settings(
     cmd: CommissionAccountingSettingsUpsertCmd,
     use_case: UpsertCommissionAccountingSettingsUseCaseDep,

@@ -1,4 +1,4 @@
-"""Tests de GET/POST /coin/commission-accounting/settings/."""
+"""Tests de GET/PUT /coin/commission-accounting/settings/."""
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -94,11 +94,11 @@ def test_get_settings_ok(settings_client):
     mocks["get"].execute.assert_awaited_once()
 
 
-def test_post_settings_without_permission_is_forbidden(settings_client):
+def test_put_settings_without_permission_is_forbidden(settings_client):
     client, configure, mocks = settings_client
     configure(["commissions.view"])
 
-    response = client.post(
+    response = client.put(
         "/coin/commission-accounting/settings/",
         json={"amount_threshold": 120, "fixed_commission": 5},
     )
@@ -107,11 +107,11 @@ def test_post_settings_without_permission_is_forbidden(settings_client):
     mocks["upsert"].execute.assert_not_awaited()
 
 
-def test_post_settings_ok(settings_client):
+def test_put_settings_ok(settings_client):
     client, configure, mocks = settings_client
     configure(["commissions.update"])
 
-    response = client.post(
+    response = client.put(
         "/coin/commission-accounting/settings/",
         json={"amount_threshold": 120, "fixed_commission": 5},
     )
@@ -121,11 +121,11 @@ def test_post_settings_ok(settings_client):
     mocks["upsert"].execute.assert_awaited_once()
 
 
-def test_post_settings_validation_rejects_non_positive_threshold(settings_client):
+def test_put_settings_validation_rejects_non_positive_threshold(settings_client):
     client, configure, mocks = settings_client
     configure(["commissions.update"])
 
-    response = client.post(
+    response = client.put(
         "/coin/commission-accounting/settings/",
         json={"amount_threshold": 0, "fixed_commission": 5},
     )

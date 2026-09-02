@@ -44,7 +44,7 @@ class CommissionAccountingReadDTO(BaseModel):
 
 
 class CommissionAccountingSettingsUpsertCmd(BaseModel):
-    """Body del POST /coin/commission-accounting/settings/."""
+    """Body del PUT /coin/commission-accounting/settings/."""
 
     amount_threshold: float = Field(gt=0, description="Umbral del monto de envío")
     fixed_commission: float = Field(ge=0, description="Comisión fija bajo el umbral")
