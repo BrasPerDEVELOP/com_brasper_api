@@ -17,6 +17,7 @@ from app.modules.coin.domain.models import (
     TaxRateTrial,
     Commission,
     CommissionAccounting,
+    CommissionAccountingSettings,
     CommissionTrial,
 )
 

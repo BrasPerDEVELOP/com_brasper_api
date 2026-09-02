@@ -12,12 +12,16 @@ from app.modules.coin.interfaces.commission_repository import CommissionReposito
 from app.modules.coin.interfaces.commission_accounting_repository import (
     CommissionAccountingRepositoryInterface,
 )
+from app.modules.coin.interfaces.commission_accounting_settings_repository import (
+    CommissionAccountingSettingsRepositoryInterface,
+)
 from app.modules.coin.interfaces.commission_trial_repository import CommissionTrialRepositoryInterface
 from app.modules.coin.infrastructure.repository import (
     SQLAlchemyTaxRateRepository,
     SQLAlchemyTaxRateTrialRepository,
     SQLAlchemyCommissionRepository,
     SQLAlchemyCommissionAccountingRepository,
+    SQLAlchemyCommissionAccountingSettingsRepository,
     SQLAlchemyCommissionTrialRepository,
 )
 from app.modules.coin.application.use_cases import (
@@ -41,6 +45,8 @@ from app.modules.coin.application.use_cases import (
     CreateCommissionAccountingUseCase,
     UpdateCommissionAccountingUseCase,
     DeleteCommissionAccountingUseCase,
+    GetCommissionAccountingSettingsUseCase,
+    UpsertCommissionAccountingSettingsUseCase,
     GetCommissionTrialByIdUseCase,
     ListCommissionTrialsUseCase,
     CreateCommissionTrialUseCase,
@@ -67,6 +73,12 @@ def get_commission_accounting_repository(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CommissionAccountingRepositoryInterface:
     return SQLAlchemyCommissionAccountingRepository(db)
+
+
+def get_commission_accounting_settings_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CommissionAccountingSettingsRepositoryInterface:
+    return SQLAlchemyCommissionAccountingSettingsRepository(db)
 
 
 def get_commission_trial_repository(
@@ -241,6 +253,24 @@ def delete_commission_accounting_uc(
     return DeleteCommissionAccountingUseCase(repo)
 
 
+def get_commission_accounting_settings_uc(
+    repo: Annotated[
+        CommissionAccountingSettingsRepositoryInterface,
+        Depends(get_commission_accounting_settings_repository),
+    ],
+) -> GetCommissionAccountingSettingsUseCase:
+    return GetCommissionAccountingSettingsUseCase(repo)
+
+
+def upsert_commission_accounting_settings_uc(
+    repo: Annotated[
+        CommissionAccountingSettingsRepositoryInterface,
+        Depends(get_commission_accounting_settings_repository),
+    ],
+) -> UpsertCommissionAccountingSettingsUseCase:
+    return UpsertCommissionAccountingSettingsUseCase(repo)
+
+
 # --- Tipos anotados para inyección en rutas (sin Depends explícito en el handler) ---
 
 GetTaxRateByIdUseCaseDep = Annotated[GetTaxRateByIdUseCase, Depends(get_tax_rate_by_id_uc)]
@@ -280,4 +310,10 @@ UpdateCommissionAccountingUseCaseDep = Annotated[
 ]
 DeleteCommissionAccountingUseCaseDep = Annotated[
     DeleteCommissionAccountingUseCase, Depends(delete_commission_accounting_uc)
+]
+GetCommissionAccountingSettingsUseCaseDep = Annotated[
+    GetCommissionAccountingSettingsUseCase, Depends(get_commission_accounting_settings_uc)
+]
+UpsertCommissionAccountingSettingsUseCaseDep = Annotated[
+    UpsertCommissionAccountingSettingsUseCase, Depends(upsert_commission_accounting_settings_uc)
 ]

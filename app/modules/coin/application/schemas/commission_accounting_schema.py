@@ -41,3 +41,17 @@ class CommissionAccountingReadDTO(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CommissionAccountingSettingsUpsertCmd(BaseModel):
+    """Body del POST /coin/commission-accounting/settings/."""
+
+    amount_threshold: float = Field(gt=0, description="Umbral del monto de envío")
+    fixed_commission: float = Field(ge=0, description="Comisión fija bajo el umbral")
+
+
+class CommissionAccountingSettingsReadDTO(BaseModel):
+    amount_threshold: float
+    fixed_commission: float
+
+    model_config = ConfigDict(from_attributes=True)

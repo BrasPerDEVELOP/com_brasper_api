@@ -7,6 +7,8 @@ from app.modules.coin.application.schemas import (
     CommissionAccountingCreateCmd,
     CommissionAccountingUpdateCmd,
     CommissionAccountingReadDTO,
+    CommissionAccountingSettingsUpsertCmd,
+    CommissionAccountingSettingsReadDTO,
 )
 from app.modules.coin.adapters.dependencies import (
     GetCommissionAccountingByIdUseCaseDep,
@@ -14,6 +16,8 @@ from app.modules.coin.adapters.dependencies import (
     CreateCommissionAccountingUseCaseDep,
     UpdateCommissionAccountingUseCaseDep,
     DeleteCommissionAccountingUseCaseDep,
+    GetCommissionAccountingSettingsUseCaseDep,
+    UpsertCommissionAccountingSettingsUseCaseDep,
 )
 
 from app.core.routing import LegacyAliasRouter
@@ -29,6 +33,32 @@ async def list_commission_accountings(
     _permissions=Depends(require_permission("commissions.view")),
 ):
     return await use_case.execute()
+
+
+# `/settings` debe ir ANTES de `/{id}`: si no, FastAPI interpreta "settings" como UUID → 422.
+@router.get("/settings", response_model=CommissionAccountingSettingsReadDTO)
+@router.get("/settings/", response_model=CommissionAccountingSettingsReadDTO)
+async def get_commission_accounting_settings(
+    use_case: GetCommissionAccountingSettingsUseCaseDep,
+    _permissions=Depends(require_permission("commissions.view")),
+):
+    return await use_case.execute()
+
+
+@router.post("/settings", response_model=CommissionAccountingSettingsReadDTO)
+@router.post("/settings/", response_model=CommissionAccountingSettingsReadDTO)
+async def upsert_commission_accounting_settings(
+    cmd: CommissionAccountingSettingsUpsertCmd,
+    use_case: UpsertCommissionAccountingSettingsUseCaseDep,
+    _permissions=Depends(require_permission("commissions.update")),
+    audit_event=Depends(
+        stage_mutation_audit("commission_accounting.settings_upsert", "commission_accounting_settings")
+    ),
+):
+    updated = await use_case.execute(cmd)
+    if audit_event:
+        audit_event.new_values = cmd.model_dump(mode="json")
+    return updated
 
 
 @router.get("/{commission_accounting_id}", response_model=CommissionAccountingReadDTO)

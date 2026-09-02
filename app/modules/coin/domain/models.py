@@ -64,6 +64,18 @@ class CommissionAccounting(ORMBaseModel):
     )
 
 
+class CommissionAccountingSettings(ORMBaseModel):
+    """
+    Settings globales de comisión contable bajo umbral.
+    Una sola fila activa: si monto < amount_threshold → fixed_commission.
+    """
+    __tablename__ = "commission_accounting_settings"
+    __table_args__ = {"schema": "coin"}
+
+    amount_threshold: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=100)
+    fixed_commission: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=3)
+
+
 class CommissionTrial(ORMBaseModel):
     """Comisión de prueba entre dos monedas (coin_a → coin_b)."""
     __tablename__ = "commission_trial"

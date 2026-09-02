@@ -1,17 +1,25 @@
 # app/modules/coin/application/use_cases/commission_accounting_use_cases.py
-"""Casos de uso CRUD para CommissionAccounting."""
+"""Casos de uso CRUD para CommissionAccounting y settings de comisión fija."""
 from uuid import UUID
 from typing import List, Optional
 
-from app.modules.coin.domain.models import CommissionAccounting
+from app.modules.coin.domain.models import CommissionAccounting, CommissionAccountingSettings
 from app.modules.coin.interfaces.commission_accounting_repository import (
     CommissionAccountingRepositoryInterface,
+)
+from app.modules.coin.interfaces.commission_accounting_settings_repository import (
+    CommissionAccountingSettingsRepositoryInterface,
 )
 from app.modules.coin.application.schemas.commission_accounting_schema import (
     CommissionAccountingCreateCmd,
     CommissionAccountingUpdateCmd,
     CommissionAccountingReadDTO,
+    CommissionAccountingSettingsUpsertCmd,
+    CommissionAccountingSettingsReadDTO,
 )
+
+DEFAULT_AMOUNT_THRESHOLD = 100.0
+DEFAULT_FIXED_COMMISSION = 3.0
 
 
 class GetCommissionAccountingByIdUseCase:
@@ -86,3 +94,40 @@ class DeleteCommissionAccountingUseCase:
     async def execute(self, commission_accounting_id: UUID) -> None:
         await self.repo.delete(commission_accounting_id)
         await self.repo.commit()
+
+
+class GetCommissionAccountingSettingsUseCase:
+    def __init__(self, repo: CommissionAccountingSettingsRepositoryInterface):
+        self.repo = repo
+
+    async def execute(self) -> CommissionAccountingSettingsReadDTO:
+        entity = await self.repo.get_current()
+        if not entity:
+            return CommissionAccountingSettingsReadDTO(
+                amount_threshold=DEFAULT_AMOUNT_THRESHOLD,
+                fixed_commission=DEFAULT_FIXED_COMMISSION,
+            )
+        return CommissionAccountingSettingsReadDTO.model_validate(entity)
+
+
+class UpsertCommissionAccountingSettingsUseCase:
+    def __init__(self, repo: CommissionAccountingSettingsRepositoryInterface):
+        self.repo = repo
+
+    async def execute(
+        self, cmd: CommissionAccountingSettingsUpsertCmd
+    ) -> CommissionAccountingSettingsReadDTO:
+        entity = await self.repo.get_current()
+        if entity is None:
+            entity = CommissionAccountingSettings(
+                amount_threshold=cmd.amount_threshold,
+                fixed_commission=cmd.fixed_commission,
+            )
+            entity = await self.repo.add(entity)
+        else:
+            entity.amount_threshold = cmd.amount_threshold
+            entity.fixed_commission = cmd.fixed_commission
+            await self.repo.update(entity)
+        await self.repo.commit()
+        await self.repo.refresh(entity)
+        return CommissionAccountingSettingsReadDTO.model_validate(entity)

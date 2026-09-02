@@ -19,6 +19,8 @@ from app.modules.coin.application.schemas.commission_accounting_schema import (
     CommissionAccountingCreateCmd,
     CommissionAccountingUpdateCmd,
     CommissionAccountingReadDTO,
+    CommissionAccountingSettingsUpsertCmd,
+    CommissionAccountingSettingsReadDTO,
 )
 from app.modules.coin.application.schemas.commission_trial_schema import (
     CommissionTrialCreateCmd,
@@ -40,6 +42,8 @@ __all__ = [
     "CommissionAccountingCreateCmd",
     "CommissionAccountingUpdateCmd",
     "CommissionAccountingReadDTO",
+    "CommissionAccountingSettingsUpsertCmd",
+    "CommissionAccountingSettingsReadDTO",
     "CommissionTrialCreateCmd",
     "CommissionTrialUpdateCmd",
     "CommissionTrialReadDTO",

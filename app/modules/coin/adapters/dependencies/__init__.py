@@ -30,6 +30,8 @@ from app.modules.coin.adapters.dependencies.coin_dependencies import (
     CreateCommissionAccountingUseCaseDep,
     UpdateCommissionAccountingUseCaseDep,
     DeleteCommissionAccountingUseCaseDep,
+    GetCommissionAccountingSettingsUseCaseDep,
+    UpsertCommissionAccountingSettingsUseCaseDep,
 )
 
 __all__ = [
@@ -63,4 +65,6 @@ __all__ = [
     "CreateCommissionAccountingUseCaseDep",
     "UpdateCommissionAccountingUseCaseDep",
     "DeleteCommissionAccountingUseCaseDep",
+    "GetCommissionAccountingSettingsUseCaseDep",
+    "UpsertCommissionAccountingSettingsUseCaseDep",
 ]

@@ -4,6 +4,9 @@ from app.modules.coin.interfaces.commission_repository import CommissionReposito
 from app.modules.coin.interfaces.commission_accounting_repository import (
     CommissionAccountingRepositoryInterface,
 )
+from app.modules.coin.interfaces.commission_accounting_settings_repository import (
+    CommissionAccountingSettingsRepositoryInterface,
+)
 from app.modules.coin.interfaces.commission_trial_repository import CommissionTrialRepositoryInterface
 
 __all__ = [
@@ -11,5 +14,6 @@ __all__ = [
     "TaxRateTrialRepositoryInterface",
     "CommissionRepositoryInterface",
     "CommissionAccountingRepositoryInterface",
+    "CommissionAccountingSettingsRepositoryInterface",
     "CommissionTrialRepositoryInterface",
 ]
