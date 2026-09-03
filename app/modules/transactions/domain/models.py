@@ -127,6 +127,7 @@ class Transaction(ORMBaseModel):
     # Fechas
     send_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     payment_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    billing_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Vouchers (imagen: path o URL)
     send_voucher: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

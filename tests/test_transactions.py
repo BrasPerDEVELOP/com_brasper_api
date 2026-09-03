@@ -797,6 +797,46 @@ def test_put_transaction_json_accepts_operation_number_alias(
     assert updates["operation_number"] == "OP-778899"
 
 
+def test_post_transaction_json_accepts_billing_date_alias(
+    client, mock_create_transaction_uc, valid_transaction_payload
+):
+    """POST /transactions/ acepta fecha_facturacion y lo normaliza a billing_date."""
+    response = client.post(
+        "/transactions/",
+        json={
+            **valid_transaction_payload,
+            "fecha_facturacion": "2026-09-03T10:15:00Z",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 201
+    cmd = mock_create_transaction_uc.execute.await_args.args[0]
+    payload = cmd.model_dump(exclude_unset=True)
+
+    assert payload["billing_date"].isoformat() == "2026-09-03T10:15:00+00:00"
+
+
+def test_put_transaction_json_accepts_billing_date_alias(
+    client, mock_update_transaction_uc
+):
+    """PUT /transactions/ acepta fecha_facturacion y lo normaliza a billing_date."""
+    response = client.put(
+        "/transactions/",
+        json={
+            "id": str(uuid4()),
+            "fecha_facturacion": "2026-09-03T10:15:00Z",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    cmd = mock_update_transaction_uc.execute.await_args.args[0]
+    updates = cmd.model_dump(exclude_unset=True)
+
+    assert updates["billing_date"].isoformat() == "2026-09-03T10:15:00+00:00"
+
+
 def _build_update_uc(monkeypatch, dest_bank_company: str):
     """Arma UpdateTransactionUseCase con repos mockeados; retorna (uc, entity, cmd_dest_id)."""
     entity = MagicMock()

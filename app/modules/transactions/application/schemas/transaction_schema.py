@@ -239,6 +239,7 @@ class TransactionCreateCmd(BaseModel):
                 "coupon_discount_percentage": 10.0,
                 "coupon_discount_commission": 0.5,
                 "coupon_discount_total_to_send": 99.5,
+                "billing_date": "2026-09-03T00:00:00Z",
             }
         }
     )
@@ -317,6 +318,10 @@ class TransactionCreateCmd(BaseModel):
     coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
+    billing_date: Optional[datetime] = Field(
+        default=None,
+        validation_alias=AliasChoices("billing_date", "fecha_facturacion"),
+    )
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = Field(
@@ -363,6 +368,7 @@ class TransactionCreateCmd(BaseModel):
         coupon_discount_total_to_send: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
+        billing_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
         checked_image: Optional[UploadFile] = File(None),
@@ -411,6 +417,7 @@ class TransactionCreateCmd(BaseModel):
             coupon_discount_total_to_send=_parse_optional_float(coupon_discount_total_to_send),
             send_date=_parse_optional_datetime(send_date),
             payment_date=_parse_optional_datetime(payment_date),
+            billing_date=_parse_optional_datetime(billing_date),
             send_voucher=None,  # se llenará en la ruta tras guardar
             payment_voucher=None,
             checked_image=None,
@@ -476,6 +483,9 @@ class TransactionCreateCmd(BaseModel):
             ),
             send_date=_parse_optional_datetime(_get("send_date")),
             payment_date=_parse_optional_datetime(_get("payment_date")),
+            billing_date=_parse_optional_datetime(
+                _get("billing_date") or _get("fecha_facturacion")
+            ),
             send_voucher=None,
             payment_voucher=None,
             checked_image=None,
@@ -541,6 +551,10 @@ class TransactionUpdateCmd(BaseModel):
     coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
+    billing_date: Optional[datetime] = Field(
+        default=None,
+        validation_alias=AliasChoices("billing_date", "fecha_facturacion"),
+    )
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
@@ -588,6 +602,7 @@ class TransactionUpdateCmd(BaseModel):
         coupon_discount_total_to_send: Optional[str] = Form(None),
         send_date: Optional[str] = Form(None),
         payment_date: Optional[str] = Form(None),
+        billing_date: Optional[str] = Form(None),
         send_voucher: Optional[UploadFile] = File(None),
         payment_voucher: Optional[UploadFile] = File(None),
         checked_image: Optional[UploadFile] = File(None),
@@ -666,6 +681,8 @@ class TransactionUpdateCmd(BaseModel):
             payload["send_date"] = _parse_optional_datetime(send_date)
         if _field_present(payment_date):
             payload["payment_date"] = _parse_optional_datetime(payment_date)
+        if _field_present(billing_date):
+            payload["billing_date"] = _parse_optional_datetime(billing_date)
         if _field_present(checked):
             payload["checked"] = _parse_checked(checked)
         if _field_present(remove_send_voucher):
@@ -763,6 +780,10 @@ class TransactionUpdateCmd(BaseModel):
             payload["send_date"] = _parse_optional_datetime(_get("send_date"))
         if "payment_date" in form:
             payload["payment_date"] = _parse_optional_datetime(_get("payment_date"))
+        if "billing_date" in form or "fecha_facturacion" in form:
+            payload["billing_date"] = _parse_optional_datetime(
+                _get("billing_date") or _get("fecha_facturacion")
+            )
         if "checked" in form:
             payload["checked"] = _parse_checked(_get("checked"))
         if "remove_send_voucher" in form:
@@ -841,6 +862,7 @@ class TransactionReadDTO(BaseModel):
     coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
+    billing_date: Optional[datetime] = None
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
@@ -1014,6 +1036,10 @@ class TransactionImportPayload(BaseModel):
     coupon_discount_total_to_send: Optional[float] = None
     send_date: Optional[datetime] = None
     payment_date: Optional[datetime] = None
+    billing_date: Optional[datetime] = Field(
+        default=None,
+        validation_alias=AliasChoices("billing_date", "fecha_facturacion"),
+    )
     send_voucher: Optional[str] = None
     payment_voucher: Optional[str] = None
     checked_image: Optional[str] = None
