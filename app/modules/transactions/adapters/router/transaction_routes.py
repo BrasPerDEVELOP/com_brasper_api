@@ -385,6 +385,63 @@ async def import_data(
         )
 
 
+@router.put(
+    "/accounting/billing-date",
+    response_model=TransactionReadDTO,
+    responses={
+        200: {"description": "Fecha de facturación actualizada"},
+        400: {"description": "Datos inválidos"},
+        404: {"description": "Transacción no encontrada"},
+    },
+)
+async def update_transaction_accounting_billing_date(
+    request: Request,
+    use_case: UpdateTransactionUseCaseDep,
+    current_user=Depends(get_current_user),
+    _permissions=Depends(require_permission("accounting.view")),
+    audit_event=Depends(stage_mutation_audit("transactions.accounting.billing_date_update", "transaction")),
+):
+    """Actualiza únicamente billing_date desde el módulo de contabilidad."""
+    try:
+        cmd, send_f, pay_f, checked_img_f = await _parse_update_request(request)
+        unexpected_fields = set(cmd.model_fields_set) - {"id", "billing_date"}
+        if unexpected_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo se permite actualizar billing_date desde contabilidad",
+            )
+        if "billing_date" not in cmd.model_fields_set:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="billing_date es requerido",
+            )
+        if send_f or pay_f or checked_img_f:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se permiten archivos en esta actualización",
+            )
+
+        entity = await use_case.execute(cmd, can_update_agent=False)
+        if audit_event and entity:
+            audit_event.entity_id = str(entity.id)
+            audit_event.new_values = cmd.model_dump(mode="json")
+        if entity:
+            actor = {
+                "id": str(current_user.get("id", "") or current_user.get("user_id", "")),
+                "name": str(current_user.get("username", "") or current_user.get("full_name", "")),
+            }
+            await broadcast_transaction_event("TRANSACTION_UPDATED", entity, actor)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{MSG_INVALID_JSON}: {e}")
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors())
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    if not entity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=MSG_TRANSACTION_NOT_FOUND)
+    return entity
+
+
 @router.get("/{transaction_id}", response_model=TransactionDetailDTO)
 async def get_transaction_by_id(
     transaction_id: UUID,
