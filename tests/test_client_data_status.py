@@ -45,7 +45,7 @@ def test_updating_contact_data_broadcasts_client_status(monkeypatch):
     update_use_case = MagicMock()
     update_use_case.execute = AsyncMock(return_value=SimpleNamespace(id=user_id))
     get_use_case = MagicMock()
-    get_use_case.execute = AsyncMock(return_value=None)
+    get_use_case.execute = AsyncMock(return_value=SimpleNamespace(id=user_id))
     broadcast = AsyncMock()
     monkeypatch.setattr(user_routes, "broadcast_transaction_event", broadcast)
 
@@ -55,6 +55,7 @@ def test_updating_contact_data_broadcasts_client_status(monkeypatch):
             use_case=update_use_case,
             get_use_case=get_use_case,
             _permissions=[],
+            actor={},
             audit_event=None,
         )
     )

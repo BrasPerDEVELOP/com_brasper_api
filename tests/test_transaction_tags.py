@@ -137,8 +137,8 @@ class TestReglasDeNegocio:
             await CreateTagUseCase(repo).execute(TagCreateCmd(label="cliente NUEVO"))
 
     @pytest.mark.asyncio
-    async def test_crear_con_flag_se_lo_quita_a_las_demas(self):
-        """Solo una etiqueta puede alimentar el indicador de clientes nuevos."""
+    async def test_crear_con_flag_conserva_las_demas(self):
+        """Varias etiquetas pueden alimentar el indicador de clientes nuevos."""
         previa = _tag(OTHER_TAG_ID, "Recurrente", counts=True)
         repo = _FakeRepo([previa])
 
@@ -147,8 +147,8 @@ class TestReglasDeNegocio:
         )
 
         assert creada.counts_as_new_client is True
-        assert previa.counts_as_new_client is False
-        assert repo.cleared_except == creada.id
+        assert previa.counts_as_new_client is True
+        assert repo.cleared_except == "no-llamado"
 
     @pytest.mark.asyncio
     async def test_crear_sin_flag_no_toca_a_las_demas(self):
@@ -161,7 +161,7 @@ class TestReglasDeNegocio:
         assert repo.cleared_except == "no-llamado"
 
     @pytest.mark.asyncio
-    async def test_mover_el_flag_al_editar(self):
+    async def test_marcar_otro_flag_al_editar(self):
         actual = _tag(NEW_TAG_ID, "Cliente nuevo", counts=True)
         otra = _tag(OTHER_TAG_ID, "Recurrente")
         repo = _FakeRepo([actual, otra])
@@ -171,7 +171,7 @@ class TestReglasDeNegocio:
         )
 
         assert otra.counts_as_new_client is True
-        assert actual.counts_as_new_client is False
+        assert actual.counts_as_new_client is True
 
     @pytest.mark.asyncio
     async def test_desactivar_no_borra(self):

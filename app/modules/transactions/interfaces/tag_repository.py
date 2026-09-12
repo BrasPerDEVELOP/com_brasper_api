@@ -12,10 +12,6 @@ class TagRepositoryInterface(BaseRepositoryInterface[Tag]):
         """Etiquetas del catálogo ordenadas por posición y nombre."""
         ...
 
-    async def clear_new_client_flag(self, except_id: UUID | None = None) -> None:
-        """Deja `counts_as_new_client` en False en todas menos `except_id`."""
-        ...
-
     async def set_transaction_tags(self, transaction_id: UUID, tag_ids: List[UUID]) -> None:
         """Reemplaza (no acumula) las etiquetas de una transacción."""
         ...

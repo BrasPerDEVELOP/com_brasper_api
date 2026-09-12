@@ -13,7 +13,7 @@ from app.core.settings import get_settings
 from app.core.oauth2_scheme import oauth2_scheme
 from app.db.base import get_db
 from app.modules.auth.domain.models import RolePermissionModel
-from app.modules.auth.domain.permissions import default_permissions_for_role
+from app.modules.auth.domain.permissions import effective_permissions
 from app.modules.auth.infrastructure.repository import SQLAlchemyAuthRepository
 from app.modules.auth.interfaces.auth_repository import AuthRepositoryInterface
 from app.modules.users.domain.models import User
@@ -104,6 +104,8 @@ async def _load_permissions(current_user: dict, db: AsyncSession) -> list[str]:
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    if user.role == "admin":
+        return effective_permissions("admin", None)
     role_result = await db.execute(
         select(RolePermissionModel).where(
             RolePermissionModel.role == user.role,
@@ -112,9 +114,12 @@ async def _load_permissions(current_user: dict, db: AsyncSession) -> list[str]:
         )
     )
     role_permissions = role_result.scalar_one_or_none()
-    if role_permissions and role_permissions.permissions:
-        return list(role_permissions.permissions)
-    return default_permissions_for_role(user.role)
+    return effective_permissions(
+        user.role,
+        role_permissions.permissions if role_permissions else None,
+        getattr(user, "permissions_granted", None),
+        getattr(user, "permissions_revoked", None),
+    )
 
 
 async def authorize_user_creation(db: AsyncSession = Depends(get_db)) -> bool:

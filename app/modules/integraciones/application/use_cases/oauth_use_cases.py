@@ -73,6 +73,12 @@ class GetOAuthAuthorizeUrlUseCase:
 class OAuthCallbackUseCase:
     """Intercambia el código por tokens, obtiene datos del usuario del proveedor y crea/vincula usuario y sesión."""
 
+    async def _session_response(self, token, user):
+        from app.modules.auth.infrastructure.dependencies import _load_permissions
+        info = UserInfoDTO.model_validate(user)
+        info.permissions = await _load_permissions({"user_id": str(user.id)}, self.uow.session)
+        return TokenInfoDTO(token=token, user=info)
+
     def __init__(
         self,
         integration_repo: IntegrationRepositoryInterface,
@@ -153,7 +159,7 @@ class OAuthCallbackUseCase:
             )
             await self.uow.auth_repository.update_token(credentials.id, token)
             await self.uow.commit()
-            return TokenInfoDTO(token=token, user=UserInfoDTO.model_validate(user))
+            return await self._session_response(token, user)
 
         # Usuario existente por email: vincular cuenta social y opcionalmente crear Auth
         if email:
@@ -191,7 +197,7 @@ class OAuthCallbackUseCase:
                 await self.uow.auth_repository.update_token(auth_id, token)
                 await self.uow.commit()
                 await self.uow.user_repository.refresh(existing_user)
-                return TokenInfoDTO(token=token, user=UserInfoDTO.model_validate(existing_user))
+                return await self._session_response(token, existing_user)
 
         # Crear usuario nuevo + Auth + SocialAccount
         from app.modules.users.domain.models import User
@@ -236,4 +242,4 @@ class OAuthCallbackUseCase:
         await self.uow.auth_repository.update_token(auth_id, token)
         await self.uow.commit()
         await self.uow.user_repository.session.refresh(new_user)
-        return TokenInfoDTO(token=token, user=UserInfoDTO.model_validate(new_user))
+        return await self._session_response(token, new_user)

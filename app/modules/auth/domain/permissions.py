@@ -6,6 +6,7 @@ from app.modules.users.domain.enums import UserRole
 
 
 PERMISSION_MODULES: tuple[dict[str, object], ...] = (
+    {"key": "notifications", "permissions": ("notifications.view", "notifications.create")},
     {"key": "dashboard", "permissions": ("dashboard.view",)},
     {"key": "metrics", "permissions": ("metrics.view",)},
     {
@@ -114,6 +115,34 @@ ALL_PERMISSIONS: tuple[str, ...] = tuple(
     for permission in module["permissions"]  # type: ignore[index]
 )
 
+GUARANTEED_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "accounting": ("accounting.view",),
+}
+
+
+def effective_permissions(role, base, granted=(), revoked=()) -> list[str]:
+    """Resolve a live role matrix plus user deltas; preserve an empty matrix."""
+    if role == "admin":
+        return sorted(ALL_PERMISSIONS)
+    permissions = set(default_permissions_for_role(role) if base is None else base)
+    permissions.update(granted or ())
+    permissions.difference_update(revoked or ())
+    permissions.update(GUARANTEED_ROLE_PERMISSIONS.get(role, ()))
+    return sorted(permissions.intersection(ALL_PERMISSIONS))
+
+
+def validate_permission_deltas(role, granted, revoked) -> None:
+    """Validate deltas before persistence; never silently drop unknown keys."""
+    granted, revoked = set(granted or ()), set(revoked or ())
+    if (granted or revoked) and role not in {"sales", "accounting", "marketing", "user"}:
+        raise ValueError("Este rol no admite permisos personalizados")
+    if (granted | revoked) - set(ALL_PERMISSIONS):
+        raise ValueError("Permiso desconocido")
+    if granted & revoked:
+        raise ValueError("Un permiso no puede añadirse y quitarse a la vez")
+    if revoked & set(GUARANTEED_ROLE_PERMISSIONS.get(role, ())):
+        raise ValueError("No se pueden quitar permisos garantizados del rol")
+
 DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     UserRole.admin.value: ALL_PERMISSIONS,
     UserRole.client.value: (
@@ -124,6 +153,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "profile.change_password",
     ),
     UserRole.sales.value: (
+        "notifications.view",
         "dashboard.view",
         "metrics.view",
         "users.view",
@@ -145,6 +175,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "profile.change_password",
     ),
     UserRole.accounting.value: (
+        "notifications.view",
         "dashboard.view",
         "metrics.view",
         "users.view",
@@ -167,6 +198,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "profile.change_password",
     ),
     UserRole.marketing.value: (
+        "notifications.view",
         "dashboard.view",
         "coupons.view",
         "coupons.create",
@@ -182,6 +214,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "profile.change_password",
     ),
     UserRole.user.value: (
+        "notifications.view",
         "dashboard.view",
         "profile.view",
         "profile.update",

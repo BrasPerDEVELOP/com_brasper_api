@@ -169,6 +169,8 @@ class CreateUserUseCase:
 
             user = User(
                 auth_id=auth_id,
+                permissions_granted=cmd.permissions_granted or [],
+                permissions_revoked=cmd.permissions_revoked or [],
                 names=cmd.names,
                 lastnames=cmd.lastnames,
                 email=cmd.email,
@@ -213,6 +215,13 @@ class UpdateUserUseCase:
             existing_user = await self._uow.user_repository.get(cmd.id)
             if not existing_user:
                 return None
+
+            role_changed = cmd.role is not None and cmd.role.value != existing_user.role
+            for key in ("permissions_granted", "permissions_revoked"):
+                if role_changed:
+                    setattr(existing_user, key, [])
+                elif getattr(cmd, key) is not None:
+                    setattr(existing_user, key, getattr(cmd, key))
 
             # Actualización explícita por campo (evita problemas con model_dump y enums)
             if "names" in cmd.model_fields_set:

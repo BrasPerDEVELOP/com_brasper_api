@@ -7,10 +7,15 @@ from app.shared.services.file_service import save_profile_image
 
 from app.modules.auth.application.schemas.auth_schema import AdminResetPasswordRequest, UserInfoDTO
 from app.modules.auth.infrastructure.dependencies import (
+    get_optional_current_user,
+    _load_permissions,
     authorize_user_creation,
     require_any_permission,
     require_permission,
 )
+from app.modules.users.application.permission_overrides import validate_user_access_change
+from app.db.base import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.users.application.schemas.user_schema import (
     UserCreateCmd,
     UserNameDTO,
@@ -86,9 +91,16 @@ async def create_user(
     form_data: Annotated[tuple[UserCreateCmd, Optional[UploadFile]], Depends(UserCreateCmd.from_form)],
     use_case: CreateUserUseCase = Depends(create_user_uc),
     is_internal_creation: bool = Depends(authorize_user_creation),
+    actor: dict = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
     audit_event=Depends(stage_mutation_audit("users.create", "user")),
 ):
     cmd, image = form_data
+    if not is_internal_creation and (cmd.permissions_granted or cmd.permissions_revoked):
+        raise HTTPException(400, "El registro público no admite permisos personalizados")
+    if is_internal_creation and (cmd.permissions_granted is not None or cmd.permissions_revoked is not None):
+        actor_permissions = await _load_permissions(actor, db)
+        validate_user_access_change(cmd, None, actor.get("user_id"), actor_permissions)
     if not is_internal_creation:
         if not cmd.email or not cmd.password:
             raise HTTPException(
@@ -111,10 +123,14 @@ async def update_user(
     use_case: UpdateUserUseCase = Depends(update_user_uc),
     get_use_case: GetUserByIdUseCase = Depends(get_user_by_id_uc),
     _permissions=Depends(require_permission("users.update")),
+    actor: dict = Depends(get_optional_current_user),
     audit_event=Depends(stage_mutation_audit("users.update", "user")),
 ):
     cmd, profile_image_file = form_data
     previous = await get_use_case.execute(cmd.id)
+    if previous is None:
+        raise HTTPException(404, "Usuario no encontrado")
+    validate_user_access_change(cmd, previous, actor.get("user_id"), _permissions)
     if audit_event and previous:
         audit_event.old_values = previous.model_dump(mode="json")
     if profile_image_file and profile_image_file.filename:

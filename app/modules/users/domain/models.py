@@ -2,8 +2,8 @@
 from typing import TYPE_CHECKING, Optional
 import uuid
 
-from sqlalchemy import String, Boolean, BigInteger, ForeignKey, Index, Integer, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Boolean, BigInteger, ForeignKey, Index, Integer, text, JSON
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.model_base import ORMBaseModel
@@ -66,6 +66,8 @@ class User(ORMBaseModel):
     )
 
     auth_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    permissions_granted: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list, server_default=text("'[]'"))
+    permissions_revoked: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list, server_default=text("'[]'"))
     names: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     lastnames: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     # Unicidad en índice parcial `uq_user_email_alive` (migración 063).

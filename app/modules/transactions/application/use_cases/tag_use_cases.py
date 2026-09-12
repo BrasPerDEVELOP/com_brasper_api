@@ -46,9 +46,6 @@ class CreateTagUseCase:
             position=cmd.position,
         )
         saved = await self.repo.add(entity)
-        # El flag es exclusivo: si esta lo trae, se lo quitamos a las demás.
-        if cmd.counts_as_new_client:
-            await self.repo.clear_new_client_flag(except_id=saved.id)
         await self.repo.commit()
         await self.repo.refresh(saved)
         return TagReadDTO.from_tag(saved)
@@ -80,8 +77,6 @@ class UpdateTagUseCase:
             entity.position = cmd.position
         if cmd.counts_as_new_client is not None:
             entity.counts_as_new_client = cmd.counts_as_new_client
-            if cmd.counts_as_new_client:
-                await self.repo.clear_new_client_flag(except_id=cmd.id)
 
         await self.repo.update(entity)
         await self.repo.commit()

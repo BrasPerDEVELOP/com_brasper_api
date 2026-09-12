@@ -99,6 +99,26 @@ def _status_condition(value: str):
         return None
 
 
+def new_clients_statement(period, filters):
+    """Count each transaction once across all new-client tags."""
+    return (
+        select(
+            period.label("period"),
+            func.count(func.distinct(Transaction.id)).label("clientes_nuevos"),
+        )
+        .join(TaxRate, Transaction.tax_rate_id == TaxRate.id)
+        .join(TransactionTag, TransactionTag.transaction_id == Transaction.id)
+        .join(Tag, Tag.id == TransactionTag.tag_id)
+        .where(
+            *filters,
+            TransactionTag.deleted.is_(False),
+            Tag.deleted.is_(False),
+            Tag.counts_as_new_client.is_(True),
+        )
+        .group_by(period)
+    )
+
+
 class SQLAlchemyMetricsRepository(MetricsRepositoryInterface):
     def __init__(self, db: AsyncSession):
         self.session = db
@@ -214,23 +234,7 @@ class SQLAlchemyMetricsRepository(MetricsRepositoryInterface):
             point["envios_count"] += int(row.envios_count or 0)
             point["volume_origin"][currency] += float(row.volume_origin or 0)
 
-        new_clients_stmt = (
-            select(
-                period.label("period"),
-                func.count(func.distinct(Transaction.id)).label("clientes_nuevos"),
-            )
-            .join(TaxRate, Transaction.tax_rate_id == TaxRate.id)
-            .join(TransactionTag, TransactionTag.transaction_id == Transaction.id)
-            .join(Tag, Tag.id == TransactionTag.tag_id)
-            .where(
-                *scope,
-                *in_range,
-                TransactionTag.deleted.is_(False),
-                Tag.deleted.is_(False),
-                Tag.counts_as_new_client.is_(True),
-            )
-            .group_by(period)
-        )
+        new_clients_stmt = new_clients_statement(period, [*scope, *in_range])
         for row in (await self.session.execute(new_clients_stmt)).all():
             key = row.period.date() if hasattr(row.period, "date") else row.period
             point = series_by_period.setdefault(

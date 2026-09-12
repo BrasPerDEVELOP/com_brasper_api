@@ -2,12 +2,11 @@ from datetime import datetime
 from fastapi import File, Form, UploadFile
 import json
 
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
 from uuid import UUID
 from typing import Optional
 
 from app.modules.auth.application.schemas.auth_schema import AuthCreateCmd
-from app.modules.auth.domain.permissions import default_permissions_for_role
 from app.modules.users.domain.enums import UserRole, DocumentType, PhoneCode
 from app.shared.media import to_media_url
 
@@ -77,6 +76,8 @@ def _parse_identifications_form(value: Optional[str]) -> Optional[list[UserIdent
 
 
 class UserCreateCmd(BaseModel):
+    permissions_granted: Optional[list[str]] = None
+    permissions_revoked: Optional[list[str]] = None
     """Campos para crear usuario. Todos opcionales."""
     names: Optional[str] = None
     lastnames: Optional[str] = None
@@ -118,6 +119,8 @@ class UserCreateCmd(BaseModel):
         document_number: Optional[str] = Form(None),
         document_type: Optional[DocumentType] = Form(None),
         identifications: Optional[str] = Form(None),
+        permissions_granted: Optional[str] = Form(None),
+        permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
         phone: Optional[int] = Form(None),
@@ -136,10 +139,22 @@ class UserCreateCmd(BaseModel):
             phone=phone,
             code_phone=code_phone,
         )
+        for key, raw in (("permissions_granted", permissions_granted), ("permissions_revoked", permissions_revoked)):
+            if isinstance(raw, str):
+                from fastapi import HTTPException
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    raise HTTPException(400, "Los permisos deben ser una lista JSON")
+                if not isinstance(parsed, list) or any(not isinstance(p, str) for p in parsed):
+                    raise HTTPException(400, "Los permisos deben ser una lista de claves")
+                setattr(cmd, key, parsed)
         return cmd, profile_image
 
 
 class UserUpdateCmd(BaseModel):
+    permissions_granted: Optional[list[str]] = None
+    permissions_revoked: Optional[list[str]] = None
     id: UUID
     names: Optional[str] = None
     lastnames: Optional[str] = None
@@ -175,6 +190,8 @@ class UserUpdateCmd(BaseModel):
         document_number: Optional[str] = Form(None),
         document_type: Optional[DocumentType] = Form(None),
         identifications: Optional[str] = Form(None),
+        permissions_granted: Optional[str] = Form(None),
+        permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
         phone: Optional[int] = Form(None),
@@ -194,7 +211,17 @@ class UserUpdateCmd(BaseModel):
         )
         if identifications is not None:
             values["identifications"] = _parse_identifications_form(identifications)
-        cmd = cls(**values)
+        cmd = cls(**{key: value for key, value in values.items() if value is not None})
+        for key, raw in (("permissions_granted", permissions_granted), ("permissions_revoked", permissions_revoked)):
+            if isinstance(raw, str):
+                from fastapi import HTTPException
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    raise HTTPException(400, "Los permisos deben ser una lista JSON")
+                if not isinstance(parsed, list) or any(not isinstance(p, str) for p in parsed):
+                    raise HTTPException(400, "Los permisos deben ser una lista de claves")
+                setattr(cmd, key, parsed)
         return cmd, profile_image
 
 
@@ -224,6 +251,11 @@ DEFAULT_CODE_PHONE = "pe"
 
 
 class UserReadDTO(BaseModel):
+    @computed_field
+    @property
+    def permissions_customized(self) -> bool:
+        return bool(self.permissions_granted or self.permissions_revoked)
+
     id: UUID
     names: Optional[str] = None
     lastnames: Optional[str] = None
@@ -239,6 +271,8 @@ class UserReadDTO(BaseModel):
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    permissions_granted: list[str] = []
+    permissions_revoked: list[str] = []
     permissions: list[str] = []
     must_change_password: bool = False
 
@@ -256,16 +290,15 @@ class UserReadDTO(BaseModel):
             object.__setattr__(self, "document_type", DocumentType[DEFAULT_DOCUMENT_TYPE])
         if self.code_phone is None:
             object.__setattr__(self, "code_phone", PhoneCode[DEFAULT_CODE_PHONE])
-        if not self.permissions:
-            object.__setattr__(
-                self,
-                "permissions",
-                default_permissions_for_role(self.role.value if self.role else None),
-            )
         return self
 
 
 class UserReadGeneralDTO(BaseModel):
+    @computed_field
+    @property
+    def permissions_customized(self) -> bool:
+        return bool(self.permissions_granted or self.permissions_revoked)
+
     """DTO con todos los campos del modelo User (excepto auth_id)."""
     id: UUID
     names: Optional[str] = None
@@ -282,6 +315,8 @@ class UserReadGeneralDTO(BaseModel):
     created_at: datetime
     created_by: Optional[str] = None
     updated_at: datetime
+    permissions_granted: list[str] = []
+    permissions_revoked: list[str] = []
     permissions: list[str] = []
     must_change_password: bool = False
 
@@ -299,12 +334,6 @@ class UserReadGeneralDTO(BaseModel):
             object.__setattr__(self, "document_type", DocumentType[DEFAULT_DOCUMENT_TYPE])
         if self.code_phone is None:
             object.__setattr__(self, "code_phone", PhoneCode[DEFAULT_CODE_PHONE])
-        if not self.permissions:
-            object.__setattr__(
-                self,
-                "permissions",
-                default_permissions_for_role(self.role.value if self.role else None),
-            )
         return self
 
 

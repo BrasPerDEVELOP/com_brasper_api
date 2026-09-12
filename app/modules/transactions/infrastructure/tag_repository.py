@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.transactions.domain.models import Tag, TransactionTag
@@ -22,13 +22,6 @@ class SQLAlchemyTagRepository(BaseAsyncRepository[Tag], TagRepositoryInterface):
         stmt = stmt.order_by(Tag.position, Tag.label)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
-
-    async def clear_new_client_flag(self, except_id: UUID | None = None) -> None:
-        """Solo una etiqueta puede contar como «cliente nuevo»."""
-        stmt = update(Tag).where(Tag.counts_as_new_client.is_(True))
-        if except_id is not None:
-            stmt = stmt.where(Tag.id != except_id)
-        await self.session.execute(stmt.values(counts_as_new_client=False))
 
     async def set_transaction_tags(self, transaction_id: UUID, tag_ids: List[UUID]) -> None:
         """Reemplaza las etiquetas de la transacción.

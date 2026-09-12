@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from app.modules.coin.domain.models import CommissionAccounting
     from app.modules.users.domain.models import User
 
-from sqlalchemy import Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint
+from sqlalchemy import Numeric, Enum, String, ForeignKey, DateTime, Boolean, Integer, UniqueConstraint, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,8 @@ class Transaction(ORMBaseModel):
     """
     __tablename__ = "transactions"
     __table_args__ = {"schema": "transaction"}
+
+    observaciones: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # FKs
     bank_account_origin_id: Mapped[Optional[UUID]] = mapped_column(
@@ -390,10 +392,8 @@ class CouponRedemption(ORMBaseModel):
 class Tag(ORMBaseModel):
     """Etiqueta que ventas aplica a una transacción (ej. «Cliente nuevo»).
 
-    ``counts_as_new_client`` marca la única etiqueta que alimenta el indicador de
-    clientes nuevos del día; la unicidad se garantiza en el caso de uso, no con
-    una constraint, porque el borrado es lógico (``deleted``) y un índice único
-    parcial complicaría la reactivación de etiquetas.
+    Varias etiquetas pueden tener ``counts_as_new_client``. El indicador cuenta
+    cada transacción una sola vez aunque tenga varias etiquetas marcadas.
 
     ``active`` es distinto de ``deleted``: una etiqueta inactiva deja de ofrecerse
     al registrar, pero sigue visible en las transacciones que ya la tenían.

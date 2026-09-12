@@ -901,6 +901,7 @@ class CreateTransactionUseCase:
 
     async def execute(self, cmd: TransactionCreateCmd) -> TransactionReadDTO:
         entity_data = _cmd_to_entity_data(cmd.model_dump())
+        entity_data.pop("mentioned_user_ids", None)
         entity_data.pop("destinations", None)
         # `tags` es relación, no columna: se aplica aparte tras construir la entidad.
         entity_data.pop("tag_ids", None)
@@ -979,6 +980,11 @@ class CreateTransactionUseCase:
         entity.tags = await _resolve_tags(self._session, getattr(cmd, "tag_ids", None))
         sync_transaction_status_from_checklist(entity)
         saved = await self.repo.add(entity)
+        if cmd.mentioned_user_ids:
+            from app.modules.notifications.service import add_mentions
+            if self._session is None:
+                raise ValueError("No se pueden guardar menciones sin sesión")
+            await add_mentions(self._session, cmd.mentioned_user_ids, saved.id, cmd.observaciones)
         if coupon and self._session is not None:
             self._session.add(CouponRedemption(coupon_id=coupon.id, user_id=cmd.user_id, transaction_id=saved.id))
         await self.repo.commit()
@@ -1016,6 +1022,7 @@ class UpdateTransactionUseCase:
         # Defensa en profundidad: la ruta habilita este campo únicamente para admin.
         if not can_update_agent:
             updates.pop("agent_id", None)
+        updates.pop("mentioned_user_ids", None)
         updates.pop("tag_ids", None)
         updates.pop("destinations", None)
         requested_destinations = (
@@ -1158,6 +1165,11 @@ class UpdateTransactionUseCase:
 
         sync_transaction_status_from_checklist(entity)
 
+        if cmd.mentioned_user_ids:
+            from app.modules.notifications.service import add_mentions
+            if self._session is None:
+                raise ValueError("No se pueden guardar menciones sin sesión")
+            await add_mentions(self._session, cmd.mentioned_user_ids, entity.id, entity.observaciones)
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity, load_noload_relations=["user", "destinations", "tags"])

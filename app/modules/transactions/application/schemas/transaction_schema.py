@@ -214,6 +214,8 @@ def _parse_string_list(value: Any) -> Optional[List[str]]:
 
 
 class TransactionCreateCmd(BaseModel):
+    observaciones: Optional[str] = Field(None, max_length=10000)
+    mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=200)
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -339,6 +341,8 @@ class TransactionCreateCmd(BaseModel):
         bank_account_origin: Optional[str] = Form(None, description="UUID cuenta origen (opcional)"),
         bank_account_destination: str = Form(..., description="UUID cuenta destino"),
         destinations: Optional[str] = Form(None, description="Distribución destino como JSON"),
+        observaciones: Optional[str] = Form(None),
+        mentioned_user_ids: Optional[str] = Form(None),
         tag_ids: Optional[str] = Form(None, description="Etiquetas como JSON array de ids"),
         user_id: str = Form(..., description="UUID de usuario"),
         agent_id: Optional[str] = Form(None, description="UUID del agente asignado"),
@@ -383,6 +387,8 @@ class TransactionCreateCmd(BaseModel):
             bank_account_origin=_parse_optional_uuid(bank_account_origin),
             bank_account_destination=UUID(bank_account_destination),
             destinations=_parse_destinations(destinations),
+            observaciones=observaciones if isinstance(observaciones, str) else None,
+            mentioned_user_ids=_parse_uuid_list(mentioned_user_ids) if isinstance(mentioned_user_ids, str) else [],
             tag_ids=_parse_uuid_list(tag_ids),
             user_id=UUID(user_id),
             agent_id=_parse_optional_uuid(agent_id),
@@ -443,6 +449,8 @@ class TransactionCreateCmd(BaseModel):
             bank_account_origin=_parse_optional_uuid(_get("bank_account_origin")),
             bank_account_destination=UUID(_get("bank_account_destination", "")),
             destinations=_parse_destinations(_get("destinations") or None),
+            observaciones=_get("observaciones") or None,
+            mentioned_user_ids=_parse_uuid_list(_get("mentioned_user_ids") or None) or [],
             tag_ids=_parse_uuid_list(_get("tag_ids") or None),
             user_id=UUID(_get("user_id", "")),
             agent_id=_parse_optional_uuid(_get("agent_id")),
@@ -501,6 +509,8 @@ class TransactionCreateCmd(BaseModel):
 
 
 class TransactionUpdateCmd(BaseModel):
+    observaciones: Optional[str] = Field(None, max_length=10000)
+    mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=200)
     id: UUID
     bank_account_origin: Optional[UUID] = None
     bank_account_destination: Optional[UUID] = None
@@ -578,6 +588,8 @@ class TransactionUpdateCmd(BaseModel):
         bank_account_origin: Optional[str] = Form(None),
         bank_account_destination: Optional[str] = Form(None),
         destinations: Optional[str] = Form(None),
+        observaciones: Optional[str] = Form(None),
+        mentioned_user_ids: Optional[str] = Form(None),
         tag_ids: Optional[str] = Form(None),
         social_reason_bank_id: Optional[str] = Form(None),
         company_name: Optional[str] = Form(None),
@@ -623,6 +635,10 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_destination"] = _parse_optional_uuid(bank_account_destination)
         if _field_present(destinations):
             payload["destinations"] = _parse_destinations(destinations)
+        if isinstance(observaciones, str):
+            payload["observaciones"] = observaciones
+        if isinstance(mentioned_user_ids, str):
+            payload["mentioned_user_ids"] = _parse_uuid_list(mentioned_user_ids) or []
         if _field_present(tag_ids):
             payload["tag_ids"] = _parse_uuid_list(tag_ids)
         if _field_present(social_reason_bank_id):
@@ -713,6 +729,10 @@ class TransactionUpdateCmd(BaseModel):
             payload["bank_account_destination"] = _parse_optional_uuid(_get("bank_account_destination"))
         if "destinations" in form:
             payload["destinations"] = _parse_destinations(_get("destinations"))
+        if "observaciones" in form:
+            payload["observaciones"] = _get("observaciones")
+        if "mentioned_user_ids" in form:
+            payload["mentioned_user_ids"] = _parse_uuid_list(_get("mentioned_user_ids")) or []
         if "tag_ids" in form:
             payload["tag_ids"] = _parse_uuid_list(_get("tag_ids"))
         if "social_reason_bank_id" in form:
@@ -833,6 +853,7 @@ class TransactionAccountingUserRef(TransactionUserRef):
 
 
 class TransactionReadDTO(BaseModel):
+    observaciones: Optional[str] = None
     id: UUID
     bank_account_origin_id: Optional[UUID] = None
     bank_account_destination_id: UUID

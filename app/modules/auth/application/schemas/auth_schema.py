@@ -1,8 +1,7 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, model_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, model_validator, computed_field
 from uuid import UUID
 from typing import Optional
 
-from app.modules.auth.domain.permissions import default_permissions_for_role
 
 
 class AuthCreateCmd(BaseModel):
@@ -25,8 +24,15 @@ class UserInfoDTO(BaseModel):
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     role: Optional[str] = None
+    permissions_granted: list[str] = []
+    permissions_revoked: list[str] = []
     permissions: list[str] = []
     must_change_password: bool = False
+
+    @computed_field
+    @property
+    def permissions_customized(self) -> bool:
+        return bool(self.permissions_granted or self.permissions_revoked)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,8 +40,6 @@ class UserInfoDTO(BaseModel):
     def set_default_profile_image(self):
         if self.profile_image is None:
             object.__setattr__(self, "profile_image", DEFAULT_PROFILE_IMAGE)
-        if not self.permissions:
-            object.__setattr__(self, "permissions", default_permissions_for_role(self.role))
         return self
 
 

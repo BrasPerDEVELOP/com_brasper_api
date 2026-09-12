@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.db.base import get_db
 from app.modules.auth.domain.models import RolePermissionModel
-from app.modules.auth.domain.permissions import ALL_PERMISSIONS, default_permissions_for_role
-from app.modules.auth.infrastructure.dependencies import require_permission
+from app.modules.auth.domain.permissions import ALL_PERMISSIONS, effective_permissions
+from app.modules.auth.infrastructure.dependencies import require_permission, require_any_permission
 from app.modules.users.domain.enums import UserRole
 
 from app.core.routing import LegacyAliasRouter
@@ -49,7 +49,7 @@ async def _get_role_permission(
 
 @router.get("/permissions", response_model=list[RolePermissionsDTO])
 async def list_role_permissions(
-    _permissions=Depends(require_permission("roles.permissions.view")),
+    _permissions=Depends(require_any_permission("roles.permissions.view", "roles.permissions.update")),
     db: AsyncSession = Depends(get_db),
 ):
     rows = {}
@@ -62,7 +62,7 @@ async def list_role_permissions(
     return [
         RolePermissionsDTO(
             role=role,
-            permissions=rows.get(role.value) or default_permissions_for_role(role.value),
+            permissions=effective_permissions(role.value, rows.get(role.value)),
         )
         for role in UserRole
     ]

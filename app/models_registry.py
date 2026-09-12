@@ -37,6 +37,7 @@ from app.modules.brasper.domain.models import ContacForm
 from app.modules.blog.domain.models import Blog
 
 # Audit models
+from app.modules.notifications.models import Notification
 from app.modules.audit.domain.models import AuditEventModel, LoginEventModel
 
 print("  All SQLAlchemy models imported and registered successfully")
