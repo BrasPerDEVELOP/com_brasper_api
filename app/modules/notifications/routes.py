@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from uuid import UUID
+from typing import Literal
 from fastapi import Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.modules.notifications.html_content import sanitize_notice_html
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.routing import LegacyAliasRouter
@@ -36,7 +38,20 @@ class NotificationRead(BaseModel):
 class NoticeCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
-    recipient_user_ids: list[UUID] = Field(min_length=1, max_length=200)
+    recipient_user_ids: list[UUID] = Field(default_factory=list, max_length=200)
+    audience: Literal['users', 'roles', 'all'] = 'users'
+    roles: list[Literal['admin', 'sales', 'accounting', 'marketing', 'user']] = Field(default_factory=list)
+    body_format: Literal['plain', 'html'] = 'plain'
+
+    @model_validator(mode='after')
+    def validate_audience(self):
+        if self.audience == 'users' and (not self.recipient_user_ids or self.roles):
+            raise ValueError('Selecciona usuarios')
+        if self.audience == 'roles' and (not self.roles or self.recipient_user_ids):
+            raise ValueError('Selecciona roles')
+        if self.audience == 'all' and (self.roles or self.recipient_user_ids):
+            raise ValueError('Todo el equipo no admite destinatarios adicionales')
+        return self
 
 
 @router.get("")
@@ -89,11 +104,21 @@ async def read_one(notification_id: UUID, actor=Depends(get_current_user), db: A
 async def create_notice(cmd: NoticeCreate, actor=Depends(get_current_user), db: AsyncSession = Depends(get_db),
                         _permissions=Depends(require_permission("notifications.create"))):
     sender = actor_id(actor)
-    recipients = await validate_recipients(db, cmd.recipient_user_ids)
-    if not cmd.title.strip() or not cmd.body.strip():
+    if cmd.audience == 'users':
+        recipients = await validate_recipients(db, cmd.recipient_user_ids)
+    else:
+        roles = cmd.roles if cmd.audience == 'roles' else INTERNAL_ROLES
+        recipients = list(dict.fromkeys((await db.execute(select(User.id).where(
+            User.role.in_(roles), User.deleted.is_(False), User.enable.is_(True)
+        ))).scalars().all()))
+    body, text = sanitize_notice_html(cmd.body) if cmd.body_format == 'html' else (cmd.body.strip(), cmd.body.strip())
+    if not cmd.title.strip() or not text:
         raise HTTPException(400, "Indica título y contenido")
+    if not recipients:
+        raise HTTPException(400, 'No hay usuarios internos activos en la selección')
     for recipient in recipients:
-        db.add(Notification(recipient_user_id=recipient, actor_user_id=sender, type="aviso",
-                            title=cmd.title.strip(), body=cmd.body.strip()))
+        db.add(Notification(recipient_user_id=recipient, actor_user_id=sender,
+                            type='aviso_html' if cmd.body_format == 'html' else 'aviso',
+                            title=cmd.title.strip(), body=body))
     await db.commit()
     return {"created": len(recipients)}

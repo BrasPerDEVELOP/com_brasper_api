@@ -27,3 +27,5 @@ El runner usa credenciales ficticias y puertos locales sin servicios. Las prueba
 ## Publicación
 
 Aplicar `alembic upgrade head` con la configuración real del entorno antes de iniciar la API actualizada. Publicar después el backoffice. Las migraciones no se aplicaron a ninguna base real durante el desarrollo de esta tarea.
+
+Avisos: audience=users|roles|all resuelve usuarios internos activos en el servidor. body_format=html guarda HTML limitado a formato sin atributos ni recursos externos (tipo aviso_html). Sin nueva migración.

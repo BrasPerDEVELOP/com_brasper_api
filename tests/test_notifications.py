@@ -62,6 +62,48 @@ async def test_empty_mentions_do_not_query_staff():
     db.execute.assert_not_awaited()
 
 
+@pytest.mark.parametrize('audience,roles', [('roles', ['sales', 'accounting']), ('all', [])])
+async def test_notice_group_targets_active_internal_users(audience, roles):
+    uid = uuid4()
+    db = mock_db(rows=[uid, uid])
+    cmd = NoticeCreate(title='Equipo', body='<p><strong>Hola</strong></p>',
+                       audience=audience, roles=roles, body_format='html')
+    assert await create_notice(cmd, {'user_id': str(uuid4())}, db, []) == {'created': 1}
+    query = db.execute.call_args.args[0]
+    assert 'enable IS true' in str(query) and 'deleted IS false' in str(query)
+    selected_roles = next(iter(query.compile().params.values()))
+    assert 'client' not in selected_roles
+    assert list(selected_roles) == (roles if audience == 'roles' else ['admin', 'sales', 'accounting', 'marketing', 'user'])
+    notice = db.add.call_args.args[0]
+    assert notice.type == 'aviso_html'
+    assert notice.body == '<p><strong>Hola</strong></p>'
+
+
+async def test_empty_html_is_rejected():
+    uid = uuid4()
+    db = mock_db(rows=[uid])
+    cmd = NoticeCreate(title='Aviso', body='<p><br></p>', body_format='html', recipient_user_ids=[uid])
+    with pytest.raises(HTTPException):
+        await create_notice(cmd, {'user_id': str(uuid4())}, db, [])
+    db.commit.assert_not_awaited()
+
+
+def test_html_removes_executable_markup_and_attributes():
+    from app.modules.notifications.html_content import sanitize_notice_html
+    clean, _ = sanitize_notice_html('<p onclick="bad()">Hola <b>equipo</b></p><img src=x onerror=bad()><script>bad()</script><a href="javascript:bad()">link</a>')
+    assert clean == '<p>Hola <b>equipo</b></p>bad()link'
+    clean, _ = sanitize_notice_html('&lt;img src=x onerror=bad()&gt;')
+    assert clean == '&lt;img src=x onerror=bad()&gt;'
+
+
+def test_notice_rejects_client_roles_and_ambiguous_targets():
+    from pydantic import ValidationError
+    for fields in [dict(audience='roles', roles=['client']), dict(audience='roles'),
+                   dict(audience='all', recipient_user_ids=[uuid4()])]:
+        with pytest.raises(ValidationError):
+            NoticeCreate(title='Aviso', body='Mensaje', **fields)
+
+
 def test_transaction_json_preserves_observations_and_mention_ids(client, valid_transaction_payload, mock_create_transaction_uc):
     uid = str(uuid4())
     payload = {**valid_transaction_payload, 'observaciones': 'Revisar con @Ana Pérez', 'mentioned_user_ids': [uid]}
