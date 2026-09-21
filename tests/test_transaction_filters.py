@@ -8,6 +8,7 @@ from sqlalchemy.dialects import postgresql
 from app.modules.transactions.infrastructure.repository import (
     _effective_status_condition,
     _search_condition,
+    _tag_ids_condition,
 )
 
 
@@ -59,3 +60,21 @@ def test_search_condition_matches_code_operation_and_id():
     assert "operation_number ILIKE '%%ABC%%'" in sql
     # id (UUID) se castea a texto para la búsqueda
     assert "CAST(transaction.transactions.id AS VARCHAR) ILIKE '%%ABC%%'" in sql
+
+
+def test_tag_ids_condition_is_or_any_selected_tag():
+    from uuid import UUID
+
+    first = UUID("74360c1b-8101-429c-b6fd-47aa2f5ac47c")
+    second = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    sql = _sql(_tag_ids_condition([first, second, first]))
+    assert "transaction_tags.tag_id IN" in sql
+    assert str(first) in sql
+    assert str(second) in sql
+    assert "transaction.transactions.id IN" in sql
+
+
+def test_tag_ids_condition_empty_returns_none():
+    assert _tag_ids_condition([]) is None
+    assert _tag_ids_condition(()) is None
+

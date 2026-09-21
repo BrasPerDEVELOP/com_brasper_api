@@ -12,7 +12,11 @@ from app.core.pagination.offset import PageParams, PaginatedResult
 from app.modules.coin.domain.enums import Currency
 from app.modules.coin.domain.models import CommissionAccounting, TaxRate
 from app.modules.transactions.domain.enums import TransactionStatus
-from app.modules.transactions.domain.models import Transaction, TransactionDestination
+from app.modules.transactions.domain.models import (
+    Transaction,
+    TransactionDestination,
+    TransactionTag,
+)
 from app.modules.transactions.interfaces.transaction_repository import TransactionRepositoryInterface
 from app.shared.query_filter import QueryFilter
 from app.shared.repositorie_base import BaseAsyncRepository
@@ -55,6 +59,21 @@ def _search_condition(term: str):
     )
 
 
+def _tag_ids_condition(tag_ids: Sequence[UUID]):
+    """OR: la transacción entra si tiene al menos una de las etiquetas.
+
+    Misma semántica que ``metrics/overview`` (`tag_ids` repetido).
+    """
+    unique = list(dict.fromkeys(tag_ids))
+    if not unique:
+        return None
+    tagged = select(TransactionTag.transaction_id).where(
+        TransactionTag.deleted.is_(False),
+        TransactionTag.tag_id.in_(unique),
+    )
+    return Transaction.id.in_(tagged)
+
+
 def compact_currency_pair_prefix(origin_currency_code: str, destination_currency_code: str) -> str:
     """Prefijo de código: primera letra de origen + 'x' + primera letra de destino + '-'.
     Ej.: PEN→BRL => PxB-, BRL→PEN => BxP-, USD→BRL => UxB-.
@@ -88,6 +107,7 @@ class SQLAlchemyTransactionRepository(
         send_date_from: datetime | None = None,
         send_date_to: datetime | None = None,
         bank_account_id: UUID | None = None,
+        tag_ids: Sequence[UUID] | None = None,
     ) -> Union[List[Transaction], PaginatedResult[Transaction]]:
         needs_custom = any(
             v is not None
@@ -100,6 +120,7 @@ class SQLAlchemyTransactionRepository(
                 send_date_from,
                 send_date_to,
                 bank_account_id,
+                tag_ids,
             )
         )
         if not needs_custom:
@@ -124,6 +145,7 @@ class SQLAlchemyTransactionRepository(
             send_date_from=send_date_from,
             send_date_to=send_date_to,
             bank_account_id=bank_account_id,
+            tag_ids=tag_ids,
         )
 
     async def _list_impl(
@@ -142,6 +164,7 @@ class SQLAlchemyTransactionRepository(
         send_date_from: datetime | None,
         send_date_to: datetime | None,
         bank_account_id: UUID | None,
+        tag_ids: Sequence[UUID] | None,
     ) -> Union[List[Transaction], PaginatedResult[Transaction]]:
         if query_filter is None:
             query_filter = QueryFilter()
@@ -200,6 +223,10 @@ class SQLAlchemyTransactionRepository(
                     ),
                 )
             )
+
+        tag_cond = _tag_ids_condition(tag_ids or ())
+        if tag_cond is not None:
+            stmt = stmt.where(tag_cond)
 
         stmt = query_filter.apply(stmt, Transaction)
 

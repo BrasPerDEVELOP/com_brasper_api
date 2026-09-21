@@ -232,6 +232,24 @@ async def test_accounting_list_filters_completed_when_status_is_omitted():
 
 
 @pytest.mark.asyncio
+async def test_list_forwards_tag_ids_as_or_filter():
+    repo = _FakeRepo([_transaction_row()])
+    first = uuid4()
+    second = uuid4()
+
+    await ListTransactionsUseCase(repo).execute(
+        limit=20, skip=0, tag_ids=[first, second, first]
+    )
+    await ListTransactionsAccountingUseCase(repo).execute(
+        limit=20, skip=0, tag_ids=[first]
+    )
+
+    assert repo.list_calls[0]["tag_ids"] == [first, second]
+    assert repo.list_calls[1]["tag_ids"] == [first]
+    assert repo.list_calls[1]["effective_status"] == TransactionStatus.completed.value
+
+
+@pytest.mark.asyncio
 async def test_plain_list_does_not_expose_accounting_fields():
     row = _transaction_row()
     repo = _FakeRepo([row], percentages={row["id"]: 45.0})

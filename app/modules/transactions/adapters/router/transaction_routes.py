@@ -230,6 +230,10 @@ async def list_transactions(
         None,
         description="Filtro por moneda destino de la tasa (coin_b)",
     ),
+    tag_ids: Optional[list[UUID]] = Query(
+        None,
+        description="Una o más etiquetas (OR): el envío entra si tiene al menos una",
+    ),
 ):
     """Lista transacciones con filtros opcionales y paginación."""
     try:
@@ -258,6 +262,7 @@ async def list_transactions(
         currency=currency_filter,
         origin_currency=origin_currency_filter,
         destination_currency=destination_currency_filter,
+        tag_ids=tag_ids,
     )
 
 
@@ -296,6 +301,10 @@ async def list_transactions_accounting(
     destination_currency: Optional[str] = Query(
         None,
         description="Filtro por moneda destino de la tasa (coin_b)",
+    ),
+    tag_ids: Optional[list[UUID]] = Query(
+        None,
+        description="Una o más etiquetas (OR): el envío entra si tiene al menos una",
     ),
 ):
     """Lista transacciones finalizadas con sus campos contables.
@@ -336,6 +345,7 @@ async def list_transactions_accounting(
         currency=currency_filter,
         origin_currency=origin_currency_filter,
         destination_currency=destination_currency_filter,
+        tag_ids=tag_ids,
     )
 
 

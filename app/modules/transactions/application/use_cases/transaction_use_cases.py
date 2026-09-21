@@ -463,6 +463,7 @@ class ListTransactionsUseCase:
         currency: Optional[Currency] = None,
         origin_currency: Optional[Currency] = None,
         destination_currency: Optional[Currency] = None,
+        tag_ids: Optional[list[UUID]] = None,
     ) -> TransactionListPage:
         query_filter = _build_transaction_query_filter(
             user_id=user_id,
@@ -484,6 +485,7 @@ class ListTransactionsUseCase:
             send_date_from=send_date_from,
             send_date_to=send_date_to,
             bank_account_id=bank_account_id,
+            tag_ids=list(dict.fromkeys(tag_ids)) if tag_ids else None,
         )
         if isinstance(raw, PaginatedResult):
             items = await self._build_items(raw.items)
