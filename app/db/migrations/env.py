@@ -28,8 +28,11 @@ fileConfig(env_config.config_file_name)
 
 # Convertir URL de asyncpg a psycopg2 para Alembic (necesita driver síncrono)
 db_url = settings.database_url
-# Reemplazar postgresql+asyncpg:// por postgresql:// o postgresql+psycopg2://
-db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+# Driver explícito: desde SQLAlchemy 2.1 el prefijo ``postgresql://`` a secas
+# resuelve a psycopg (3), que no está instalado; la imagen trae psycopg2-binary.
+db_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 # Escapar % para ConfigParser (interpreta % como interpolación)
 env_config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 

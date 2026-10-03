@@ -1,5 +1,7 @@
 pydantic[email]>=2.11.2
 alembic>=1.15.2
+# Fijado a 2.0.x: en 2.1 el prefijo postgresql:// pasa a psycopg (3), que no está instalado.
+sqlalchemy>=2.0.40,<2.1
 pydantic-settings>=2.8.1
 psycopg2-binary>=2.9.10
 asyncpg>=0.30.0
