@@ -41,3 +41,6 @@ from app.modules.notifications.models import Notification
 from app.modules.audit.domain.models import AuditEventModel, LoginEventModel
 
 print("  All SQLAlchemy models imported and registered successfully")
+
+# Finance (tasas mensuales a soles y egresos)
+from app.modules.finance.domain.models import Expense, ExpenseCategory, FxMonthRate

@@ -7,10 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.modules.metrics.application.use_cases import (
+    GetManagementDashboardUseCase,
     GetMetricsOverviewUseCase,
     GetWeeklyMetricsUseCase,
 )
+from app.modules.metrics.infrastructure.management_repository import (
+    SQLAlchemyManagementRepository,
+)
 from app.modules.metrics.infrastructure.repository import SQLAlchemyMetricsRepository
+from app.modules.metrics.interfaces.management_repository import (
+    ManagementRepositoryInterface,
+)
 from app.modules.metrics.interfaces.metrics_repository import MetricsRepositoryInterface
 
 
@@ -36,4 +43,22 @@ GetWeeklyMetricsUseCaseDep = Annotated[GetWeeklyMetricsUseCase, Depends(get_week
 GetMetricsOverviewUseCaseDep = Annotated[
     GetMetricsOverviewUseCase,
     Depends(get_metrics_overview_uc),
+]
+
+
+def get_management_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ManagementRepositoryInterface:
+    return SQLAlchemyManagementRepository(db)
+
+
+def get_management_dashboard_uc(
+    repo: Annotated[ManagementRepositoryInterface, Depends(get_management_repository)],
+) -> GetManagementDashboardUseCase:
+    return GetManagementDashboardUseCase(repo)
+
+
+GetManagementDashboardUseCaseDep = Annotated[
+    GetManagementDashboardUseCase,
+    Depends(get_management_dashboard_uc),
 ]

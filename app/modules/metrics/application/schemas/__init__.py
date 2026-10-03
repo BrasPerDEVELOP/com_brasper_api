@@ -1,3 +1,13 @@
+from app.modules.metrics.application.schemas.management_schema import (
+    ManagementDashboardDTO,
+    ManagementExpenseCategoryDTO,
+    ManagementFxMissingDTO,
+    ManagementMonthDTO,
+    ManagementRangeDTO,
+    ManagementTopClientDTO,
+    ManagementTopClientsDTO,
+    ManagementTotalsDTO,
+)
 from app.modules.metrics.application.schemas.metrics_schema import (
     MetricsAgentBreakdownDTO,
     MetricsOverviewDTO,
@@ -12,6 +22,14 @@ from app.modules.metrics.application.schemas.metrics_schema import (
 )
 
 __all__ = [
+    "ManagementDashboardDTO",
+    "ManagementExpenseCategoryDTO",
+    "ManagementFxMissingDTO",
+    "ManagementMonthDTO",
+    "ManagementRangeDTO",
+    "ManagementTopClientDTO",
+    "ManagementTopClientsDTO",
+    "ManagementTotalsDTO",
     "MetricsAgentBreakdownDTO",
     "MetricsOverviewDTO",
     "MetricsOverviewPointDTO",

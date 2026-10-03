@@ -268,6 +268,8 @@ app.include_router(metrics_router)
 app.include_router(audit_router)
 from app.modules.notifications.routes import router as notifications_router
 app.include_router(notifications_router)
+from app.modules.finance.adapters.router import router as finance_router
+app.include_router(finance_router)
 
 @app.get("/")
 async def root():

@@ -77,6 +77,12 @@ AUDITED_MUTATION_ROUTES = {
     ("PUT", "/integraciones/integration"),
     ("DELETE", "/integraciones/integration/{integration_id}"),
 
+    # Finance: tasas mensuales a soles y egresos (prefijo /finance)
+    ("PUT", "/finance/fx-rates"),
+    ("POST", "/finance/expenses"),
+    ("PUT", "/finance/expenses"),
+    ("DELETE", "/finance/expenses/{expense_id}"),
+
     # Brasper Public / AI (con prefijo /brasper registrado en main.py)
     ("POST", "/brasper/contact-form"),
     ("POST", "/brasper/ai/clients/upsert"),

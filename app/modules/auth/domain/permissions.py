@@ -9,6 +9,17 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
     {"key": "notifications", "permissions": ("notifications.view", "notifications.create")},
     {"key": "dashboard", "permissions": ("dashboard.view",)},
     {"key": "metrics", "permissions": ("metrics.view",)},
+    {"key": "management", "permissions": ("management.view",)},
+    {"key": "fx_rates", "permissions": ("fx_rates.view", "fx_rates.update")},
+    {
+        "key": "expenses",
+        "permissions": (
+            "expenses.view",
+            "expenses.create",
+            "expenses.update",
+            "expenses.delete",
+        ),
+    },
     {
         "key": "users",
         "permissions": (
@@ -184,6 +195,13 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "users.delete",
         "users.reset_password",
         "accounting.view",
+        "management.view",
+        "fx_rates.view",
+        "fx_rates.update",
+        "expenses.view",
+        "expenses.create",
+        "expenses.update",
+        "expenses.delete",
         "transactions.view",
         "bank_accounts.view",
         "bank_accounts.create",
