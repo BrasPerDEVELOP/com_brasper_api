@@ -44,6 +44,10 @@ PERMISSION_MODULES: tuple[dict[str, object], ...] = (
         ),
     },
     {"key": "accounting", "permissions": ("accounting.view",)},
+    {
+        "key": "billing",
+        "permissions": ("billing.view", "billing.issue", "billing.void"),
+    },
     {"key": "calculator", "permissions": ("calculator.view",)},
     {
         "key": "coupons",
@@ -195,6 +199,8 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "users.delete",
         "users.reset_password",
         "accounting.view",
+        "billing.view",
+        "billing.issue",
         "management.view",
         "fx_rates.view",
         "fx_rates.update",

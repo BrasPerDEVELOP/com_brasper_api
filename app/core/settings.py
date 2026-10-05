@@ -112,6 +112,91 @@ class Settings(BaseSettings):
     MEDIA_SIGNING_SECRET: str = ""
     MEDIA_SIGNED_URL_TTL_SECONDS: int = 1800
 
+    # Facturación electrónica (boletas y facturas) vía APISUNAT.
+    # Con BILLING_ENABLED=False el módulo no emite nada y sus endpoints responden 503.
+    BILLING_ENABLED: bool = False
+    # True: emite sola cuando una operación pasa a `completed`. False: solo manual desde el backoffice.
+    BILLING_AUTO_ISSUE: bool = False
+    # True: la comisión cobrada al cliente ya incluye IGV (base = total / 1.18).
+    # False: el IGV se suma encima de la comisión. Debe confirmarlo Contabilidad.
+    BILLING_COMMISSION_INCLUDES_IGV: bool = True
+    BILLING_IGV_RATE: float = 0.18
+    APISUNAT_BASE_URL: str = "https://back.apisunat.com"
+    APISUNAT_PERSONA_ID: str = ""
+    APISUNAT_PERSONA_TOKEN: str = ""
+    # development | production. Cada token de APISUNAT vale solo para un ambiente.
+    APISUNAT_ENVIRONMENT: str = "development"
+    APISUNAT_TIMEOUT_SECONDS: float = 30.0
+    BILLING_SERIES_BOLETA: str = "B001"
+    BILLING_SERIES_FACTURA: str = "F001"
+    BILLING_ISSUER_RUC: str = "20608550454"
+    BILLING_ISSUER_NAME: str = "BRASPER 21 S.A.C."
+    BILLING_ISSUER_TRADE_NAME: str = "brasper transferencias"
+    BILLING_ISSUER_ADDRESS: str = "AV. AREQUIPA NRO. 2447 INT. 409"
+    BILLING_ISSUER_UBIGEO: str = "150116"
+    BILLING_ISSUER_DISTRICT: str = "LINCE"
+    BILLING_ISSUER_PROVINCE: str = "LIMA"
+    BILLING_ISSUER_DEPARTMENT: str = "LIMA"
+    # Texto del ítem del comprobante; {code} se reemplaza por el código de la operación.
+    BILLING_ITEM_DESCRIPTION: str = "Comisión por servicio de transferencia, operación {code}"
+    BILLING_POLL_INTERVAL_SECONDS: int = 30
+    BILLING_PDF_FORMAT: str = "A4"
+    # True: APISUNAT envía el PDF al correo del cliente (customerEmail) al emitir.
+    BILLING_SEND_CUSTOMER_EMAIL: bool = False
+    # Fecha de corte (YYYY-MM-DD): operaciones completadas antes no se facturan. Vacío = sin corte.
+    BILLING_START_DATE: str = ""
+
+    @model_validator(mode="after")
+    def validate_billing_config(self) -> "Settings":
+        import re
+        from datetime import date
+
+        if self.APISUNAT_ENVIRONMENT.lower() not in ("development", "production"):
+            raise ValueError("APISUNAT_ENVIRONMENT debe ser development o production")
+        if not re.fullmatch(r"B[A-Z0-9]{3}", self.BILLING_SERIES_BOLETA):
+            raise ValueError("BILLING_SERIES_BOLETA debe tener 4 caracteres y empezar con B (ej. B001)")
+        if not re.fullmatch(r"F[A-Z0-9]{3}", self.BILLING_SERIES_FACTURA):
+            raise ValueError("BILLING_SERIES_FACTURA debe tener 4 caracteres y empezar con F (ej. F001)")
+        if not re.fullmatch(r"\d{11}", self.BILLING_ISSUER_RUC):
+            raise ValueError("BILLING_ISSUER_RUC debe tener 11 dígitos")
+        if not 0 < self.BILLING_IGV_RATE < 1:
+            raise ValueError("BILLING_IGV_RATE debe estar entre 0 y 1 (ej. 0.18)")
+        if self.BILLING_PDF_FORMAT not in ("A4", "A5", "ticket58mm", "ticket80mm"):
+            raise ValueError("BILLING_PDF_FORMAT debe ser A4, A5, ticket58mm o ticket80mm")
+        if self.BILLING_POLL_INTERVAL_SECONDS < 5:
+            raise ValueError("BILLING_POLL_INTERVAL_SECONDS debe ser al menos 5")
+        if self.BILLING_START_DATE:
+            try:
+                date.fromisoformat(self.BILLING_START_DATE)
+            except ValueError as exc:
+                raise ValueError("BILLING_START_DATE debe tener formato YYYY-MM-DD") from exc
+        if self.BILLING_ENABLED:
+            if not self.APISUNAT_PERSONA_ID or not self.APISUNAT_PERSONA_TOKEN:
+                raise ValueError(
+                    "BILLING_ENABLED=True exige APISUNAT_PERSONA_ID y APISUNAT_PERSONA_TOKEN"
+                )
+            if urlparse(self.APISUNAT_BASE_URL).scheme != "https":
+                raise ValueError("APISUNAT_BASE_URL debe usar HTTPS")
+            if (
+                self.APISUNAT_ENVIRONMENT.lower() == "production"
+                and self.ENVIRONMENT.lower() == "development"
+            ):
+                raise ValueError(
+                    "APISUNAT_ENVIRONMENT=production no se permite con ENVIRONMENT=development: "
+                    "un comprobante de producción tiene validez tributaria"
+                )
+        return self
+
+    @property
+    def billing_start_date(self):
+        from datetime import date
+
+        return date.fromisoformat(self.BILLING_START_DATE) if self.BILLING_START_DATE else None
+
+    @property
+    def apisunat_is_production(self) -> bool:
+        return self.APISUNAT_ENVIRONMENT.lower() == "production"
+
     @model_validator(mode="after")
     def validate_r2_config(self) -> "Settings":
         missing = [

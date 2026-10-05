@@ -133,6 +133,27 @@ SMTP_USE_TLS=true
 
 Sin credenciales, el resto de la API y la home continúan funcionando; la sincronización manual devuelve un error controlado. El scheduler usa un bloqueo PostgreSQL para que solo una réplica procese cada ciclo.
 
+## Facturación electrónica (APISUNAT)
+
+Boletas y facturas electrónicas por la comisión cobrada en cada operación `completed`, emitidas vía [APISUNAT](https://docs.apisunat.com). Módulo `app/modules/billing`, rutas `/billing/*`, permisos `billing.view`, `billing.issue` y `billing.void`. Diseño completo en el documento "Integración Brasper · APISUNAT".
+
+Apagado por defecto. Para activarlo en **desarrollo** (nada llega a SUNAT):
+
+```env
+BILLING_ENABLED=true
+BILLING_AUTO_ISSUE=false            # true: emite sola al completar la operación
+BILLING_COMMISSION_INCLUDES_IGV=true # false: el IGV se suma encima de la comisión
+APISUNAT_ENVIRONMENT=development     # production solo con ENVIRONMENT != development
+APISUNAT_PERSONA_ID=6abae6e46db37e0021e88cba
+APISUNAT_PERSONA_TOKEN=<token de DESARROLLO creado en apisunat.com → Configuración de Empresa>
+BILLING_SERIES_BOLETA=B001
+BILLING_SERIES_FACTURA=F001
+BILLING_SEND_CUSTOMER_EMAIL=false
+BILLING_START_DATE=                 # YYYY-MM-DD: operaciones anteriores no se facturan
+```
+
+Flujo: `POST /billing/transactions/{id}/issue` reserva el correlativo (tabla `billing.series`, con `FOR UPDATE`), guarda el comprobante y lo envía; un poller consulta `getById` cada `BILLING_POLL_INTERVAL_SECONDS` hasta que SUNAT responde (ACEPTADO guarda el PDF en R2 bajo `invoices/`). `retry` reutiliza el número en EXCEPCION/error y toma el siguiente en RECHAZADO; `void` anula un comprobante aceptado; `series/align` alinea el correlativo con `lastDocument` de APISUNAT.
+
 ## Seguridad
 
 - Tokens opacos validados en base de datos (tabla `auth_login`).
