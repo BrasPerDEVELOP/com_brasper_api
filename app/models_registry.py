@@ -44,3 +44,6 @@ print("  All SQLAlchemy models imported and registered successfully")
 
 # Finance (tasas mensuales a soles y egresos)
 from app.modules.finance.domain.models import Expense, ExpenseCategory, FxMonthRate
+
+# Billing (comprobantes electrónicos vía APISUNAT)
+from app.modules.billing.domain.models import BillingSeries, Invoice, InvoiceEvent

@@ -52,6 +52,17 @@ async def lifespan(app: FastAPI):
     from app.modules.transactions.adapters.router.transactions_websocket import event_listener
 
     await event_listener.start()
+    if settings.BILLING_ENABLED:
+        from app.modules.billing.infrastructure.poller import invoice_poller
+
+        await invoice_poller.start()
+        logger.info(
+            "✓ Facturación electrónica activa (APISUNAT %s, emisión %s)",
+            settings.APISUNAT_ENVIRONMENT,
+            "automática" if settings.BILLING_AUTO_ISSUE else "manual",
+        )
+    else:
+        logger.info("Facturación electrónica deshabilitada (BILLING_ENABLED=False)")
     logger.info("✓ Listener de eventos en tiempo real iniciado")
     logger.info("✓ Aplicación iniciada correctamente")
     logger.info("=" * 70)
@@ -61,6 +72,10 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 70)
     logger.info("Cerrando aplicación...")
     await event_listener.stop()
+    if settings.BILLING_ENABLED:
+        from app.modules.billing.infrastructure.poller import invoice_poller
+
+        await invoice_poller.stop()
     logger.info("=" * 70)
 
 app = FastAPI(
@@ -270,6 +285,11 @@ from app.modules.notifications.routes import router as notifications_router
 app.include_router(notifications_router)
 from app.modules.finance.adapters.router import router as finance_router
 app.include_router(finance_router)
+
+# Facturación electrónica (boletas/facturas vía APISUNAT)
+from app.modules.billing.adapters.router import router as billing_router
+
+app.include_router(billing_router)
 
 @app.get("/")
 async def root():

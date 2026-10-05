@@ -16,6 +16,7 @@ from app.core.settings import get_settings
 class FileType(Enum):
     """Tipos de archivos por contexto."""
     PROFILE_IMAGE = "profile_images"
+    INVOICE = "invoices"
     REPOSITORY_IMAGE = "repository_images"
     UNITY_IMAGE = "unity_images"
     UNITY_DRAWING = "unity_drawings"
@@ -100,6 +101,12 @@ class FileService:
         )
         key = f"{file_type.value}/{filename}"
         await self._write_r2(key, file_content)
+        return key
+
+    async def save_raw(self, key: str, content: bytes) -> str:
+        """Guarda contenido en R2 bajo una key exacta (ej. invoices/2026/20608550454-03-B001-00000001.pdf)."""
+        key = key.lstrip("/")
+        await self._write_r2(key, content)
         return key
 
     async def _write_r2(self, key: str, content: bytes) -> None:

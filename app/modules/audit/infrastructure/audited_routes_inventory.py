@@ -82,6 +82,12 @@ AUDITED_MUTATION_ROUTES = {
     ("POST", "/finance/expenses"),
     ("PUT", "/finance/expenses"),
     ("DELETE", "/finance/expenses/{expense_id}"),
+    # Billing: comprobantes electrónicos vía APISUNAT (prefijo /billing)
+    ("POST", "/billing/transactions/{transaction_id}/issue"),
+    ("POST", "/billing/invoices/{invoice_id}/retry"),
+    ("POST", "/billing/invoices/{invoice_id}/refresh"),
+    ("POST", "/billing/invoices/{invoice_id}/void"),
+    ("POST", "/billing/series/align"),
 
     # Brasper Public / AI (con prefijo /brasper registrado en main.py)
     ("POST", "/brasper/contact-form"),

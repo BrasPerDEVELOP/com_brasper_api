@@ -36,6 +36,7 @@ from app.modules.coin.interfaces.commission_accounting_settings_repository impor
     CommissionAccountingSettingsRepositoryInterface,
 )
 from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
+from app.modules.billing.application.triggers import maybe_schedule_auto_issue
 from app.modules.users.domain.enums import UserRole
 from app.modules.users.domain.models import User
 from app.modules.transactions.application.campaign_policy import discount_for
@@ -989,6 +990,7 @@ class CreateTransactionUseCase:
             self._session.add(CouponRedemption(coupon_id=coupon.id, user_id=cmd.user_id, transaction_id=saved.id))
         await self.repo.commit()
         await self.repo.refresh(saved, load_noload_relations=["user", "destinations", "tags"])
+        maybe_schedule_auto_issue(saved.id, None, saved.status)
         return TransactionReadDTO.model_validate(saved)
 
 
@@ -1252,6 +1254,7 @@ class UpdateTransactionUseCase:
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity, load_noload_relations=["user", "destinations", "tags"])
+        maybe_schedule_auto_issue(entity.id, previous_status, entity.status)
         return TransactionReadDTO.model_validate(entity)
 
 
