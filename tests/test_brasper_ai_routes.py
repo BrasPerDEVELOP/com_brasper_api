@@ -8,6 +8,7 @@ from app.main import app
 from app.modules.brasper.adapters.router.ai_routes import get_ai_service
 from app.modules.brasper.application.ai_schemas import (
     AIClientDTO,
+    AIClientHistoryDTO,
     AIClientLookupDTO,
     AIClientUpsertDTO,
     AIDepositAccountDTO,
@@ -15,6 +16,11 @@ from app.modules.brasper.application.ai_schemas import (
 
 
 class FakeAIService:
+    async def client_history(self, _user_id, **kwargs):
+        if kwargs["phone"] != 999111222:
+            return None
+        return AIClientHistoryDTO(completed_transfers=0, pending_transfers=1, first_transfer_eligible=False)
+
     async def lookup_client(self, **_kwargs):
         return AIClientLookupDTO(found=True, client=AIClientDTO(
             id=uuid4(), names="Ana", lastnames="Pérez", code_phone="+51",
@@ -82,6 +88,12 @@ def test_ai_contracts_return_minimum_safe_data():
         body = lookup.json()
         assert body["found"] is True and body["client"]["document_verified"] is True
         assert "document_number" not in body["client"]
+        history_url = f"/brasper/ai/clients/{body['client']['id']}/history"
+        history = client.get(history_url, params={"code_phone": "+51", "phone": 999111222}, headers=headers)
+        assert history.status_code == 200 and history.json()["first_transfer_eligible"] is False
+        assert history.json()["pending_transfers"] == 1
+        assert client.get(history_url, params={"code_phone": "+51", "phone": 999000000}, headers=headers).status_code == 404
+        assert client.get(history_url, params={"code_phone": "+51", "phone": 999111222}).status_code == 401
 
         upsert = client.post("/brasper/ai/clients/upsert", headers=headers, json={
             "names": "Ana", "lastnames": "Pérez", "document_type": "dni",

@@ -50,6 +50,11 @@ class LoginUseCase:
         if not user:
             logger.error(f"User not found for auth_id: {credentials.id}")
             raise ValueError("User account not found")
+        # Cuenta deshabilitada o eliminada: no se crea sesión (antes se emitía y luego se
+        # rechazaba en cada request, dejando sesiones inútiles).
+        if getattr(user, "enable", True) is False or getattr(user, "deleted", False) is True:
+            logger.warning(f"Login rejected: disabled or deleted account for auth_id: {credentials.id}")
+            raise ValueError("Invalid username or password")
 
         access_token = self.security_utils.generate_opaque_token(
             user_id=user.id,

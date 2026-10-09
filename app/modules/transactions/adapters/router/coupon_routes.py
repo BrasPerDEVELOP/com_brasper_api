@@ -80,7 +80,10 @@ async def update_coupon(
     previous = await get_use_case.execute(cmd.id)
     if audit_event and previous:
         audit_event.old_values = previous.model_dump(mode="json")
-    entity = await use_case.execute(cmd)
+    try:
+        entity = await use_case.execute(cmd)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if audit_event and entity:
         audit_event.entity_id = str(entity.id)
         audit_event.new_values = cmd.model_dump(mode="json")
@@ -101,4 +104,7 @@ async def delete_coupon(
     if audit_event:
         audit_event.entity_id = str(coupon_id)
         audit_event.old_values = previous.model_dump(mode="json") if previous else None
-    await use_case.execute(coupon_id)
+    try:
+        await use_case.execute(coupon_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

@@ -17,6 +17,7 @@ SENSITIVE_KEYS: Set[str] = {
     "new_password",
     "api_key",
     "shared_secret",
+    "grant",
     "voucher",
     "checked_image",
     "profile_image",

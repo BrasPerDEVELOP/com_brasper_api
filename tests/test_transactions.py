@@ -379,6 +379,7 @@ async def test_create_transaction_persists_special_calculator_discount(monkeypat
     commission.max_amount = 50_000
     commission_repo = AsyncMock()
     commission_repo.get = AsyncMock(return_value=commission)
+    commission_repo.list = AsyncMock(return_value=[commission])  # C1: brackets always re-selected
 
     captured: dict = {}
 
@@ -458,6 +459,7 @@ async def test_special_calculator_uses_manual_tax_rate_instead_of_catalog():
     )
     commission_repo = AsyncMock()
     commission_repo.get = AsyncMock(return_value=commission)
+    commission_repo.list = AsyncMock(return_value=[commission])  # C1: brackets always re-selected
     use_case = CreateTransactionUseCase(
         AsyncMock(),
         AsyncMock(),
@@ -504,6 +506,7 @@ async def test_normal_transaction_ignores_client_tax_rate_override():
     )
     commission_repo = AsyncMock()
     commission_repo.get = AsyncMock(return_value=commission)
+    commission_repo.list = AsyncMock(return_value=[commission])  # C1: brackets always re-selected
     use_case = CreateTransactionUseCase(
         AsyncMock(),
         AsyncMock(),
@@ -840,6 +843,7 @@ def test_put_transaction_json_accepts_billing_date_alias(
 def _build_update_uc(monkeypatch, dest_bank_company: str):
     """Arma UpdateTransactionUseCase con repos mockeados; retorna (uc, entity, cmd_dest_id)."""
     entity = MagicMock()
+    entity.coupon_id = None
     entity.checked = False  # corta sync_transaction_status_from_checklist antes de leer vouchers
     entity.status = TransactionStatus.verification
     entity.social_reason_bank_id = None
@@ -1168,6 +1172,7 @@ async def test_update_transaction_replaces_multiple_destinations(monkeypatch):
     tax_rate_id = uuid4()
     original_agent_id = uuid4()
     entity = MagicMock(
+        coupon_id=None,
         checked=False,
         status=TransactionStatus.verification,
         social_reason_bank_id=None,
@@ -1274,6 +1279,7 @@ async def test_update_replaces_and_clears_transaction_tags(monkeypatch):
     session_result.scalars.return_value.all.return_value = [new_tag]
     session = AsyncMock()
     session.execute = AsyncMock(return_value=session_result)
+    session.scalar = AsyncMock(return_value=entity.user_id)  # C1: owner lock read
     monkeypatch.setattr(TransactionReadDTO, "model_validate", lambda obj: MagicMock())
 
     use_case = UpdateTransactionUseCase(

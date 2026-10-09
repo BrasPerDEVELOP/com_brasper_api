@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import File, Form, UploadFile
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, computed_field, Field, field_validator, field_serializer, model_validator
 
 from app.modules.transactions.domain.enums import AccountFlowType, BankCountry, SocialActor, TransactionStatus
 from app.modules.users.domain.enums import UserRole
@@ -853,6 +853,7 @@ class TransactionAccountingUserRef(TransactionUserRef):
 
 
 class TransactionReadDTO(BaseModel):
+    coupon_campaign_version: Optional[int] = None
     observaciones: Optional[str] = None
     id: UUID
     bank_account_origin_id: Optional[UUID] = None
@@ -898,6 +899,13 @@ class TransactionReadDTO(BaseModel):
     user: TransactionUserRef
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def coupon_discount_state(self) -> Optional[str]:
+        """reserved (pendiente) / consumed (completada) / released (fallida)."""
+        from app.modules.transactions.application.campaign_policy import discount_state
+        return discount_state(self.coupon_id, self.status)
 
     @field_serializer("send_voucher", "payment_voucher", "checked_image")
     def _serialize_voucher_media(self, value, _info):

@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import List, Optional
+from app.modules.transactions.application.campaign_policy import validate_campaign_dates
 
 from app.modules.transactions.domain.models import Coupon
 from app.modules.transactions.interfaces.coupon_repository import CouponRepositoryInterface
@@ -45,6 +46,8 @@ class ListCouponsUseCase:
             # Filtrar por vigencia en memoria (start_date/end_date)
             result = []
             for x in items:
+                if getattr(x, "campaign_rules", None) or x.per_user_limit:
+                    continue  # Personalized campaigns require identity/amount eligibility.
                 if x.start_date and x.start_date > now:
                     continue
                 if x.end_date and x.end_date < now:
@@ -62,6 +65,8 @@ class CreateCouponUseCase:
         self.repo = repo
 
     async def execute(self, cmd: CouponCreateCmd) -> CouponReadDTO:
+        if cmd.campaign_rules or cmd.coupon_type == "CAMPAIGN":
+            raise ValueError("Usa el editor versionado para crear campañas")
         entity = Coupon(
             code=cmd.code,
             discount_percentage=cmd.discount_percentage,
@@ -75,6 +80,8 @@ class CreateCouponUseCase:
             lifecycle_status=cmd.lifecycle_status,
             per_user_limit=cmd.per_user_limit,
             exchange_rate_scopes=cmd.exchange_rate_scopes,
+            campaign_rules=cmd.campaign_rules.model_dump(mode="json") if cmd.campaign_rules else None,
+            campaign_version=1,
         )
         saved = await self.repo.add(entity)
         await self.repo.commit()
@@ -87,14 +94,27 @@ class UpdateCouponUseCase:
         self.repo = repo
 
     async def execute(self, cmd: CouponUpdateCmd) -> Optional[CouponReadDTO]:
-        entity = await self.repo.get(cmd.id)
+        entity = await self.repo.get_for_update(cmd.id)
         if not entity:
             return None
+        version = getattr(entity, "campaign_version", 1)
+        if entity.coupon_type == "CAMPAIGN" or cmd.campaign_rules:
+            raise ValueError("Usa el editor versionado de campañas para modificar esta promoción")
+        if (getattr(entity, "campaign_rules", None) or cmd.campaign_rules) and cmd.expected_version != version:
+            raise ValueError("La campaña cambió; recarga antes de guardar")
+        if cmd.expected_version is not None and cmd.expected_version != version:
+            raise ValueError("La campaña cambió; recarga antes de guardar")
+        if cmd.campaign_rules:
+            entity.campaign_rules = cmd.campaign_rules.model_dump(mode="json")
         if cmd.code is not None:
             entity.code = cmd.code
         if cmd.discount_percentage is not None:
             entity.discount_percentage = cmd.discount_percentage
         if cmd.max_uses is not None:
+            # C1: same rule as campaign publication; the quota cannot drop below
+            # usages already reserved (pending) or consumed (completed).
+            if cmd.max_uses < (entity.used_count or 0):
+                raise ValueError("El límite no puede ser menor que los usos ya reservados/consumidos")
             entity.max_uses = cmd.max_uses
         if cmd.origin_currency is not None:
             entity.origin_currency = cmd.origin_currency
@@ -112,6 +132,9 @@ class UpdateCouponUseCase:
             entity.per_user_limit = cmd.per_user_limit
         if cmd.exchange_rate_scopes is not None:
             entity.exchange_rate_scopes = cmd.exchange_rate_scopes
+        if getattr(entity, "campaign_rules", None):
+            validate_campaign_dates(entity.start_date, entity.end_date)
+        entity.campaign_version = version + 1
         await self.repo.update(entity)
         await self.repo.commit()
         await self.repo.refresh(entity)
@@ -123,5 +146,9 @@ class DeleteCouponUseCase:
         self.repo = repo
 
     async def execute(self, coupon_id: UUID) -> None:
+        entity = await self.repo.get_for_update(coupon_id)
+        if entity is not None and entity.coupon_type == "CAMPAIGN":
+            # C1: campaigns keep their versioned history; use the admin disable flow.
+            raise ValueError("Las campañas no se eliminan desde cupones; desactívala en el editor de campañas")
         await self.repo.delete(coupon_id)
         await self.repo.commit()

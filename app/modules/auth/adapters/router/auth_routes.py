@@ -415,9 +415,12 @@ async def login(
         if isinstance(e, HTTPException):
             raise e
         if isinstance(e, ValueError):
+            # Solo mensajes propios del caso de uso; un error de validación interno (p. ej.
+            # Pydantic al construir el DTO) no se devuelve al cliente.
+            public = {"Invalid username or password", "User account not found"}
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(e),
+                detail=str(e) if str(e) in public else "Invalid username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         raise HTTPException(

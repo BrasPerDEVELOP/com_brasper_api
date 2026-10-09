@@ -123,6 +123,7 @@ class Transaction(ORMBaseModel):
     coupon_origin_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     coupon_destination_amount: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     coupon_discount_percentage: Mapped[Optional[float]] = mapped_column(Numeric(10, 4), nullable=True)
+    coupon_campaign_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     coupon_discount_commission: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
     coupon_discount_total_to_send: Mapped[Optional[float]] = mapped_column(Numeric(20, 8), nullable=True)
 
@@ -367,12 +368,23 @@ class Coupon(ORMBaseModel):
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     per_user_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     exchange_rate_scopes: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    campaign_rules: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    campaign_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    published_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",
         back_populates="coupon",
         lazy="noload",
     )
+
+
+class CouponCampaignVersion(ORMBaseModel):
+    __tablename__ = "coupon_campaign_versions"
+    __table_args__ = (UniqueConstraint("coupon_id", "version", name="uq_campaign_version"), {"schema": "transaction"})
+    coupon_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("transaction.coupons.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
 class CouponRedemption(ORMBaseModel):

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
+from app.modules.coin.domain.commission_selection import select_commission
 from app.modules.coin.domain.accounting_settings_calc import (
     DEFAULT_AMOUNT_THRESHOLD,
     DEFAULT_FIXED_COMMISSION,
@@ -36,6 +37,8 @@ from app.modules.coin.interfaces.commission_accounting_settings_repository impor
 )
 from app.modules.transactions.domain.enums import AccountFlowType, ExchangeRateScope, TransactionStatus
 from app.modules.users.domain.enums import UserRole
+from app.modules.users.domain.models import User
+from app.modules.transactions.application.campaign_policy import discount_for
 from app.modules.users.interfaces.user_repository import UserRepositoryInterface
 from app.modules.transactions.interfaces.transaction_repository import (
     TransactionRepositoryInterface,
@@ -372,7 +375,7 @@ async def _build_transaction_destinations(
             raise ValueError("No se puede repetir una cuenta destino")
         seen.add(account_id)
         amount = _money(item.amount)
-        if amount <= 0:
+        if not isfinite(amount) or amount <= 0:
             raise ValueError("Cada monto destino debe ser mayor que cero")
         account = await bank_account_repo.get(
             account_id,
@@ -746,7 +749,14 @@ class CreateTransactionUseCase:
     async def _apply_server_financials(self, cmd, tax_rate, entity_data) -> Optional[Coupon]:
         """Recalcula los importes y reserva el cupón; el guard permite tests/consumidores legacy."""
         if self._commission_repo is None or self._session is None:
+            # C1: without the ledger session a coupon would be stored with no
+            # reservation (used_count/CouponRedemption) -> never accept it.
+            if getattr(cmd, "coupon_id", None):
+                raise ValueError("No se puede registrar un cupón sin el registro de usos")
             return None
+        # Stable lock order across all registrations: customer, then coupon.
+        # Even an operation without a coupon must serialize with a first-transfer campaign.
+        await self._session.execute(select(User.id).where(User.id == cmd.user_id).with_for_update())
         commission = await self._commission_repo.get(cmd.commission_id)
         if not commission:
             raise ValueError(f"No existe commission con id {cmd.commission_id}")
@@ -755,55 +765,31 @@ class CreateTransactionUseCase:
         amount = float(cmd.origin_amount)
         if amount <= 0:
             raise ValueError("El monto de origen debe ser mayor que cero")
-        below_selected_range = (
-            commission.min_amount is not None and amount < float(commission.min_amount)
+        # C1: the bracket is ALWAYS chosen by the shared policy over the enabled
+        # brackets of the pair (same rows as the official quote). A client-sent
+        # commission_id that is disabled or that wins an overlapping boundary
+        # must not diverge from what the customer was quoted.
+        pair_commissions = await self._commission_repo.list(
+            query_filter=QueryFilter(
+                filters=[
+                    FilterSchema(field="coin_a", value=tax_rate.coin_a, operator=OperatorEnum.EQ),
+                    FilterSchema(field="coin_b", value=tax_rate.coin_b, operator=OperatorEnum.EQ),
+                    FilterSchema(field="enable", value=True, operator=OperatorEnum.EQ),
+                ],
+                order_by=[("min_amount", "asc")],
+            )
         )
-        above_selected_range = (
-            commission.max_amount is not None and amount > float(commission.max_amount)
+        brackets = (
+            pair_commissions.items
+            if isinstance(pair_commissions, PaginatedResult)
+            else pair_commissions
         )
-        if below_selected_range or above_selected_range:
-            pair_commissions = await self._commission_repo.list(
-                query_filter=QueryFilter(
-                    filters=[
-                        FilterSchema(field="coin_a", value=tax_rate.coin_a, operator=OperatorEnum.EQ),
-                        FilterSchema(field="coin_b", value=tax_rate.coin_b, operator=OperatorEnum.EQ),
-                    ],
-                    order_by=[("min_amount", "asc")],
-                )
-            )
-            brackets = (
-                pair_commissions.items
-                if isinstance(pair_commissions, PaginatedResult)
-                else pair_commissions
-            )
-            ordered_brackets = sorted(
-                brackets,
-                key=lambda row: (
-                    float(row.min_amount) if row.min_amount is not None else 0,
-                    float(row.max_amount) if row.max_amount is not None else float("inf"),
-                ),
-            )
-            matching_commission = next(
-                (
-                    row
-                    for row in ordered_brackets
-                    if (row.min_amount is None or amount >= float(row.min_amount))
-                    and (row.max_amount is None or amount <= float(row.max_amount))
-                ),
-                None,
-            )
-            if matching_commission is None and ordered_brackets:
-                matching_commission = (
-                    ordered_brackets[0]
-                    if ordered_brackets[0].min_amount is not None
-                    and amount < float(ordered_brackets[0].min_amount)
-                    else ordered_brackets[-1]
-                )
-            if matching_commission is None:
-                raise ValueError("No existe una comisión configurada para el par de monedas")
-            commission = matching_commission
-            entity_data["commission_id"] = commission.id
-        base_commission = round(amount * float(commission.percentage) / 100, 2)
+        commission = select_commission(amount, list(brackets or []))
+        entity_data["commission_id"] = commission.id
+        percentage = float(commission.percentage)
+        if not isfinite(percentage) or not 0 <= percentage <= 100:
+            raise ValueError("Porcentaje de comisión no válido")
+        base_commission = round(amount * percentage / 100, 2)
         coupon = None
         discount = 0.0
         is_special = False
@@ -811,6 +797,7 @@ class CreateTransactionUseCase:
         if cmd.coupon_id:
             coupon = (await self._session.execute(
                 select(Coupon).where(Coupon.id == cmd.coupon_id, Coupon.deleted.is_(False)).with_for_update()
+                .execution_options(populate_existing=True)
             )).scalar_one_or_none()
             if not coupon or not coupon.is_active or coupon.lifecycle_status != "ACTIVE":
                 raise ValueError("El cupón no está activo")
@@ -837,7 +824,16 @@ class CreateTransactionUseCase:
                 ))
                 if int(used_by_user or 0) >= coupon.per_user_limit:
                     raise ValueError("Ya alcanzaste el límite de uso de este cupón")
-            discount = round(min(base_commission * float(coupon.discount_percentage) / 100, base_commission), 2)
+            completed = pending = 0
+            if getattr(coupon, "campaign_rules", None):
+                completed = int(await self._session.scalar(select(func.count(Transaction.id)).where(
+                    Transaction.user_id == cmd.user_id, Transaction.status == TransactionStatus.completed)) or 0)
+                pending = int(await self._session.scalar(select(func.count(Transaction.id)).where(
+                    Transaction.user_id == cmd.user_id, Transaction.deleted.is_(False),
+                    Transaction.status.notin_([TransactionStatus.completed, TransactionStatus.failed]))) or 0)
+            discount = discount_for(coupon, amount, base_commission, completed=completed, pending=pending)
+            if getattr(coupon, "campaign_rules", None):
+                entity_data["coupon_campaign_version"] = coupon.published_version
             coupon.used_count += 1
         elif _is_special_calculator_code(cmd.coupon_discount_code):
             # Calculadora especial: descuento de comisión manual, sin cupón real. Puede ser
@@ -994,6 +990,63 @@ class CreateTransactionUseCase:
         return TransactionReadDTO.model_validate(saved)
 
 
+async def lock_transaction_owners(session, transaction_id, requested_user_id=None):
+    """Lock the client rows an edit/delete can affect, before the operation row.
+
+    Registration locks client -> coupon; edits/deletes lock client(s) ->
+    operation -> coupon. Several clients (re-assignment) are locked in a
+    deterministic order to avoid deadlocks. Returns the owner read before the
+    lock so the caller can detect a concurrent re-assignment.
+    """
+    owner_id = await session.scalar(select(Transaction.user_id).where(Transaction.id == transaction_id))
+    for user_id in sorted({u for u in (owner_id, requested_user_id) if u is not None}, key=str):
+        await session.execute(select(User.id).where(User.id == user_id).with_for_update())
+    return owner_id
+
+
+async def release_coupon_usage(session, transaction):
+    """Release a pending redemption once; caller commits with the status change."""
+    if transaction.status == TransactionStatus.completed:
+        raise ValueError("Una operación completada conserva el uso del cupón")
+    coupon = (await session.execute(select(Coupon).where(
+        Coupon.id == transaction.coupon_id).with_for_update()
+        .execution_options(populate_existing=True))).scalar_one_or_none()
+    redemptions = (await session.execute(select(CouponRedemption).where(
+        CouponRedemption.transaction_id == transaction.id,
+        CouponRedemption.deleted.is_(False)))).scalars().all()
+    for redemption in redemptions:
+        redemption.deleted = True
+    if coupon and redemptions:
+        coupon.used_count = max(coupon.used_count - len(redemptions), 0)
+
+
+def validate_coupon_edit(entity, updates):
+    """Generic editing must not bypass the reservation/calculation ledger."""
+    if "coupon_id" in updates and updates["coupon_id"] != entity.coupon_id:
+        raise ValueError("No se puede cambiar el cupón de una operación; cancela la pendiente y registra otra")
+    if entity.status == TransactionStatus.completed:
+        if updates.get("status", entity.status) != entity.status:
+            raise ValueError("Una operación completada no puede volver a un estado pendiente o fallido")
+        if updates.get("user_id", entity.user_id) != entity.user_id:
+            raise ValueError("No se puede cambiar el cliente de una operación completada")
+    if not entity.coupon_id:
+        return
+    protected = {
+        "user_id", "tax_rate_id", "commission_id", "origin_amount", "destination_amount",
+        "commission_result", "total_to_send", "tax_amount", "coupon_discount_code",
+        "coupon_origin_amount", "coupon_destination_amount", "coupon_discount_percentage",
+        "coupon_discount_commission", "coupon_discount_total_to_send",
+    }
+    for field in protected & updates.keys():
+        old, new = getattr(entity, field, None), updates[field]
+        if isinstance(old, (float, int, Decimal)) and isinstance(new, (float, int, Decimal)):
+            equal = Decimal(str(old)) == Decimal(str(new))
+        else:
+            equal = old == new
+        if not equal:
+            raise ValueError(f"No se puede modificar {field} en una operación con cupón; registra una nueva operación")
+
+
 class UpdateTransactionUseCase:
     def __init__(
         self,
@@ -1015,12 +1068,26 @@ class UpdateTransactionUseCase:
         *,
         can_update_agent: bool = False,
     ) -> Optional[TransactionReadDTO]:
+        owner_id = None
+        if self._session is not None:
+            # Lock order shared with registration: client(s) -> operation -> coupon.
+            # Then refresh before reading status; concurrent updates/deletes
+            # must decide on the committed state, not a stale identity-map object.
+            requested_user = cmd.user_id if "user_id" in cmd.model_fields_set else None
+            owner_id = await lock_transaction_owners(self._session, cmd.id, requested_user)
+            await self._session.execute(select(Transaction).where(
+                Transaction.id == cmd.id).with_for_update()
+                .execution_options(populate_existing=True))
         entity = await self.repo.get(cmd.id, eager_options=_TXN_LOAD_USER)
         if not entity:
             return None
+        if owner_id is not None and entity.user_id != owner_id:
+            raise ValueError("La operación cambió de cliente mientras se editaba; recarga y reintenta")
+        previous_status = entity.status
 
         fields_set = cmd.model_fields_set
         updates = _cmd_to_entity_data(cmd.model_dump(exclude_unset=True))
+        validate_coupon_edit(entity, updates)
         # Defensa en profundidad: la ruta habilita este campo únicamente para admin.
         if not can_update_agent:
             updates.pop("agent_id", None)
@@ -1152,6 +1219,7 @@ class UpdateTransactionUseCase:
                     )
                 ]
 
+        validate_coupon_edit(entity, updates)
         for attr, value in updates.items():
             setattr(entity, attr, value)
         if replacement_destinations is not None:
@@ -1166,6 +1234,13 @@ class UpdateTransactionUseCase:
             entity.tags = await _resolve_tags(self._session, cmd.tag_ids)
 
         sync_transaction_status_from_checklist(entity)
+
+        if previous_status == TransactionStatus.completed and entity.status != TransactionStatus.completed:
+            raise ValueError("No se puede deshacer el checklist de una operación completada")
+        if entity.coupon_id and previous_status == TransactionStatus.failed and entity.status != TransactionStatus.failed:
+            raise ValueError("El cupón de esta operación fue liberado; registra una operación nueva para volver a validarlo")
+        if entity.coupon_id and entity.status == TransactionStatus.failed and self._session is not None:
+            await release_coupon_usage(self._session, entity)
 
         if cmd.mentioned_user_ids:
             from app.modules.notifications.service import add_mentions
@@ -1185,14 +1260,15 @@ class DeleteTransactionUseCase:
 
     async def execute(self, transaction_id: UUID) -> None:
         if self._session is not None:
-            transaction = await self._session.get(Transaction, transaction_id)
+            owner_id = await lock_transaction_owners(self._session, transaction_id)
+            transaction = (await self._session.execute(select(Transaction).where(
+                Transaction.id == transaction_id).with_for_update()
+                .execution_options(populate_existing=True))).scalar_one_or_none()
+            if transaction is not None and owner_id is not None and transaction.user_id != owner_id:
+                raise ValueError("La operación cambió de cliente mientras se eliminaba; recarga y reintenta")
             if transaction and transaction.coupon_id:
-                coupon = (await self._session.execute(select(Coupon).where(Coupon.id == transaction.coupon_id).with_for_update())).scalar_one_or_none()
-                redemptions = (await self._session.execute(select(CouponRedemption).where(CouponRedemption.transaction_id == transaction_id, CouponRedemption.deleted.is_(False)))).scalars().all()
-                for redemption in redemptions:
-                    redemption.deleted = True
-                if coupon and redemptions:
-                    coupon.used_count = max(coupon.used_count - len(redemptions), 0)
+                if transaction.status != TransactionStatus.completed:
+                    await release_coupon_usage(self._session, transaction)
         await self.repo.delete(transaction_id)
         await self.repo.commit()
 

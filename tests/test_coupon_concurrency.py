@@ -200,6 +200,11 @@ def _make_use_case(db: FakeCouponDB, *, user_id, commission, tax_rate, code):
 
     commission_repo.get = _commission_get
 
+    async def _commission_list(query_filter=None):
+        return [commission]  # C1: registration always re-selects the bracket
+
+    commission_repo.list = _commission_list
+
     # bank snapshot: cuenta destino con banco
     bank = MagicMock(bank="Banco X", company="Empresa Y")
     dest_acc = MagicMock(bank_id=uuid4(), bank=bank)
@@ -365,3 +370,79 @@ async def test_concurrent_distinct_users_each_respect_per_user_limit():
     for uid in (user_a, user_b):
         live = [r for r in db.redemptions if not r.deleted and r.user_id == uid]
         assert len(live) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("percentage", [-1, 101, float("nan"), float("inf")])
+async def test_legacy_invalid_percentage_cannot_be_redeemed(percentage):
+    coupon = _make_coupon(max_uses=10, per_user_limit=1, discount_percentage=percentage)
+    db = FakeCouponDB(coupon)
+    user_id = uuid4()
+    uc, session = _make_use_case(db, user_id=user_id, commission=_make_commission(),
+                                tax_rate=_make_tax_rate(), code="INVALID-PERCENTAGE")
+    try:
+        with pytest.raises(ValueError, match="entre 0 y 100"):
+            await uc.execute(_make_cmd(user_id=user_id, coupon_id=coupon.id))
+        assert coupon.used_count == 0
+        assert not db.redemptions
+    finally:
+        session._release()
+
+
+@pytest.mark.asyncio
+async def test_first_transfer_is_reserved_across_two_different_campaigns():
+    from app.modules.users.domain.models import User
+    from app.modules.transactions.domain.models import Transaction
+    shared_user_lock = asyncio.Lock()
+    transactions = []
+    same_user = uuid4()
+    campaign_rules = {"segment": "first_transfer", "messages": {
+        "es": {"text": "Primer envío"}, "pt": {"text": "Primeiro envio"}}}
+    coupons = [_make_coupon(max_uses=100, per_user_limit=1) for _ in range(2)]
+    for coupon in coupons:
+        coupon.campaign_rules = campaign_rules
+        coupon.published_version = 1
+
+    async def attempt(coupon, i):
+        db = FakeCouponDB(coupon)
+        uc, session = _make_use_case(db, user_id=same_user, commission=_make_commission(), tax_rate=_make_tax_rate(), code=f"FIRST-{i}")
+        original_execute, original_scalar = session.execute, session.scalar
+        original_add, original_commit = uc.repo.add, uc.repo.commit
+        user_locked = False
+        async def execute(stmt):
+            nonlocal user_locked
+            if stmt.column_descriptions[0].get("entity") is User:
+                assert "FOR UPDATE" in str(stmt)
+                await shared_user_lock.acquire()
+                user_locked = True
+                return _Result(same_user)
+            return await original_execute(stmt)
+        async def scalar(stmt):
+            if stmt.column_descriptions[0].get("entity") is Transaction:
+                completed_query = "NOT IN" not in str(stmt)
+                return sum(1 for t in transactions if (t.status.value == "completed") == completed_query)
+            return await original_scalar(stmt)
+        async def add(entity):
+            result = await original_add(entity)
+            transactions.append(result)
+            return result
+        async def commit():
+            nonlocal user_locked
+            await original_commit()
+            shared_user_lock.release()
+            user_locked = False
+        session.execute, session.scalar = execute, scalar
+        uc.repo.add, uc.repo.commit = add, commit
+        try:
+            await uc.execute(_make_cmd(user_id=same_user, coupon_id=coupon.id))
+            return True
+        except ValueError as exc:
+            assert "reservado" in str(exc)
+            return False
+        finally:
+            session._release()
+            if user_locked:
+                shared_user_lock.release()
+    results = await asyncio.gather(*(attempt(c, i) for i, c in enumerate(coupons)))
+    assert sum(results) == 1 and len(transactions) == 1
+    assert sum(c.used_count for c in coupons) == 1

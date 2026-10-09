@@ -3,10 +3,28 @@ from __future__ import annotations
 
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
+from app.modules.transactions.domain.enums import TransactionStatus
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.modules.users.domain.enums import DocumentType, PhoneCode
+
+
+class AIClientHistoryDTO(BaseModel):
+    completed_transfers: int = Field(ge=0)
+    pending_transfers: int = Field(ge=0)
+    first_transfer_eligible: bool
+
+
+class AIOperationStatusDTO(BaseModel):
+    code: str
+    status: TransactionStatus
+    updated_at: datetime | None = None
+
+
+class AIOperationStatusesDTO(BaseModel):
+    data: list[AIOperationStatusDTO]
 
 
 class AIClientDTO(BaseModel):
@@ -17,6 +35,7 @@ class AIClientDTO(BaseModel):
     phone: Optional[str] = None
     document_type: Optional[str] = None
     document_verified: bool = False
+    document_recorded: bool = False
     is_first_transfer: bool
 
 

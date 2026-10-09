@@ -3,14 +3,15 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.coin.domain.enums import Currency
+from .campaign_schema import CampaignRules
 
 
 class CouponCreateCmd(BaseModel):
     code: str
-    discount_percentage: float
+    discount_percentage: float = Field(ge=0, le=100, allow_inf_nan=False)
     max_uses: int
     origin_currency: Currency
     destination_currency: Currency
@@ -21,12 +22,13 @@ class CouponCreateCmd(BaseModel):
     lifecycle_status: str = "ACTIVE"
     per_user_limit: Optional[int] = None
     exchange_rate_scopes: Optional[list[str]] = None
+    campaign_rules: Optional[CampaignRules] = None
 
 
 class CouponUpdateCmd(BaseModel):
     id: UUID
     code: Optional[str] = None
-    discount_percentage: Optional[float] = None
+    discount_percentage: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     max_uses: Optional[int] = None
     origin_currency: Optional[Currency] = None
     destination_currency: Optional[Currency] = None
@@ -36,6 +38,8 @@ class CouponUpdateCmd(BaseModel):
     lifecycle_status: Optional[str] = None
     per_user_limit: Optional[int] = None
     exchange_rate_scopes: Optional[list[str]] = None
+    campaign_rules: Optional[CampaignRules] = None
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 class CouponReadDTO(BaseModel):
@@ -56,5 +60,7 @@ class CouponReadDTO(BaseModel):
     used_count: int = 0
     per_user_limit: Optional[int] = None
     exchange_rate_scopes: Optional[list[str]] = None
+    campaign_rules: Optional[CampaignRules] = None
+    campaign_version: int = 1
 
     model_config = ConfigDict(from_attributes=True)

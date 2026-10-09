@@ -10,9 +10,12 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.coin.domain.enums import Currency
 from app.modules.transactions.domain.models import Bank, Transaction
+from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.users.domain.models import User, UserIdentification
 from app.modules.brasper.application.ai_schemas import (
     AIClientDTO,
+    AIOperationStatusDTO,
+    AIClientHistoryDTO,
     AIClientLookupDTO,
     AIClientUpsertCmd,
     AIClientUpsertDTO,
@@ -28,12 +31,52 @@ class BrasperAIService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def operation_status(self, user_id: UUID, *, code_phone: str, phone: int,
+                               reference: str | None = None):
+        user = (await self.session.scalars(self._active_clients().where(
+            User.id == user_id, User.code_phone == code_phone, User.phone == phone,
+        ).limit(1))).first()
+        if user is None:
+            return None
+        stmt = select(Transaction).where(Transaction.user_id == user_id, Transaction.deleted.is_(False))
+        if reference:
+            try:
+                operation_id = UUID(reference)
+            except ValueError:
+                stmt = stmt.where(Transaction.code == reference)
+            else:
+                stmt = stmt.where(Transaction.id == operation_id)
+        rows = (await self.session.scalars(stmt.order_by(Transaction.created_at.desc(), Transaction.id).limit(5))).all()
+        return [AIOperationStatusDTO(code=row.code, status=row.status, updated_at=row.updated_at) for row in rows]
+
     async def _is_first_transfer(self, user_id: UUID) -> bool:
         count = await self.session.scalar(select(func.count(Transaction.id)).where(
             Transaction.user_id == user_id,
-            Transaction.deleted.is_(False),
+            Transaction.status == TransactionStatus.completed,
         ))
         return int(count or 0) == 0
+
+    async def client_history(self, user_id: UUID, *, code_phone: str, phone: int) -> AIClientHistoryDTO | None:
+        """Minimal history for an identity matched to the provider's phone number.
+
+        The integration caller must supply a trusted channel phone, not free text.
+        A soft-deleted completed transfer still counts: deleting a chat or record
+        must not silently reset an already-used first-transfer entitlement.
+        """
+        user = (await self.session.scalars(self._active_clients().where(
+            User.id == user_id, User.code_phone == code_phone, User.phone == phone,
+        ).limit(1))).first()
+        if user is None:
+            return None
+        completed = int(await self.session.scalar(select(func.count(Transaction.id)).where(
+            Transaction.user_id == user_id, Transaction.status == TransactionStatus.completed,
+        )) or 0)
+        pending = int(await self.session.scalar(select(func.count(Transaction.id)).where(
+            Transaction.user_id == user_id, Transaction.deleted.is_(False),
+            Transaction.status.notin_([TransactionStatus.completed, TransactionStatus.failed]),
+        )) or 0)
+        return AIClientHistoryDTO(completed_transfers=completed, pending_transfers=pending,
+                                  first_transfer_eligible=completed == 0 and pending == 0)
 
     async def _client_dto(self, user: User) -> AIClientDTO:
         return AIClientDTO(
@@ -43,7 +86,8 @@ class BrasperAIService:
             code_phone=user.code_phone,
             phone=str(user.phone) if user.phone is not None else None,
             document_type=user.document_type,
-            document_verified=bool(user.document_number or user.identifications),
+            document_recorded=bool(user.document_number or user.identifications),
+            document_verified=False,  # A stored number does not prove KYC/identity verification.
             is_first_transfer=await self._is_first_transfer(user.id),
         )
 
@@ -102,6 +146,14 @@ class BrasperAIService:
         by_phone = await self._find_by_phone(cmd)
         if by_document and by_phone and by_document.id != by_phone.id:
             raise ValueError("El documento y el teléfono pertenecen a clientes distintos")
+
+        # Conversational input must not reassign an existing identity or rewrite its
+        # contact details. Profile corrections belong to the authenticated/human path.
+        if (by_document is None) != (by_phone is None):
+            raise ValueError("Los datos requieren verificación de un asesor")
+        if by_document is not None:
+            return AIClientUpsertDTO(id=by_document.id, created=False,
+                                    is_first_transfer=await self._is_first_transfer(by_document.id))
 
         user = by_document or by_phone
         created = user is None
