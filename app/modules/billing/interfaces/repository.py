@@ -65,6 +65,11 @@ class BillingRepositoryInterface(ABC):
     async def list_by_status(self, statuses: Sequence[str], *, limit: int = 50) -> list[Invoice]: ...
 
     @abstractmethod
+    async def latest_invoices_for_transactions(self, transaction_ids: Sequence[UUID]) -> list[Invoice]:
+        """El comprobante más reciente de cada operación (las que no tienen, no aparecen)."""
+        ...
+
+    @abstractmethod
     async def list_stale_reserved(self, reserved_before: datetime, *, limit: int = 50) -> list[Invoice]:
         """Comprobantes en ``reserved`` desde antes de ``reserved_before`` (envío interrumpido)."""
         ...

@@ -112,6 +112,13 @@ class FakeRepo(BillingRepositoryInterface):
     async def list_by_status(self, statuses: Sequence[str], *, limit=50):
         return [i for i in self.invoices if i.status in statuses][:limit]
 
+    async def latest_invoices_for_transactions(self, transaction_ids):
+        latest = {}
+        for invoice in self.invoices:
+            if invoice.transaction_id in transaction_ids:
+                latest[invoice.transaction_id] = invoice
+        return list(latest.values())
+
     async def list_stale_reserved(self, reserved_before, *, limit=50):
         return [
             i
@@ -598,3 +605,92 @@ async def test_emitir_y_reintentar_fijan_reserved_at():
     client.send_results = [PENDING]
     await RetryInvoiceUseCase(repo, client, settings).execute(dto.id, actor="x")
     assert invoice.reserved_at >= first
+
+
+# --- Vista previa y comprobantes por lote ------------------------------------
+@pytest.mark.asyncio
+async def test_preview_muestra_el_comprobante_sin_reservar_numero():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+
+    tx = _transaction(commission_result=40.0)
+    repo = FakeRepo(tx)
+    preview = await PreviewInvoiceUseCase(repo, _settings()).execute(tx.id)
+
+    assert preview.can_issue is True and preview.reason is None
+    assert (preview.document_type, preview.series, preview.currency) == ("03", "B001", "PEN")
+    assert (preview.taxable_amount, preview.igv_amount, preview.total_amount) == (33.9, 6.1, 40.0)
+    assert preview.customer_name == "MARÍA PÉREZ"
+    assert repo.series == {} and repo.invoices == []  # no reservó nada
+
+
+@pytest.mark.asyncio
+async def test_preview_explica_por_que_no_se_puede_emitir():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+
+    tx = _transaction(user=_user("ruc", "20123456789", names="", lastnames=""))
+    preview = await PreviewInvoiceUseCase(FakeRepo(tx), _settings()).execute(tx.id)
+    assert preview.can_issue is False and "razón social" in preview.reason
+
+    fixed = await PreviewInvoiceUseCase(FakeRepo(tx), _settings()).execute(
+        tx.id, IssueInvoiceCmd(customer_name="Acme SAC")
+    )
+    assert fixed.can_issue is True and fixed.document_type == "01" and fixed.series == "F001"
+
+
+@pytest.mark.asyncio
+async def test_preview_con_modulo_apagado_muestra_datos_pero_no_permite_emitir():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+
+    tx = _transaction()
+    preview = await PreviewInvoiceUseCase(FakeRepo(tx), _settings(BILLING_ENABLED=False)).execute(tx.id)
+    assert preview.can_issue is False and preview.total_amount == 40.0
+    assert "deshabilitada" in preview.reason
+
+
+@pytest.mark.asyncio
+async def test_ultimos_comprobantes_por_operacion():
+    from app.modules.billing.application.use_cases import LatestInvoicesForTransactionsUseCase
+
+    tx = _transaction()
+    repo, client = FakeRepo(tx), FakeClient()
+    await _invoice_in_error(repo, client, _settings())
+    items = await LatestInvoicesForTransactionsUseCase(repo).execute([tx.id, uuid4(), tx.id])
+    assert [i.transaction_id for i in items] == [tx.id]
+    assert await LatestInvoicesForTransactionsUseCase(repo).execute([]) == []
+
+
+# --- Elegir boleta o factura -------------------------------------------------
+def test_elegir_factura_exige_ruc_y_razon_social():
+    with pytest.raises(ValueError, match="RUC del cliente"):
+        resolve_customer(None, _user(), IssueInvoiceCmd(document_type="01"))
+
+    doc_type, customer = resolve_customer(
+        None,
+        _user(),
+        IssueInvoiceCmd(
+            document_type="01",
+            customer_doc_type="6",
+            customer_doc_number="20123456789",
+            customer_name="Acme SAC",
+        ),
+    )
+    assert doc_type is BillingDocumentType.factura
+    assert (customer.doc_type, customer.doc_number, customer.name) == ("6", "20123456789", "ACME SAC")
+
+
+def test_elegir_boleta_para_cliente_con_ruc():
+    user = _user("ruc", "20123456789", names="ACME S.A.C.", lastnames="")
+    doc_type, customer = resolve_customer(None, user, IssueInvoiceCmd(document_type="03"))
+    assert doc_type is BillingDocumentType.boleta and customer.doc_type == "6"
+
+    # Sin elección, sigue siendo automático: RUC → factura.
+    assert resolve_customer(None, user, None)[0] is BillingDocumentType.factura
+
+
+@pytest.mark.asyncio
+async def test_emitir_boleta_a_cliente_con_ruc_usa_serie_b():
+    tx = _transaction(user=_user("ruc", "20123456789", names="ACME S.A.C.", lastnames=""))
+    repo, client = FakeRepo(tx), FakeClient()
+    client.send_results = [PENDING]
+    dto = await IssueInvoiceUseCase(repo, client, _settings()).execute(tx.id, IssueInvoiceCmd(document_type="03"))
+    assert dto.series == "B001" and dto.document_type == "03"

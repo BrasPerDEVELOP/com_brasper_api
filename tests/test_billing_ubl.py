@@ -126,16 +126,17 @@ def test_factura_a_empresa_con_ruc_y_direccion():
     assert body["cbc:Note"][0]["_text"].endswith("DÓLARES AMERICANOS")
 
 
-def test_tipo_de_comprobante_y_documento_deben_coincidir():
+def test_factura_exige_ruc_y_boleta_admite_cliente_con_ruc():
     with pytest.raises(ValueError):
         build_document_body(
             _draft(BillingDocumentType.factura, "F001"),
             ISSUER,
             CustomerParty(doc_type="1", doc_number="45678912", name="MARIA PEREZ"),
         )
-    with pytest.raises(ValueError):
-        build_document_body(
-            _draft(BillingDocumentType.boleta, "B001"),
-            ISSUER,
-            CustomerParty(doc_type="6", doc_number="20123456789", name="ACME"),
-        )
+    # Boleta a quien tiene RUC: válida si el cliente la pide (no usará crédito fiscal).
+    body = build_document_body(
+        _draft(BillingDocumentType.boleta, "B001"),
+        ISSUER,
+        CustomerParty(doc_type="6", doc_number="20123456789", name="ACME"),
+    )
+    assert body["cbc:InvoiceTypeCode"]["_text"] == "03"

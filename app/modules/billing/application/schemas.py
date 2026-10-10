@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -128,6 +128,36 @@ class IssueInvoiceCmd(BaseModel):
     customer_email: Optional[str] = Field(default=None, max_length=255)
     customer_doc_type: Optional[str] = Field(default=None, max_length=20)
     customer_doc_number: Optional[str] = Field(default=None, max_length=40)
+    #: "01" factura o "03" boleta. Vacío = automático según el documento del cliente.
+    document_type: Optional[Literal["01", "03"]] = None
+
+
+class InvoicePreviewDTO(BaseModel):
+    """Comprobante que saldría al emitir (sin reservar número). ``can_issue`` + ``reason`` explican si se puede."""
+
+    transaction_id: UUID
+    can_issue: bool
+    reason: Optional[str] = None
+    enabled: bool
+    environment: str
+    document_type: Optional[str] = None
+    document_type_label: Optional[str] = None
+    series: Optional[str] = None
+    currency: Optional[str] = None
+    taxable_amount: Optional[float] = None
+    igv_amount: Optional[float] = None
+    total_amount: Optional[float] = None
+    igv_rate: Optional[float] = None
+    customer_doc_type: Optional[str] = None
+    customer_doc_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_address: Optional[str] = None
+    customer_email: Optional[str] = None
+    item_description: Optional[str] = None
+
+
+class LatestInvoicesQuery(BaseModel):
+    transaction_ids: list[UUID] = Field(min_length=1, max_length=200)
 
 
 class VoidInvoiceCmd(BaseModel):

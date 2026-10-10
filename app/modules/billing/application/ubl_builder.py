@@ -152,8 +152,6 @@ def _tax_scheme() -> dict[str, Any]:
 def build_document_body(draft: InvoiceDraft, issuer: IssuerParty, customer: CustomerParty) -> dict[str, Any]:
     if draft.document_type is BillingDocumentType.factura and customer.doc_type != SUNAT_IDENTITY_RUC:
         raise ValueError("Una factura exige un adquirente con RUC")
-    if draft.document_type is BillingDocumentType.boleta and customer.doc_type == SUNAT_IDENTITY_RUC:
-        raise ValueError("A un cliente con RUC le corresponde factura, no boleta")
 
     cur = draft.currency.upper()
     a = draft.amounts

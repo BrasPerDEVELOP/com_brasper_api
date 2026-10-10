@@ -168,6 +168,17 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def latest_invoices_for_transactions(self, transaction_ids: Sequence[UUID]) -> list[Invoice]:
+        if not transaction_ids:
+            return []
+        stmt = (
+            select(Invoice)
+            .where(Invoice.deleted.is_(False), Invoice.transaction_id.in_(list(transaction_ids)))
+            .distinct(Invoice.transaction_id)
+            .order_by(Invoice.transaction_id, Invoice.created_at.desc(), Invoice.number.desc())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def list_stale_reserved(self, reserved_before: datetime, *, limit: int = 50) -> list[Invoice]:
         stmt = (
             select(Invoice)

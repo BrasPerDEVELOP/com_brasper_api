@@ -161,3 +161,50 @@ def test_billing_endpoints_contract():
     finally:
         for dep in (get_db, billing_status_uc, list_invoices_uc, get_invoice_uc, issue_invoice_uc, require_billing_enabled):
             app.dependency_overrides.pop(dep, None)
+
+
+def test_by_transactions_and_preview_routes():
+    from app.modules.billing.adapters.dependencies import latest_invoices_uc, preview_invoice_uc
+    from app.modules.billing.application.schemas import InvoicePreviewDTO
+
+    dto = _invoice_dto()
+    latest = MagicMock()
+    latest.execute = AsyncMock(return_value=[dto])
+    preview = MagicMock()
+    preview.execute = AsyncMock(
+        return_value=InvoicePreviewDTO(
+            transaction_id=dto.transaction_id,
+            can_issue=True,
+            enabled=True,
+            environment="development",
+            document_type="03",
+            total_amount=40.0,
+        )
+    )
+    app.dependency_overrides[get_db] = _db_mock
+    app.dependency_overrides[latest_invoices_uc] = lambda: latest
+    app.dependency_overrides[preview_invoice_uc] = lambda: preview
+    try:
+        client = TestClient(app)
+        other = uuid4()
+        response = client.get(
+            "/billing/invoices/by-transactions",
+            params=[("transaction_ids", str(dto.transaction_id)), ("transaction_ids", str(other))],
+        )
+        assert response.status_code == 200
+        assert response.json()[0]["full_number"] == "B001-00000001"
+        assert latest.execute.await_args.args[0] == [dto.transaction_id, other]
+
+        response = client.get("/billing/invoices/by-transactions")
+        assert response.status_code == 422  # al menos una operación
+
+        response = client.get(
+            f"/billing/transactions/{dto.transaction_id}/preview",
+            params={"customer_name": "Acme SAC"},
+        )
+        assert response.status_code == 200 and response.json()["can_issue"] is True
+        args = preview.execute.await_args.args
+        assert args[0] == dto.transaction_id and args[1].customer_name == "Acme SAC"
+    finally:
+        for dep in (get_db, latest_invoices_uc, preview_invoice_uc):
+            app.dependency_overrides.pop(dep, None)

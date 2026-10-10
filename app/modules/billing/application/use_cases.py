@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -25,6 +26,7 @@ from app.core.settings import Settings
 from app.modules.billing.application.schemas import (
     BillingStatusDTO,
     InvoiceDTO,
+    InvoicePreviewDTO,
     InvoiceListDTO,
     IssueInvoiceCmd,
     SeriesAlignmentDTO,
@@ -38,7 +40,7 @@ from app.modules.billing.application.ubl_builder import (
     build_file_name,
     issue_moment,
 )
-from app.modules.billing.domain.amounts import billable_amount, compute_invoice_amounts
+from app.modules.billing.domain.amounts import InvoiceAmounts, billable_amount, compute_invoice_amounts
 from app.modules.billing.domain.enums import (
     SUNAT_IDENTITY_BY_DOCUMENT_TYPE,
     SUNAT_IDENTITY_RUC,
@@ -97,8 +99,11 @@ def _clean(value: Optional[str]) -> str:
 def resolve_customer(transaction, user, cmd: Optional[IssueInvoiceCmd]) -> tuple[BillingDocumentType, CustomerParty]:
     """Decide boleta o factura y arma los datos del adquirente.
 
-    El documento del usuario manda; ``cmd`` solo completa o corrige (razón social,
-    dirección fiscal, correo). Con RUC → factura y la razón social es obligatoria.
+    El documento del usuario manda; ``cmd`` completa o corrige (razón social,
+    dirección fiscal, correo, documento). Sin elección explícita: con RUC → factura,
+    con cualquier otro documento → boleta. ``cmd.document_type`` permite elegir:
+    factura exige RUC de 11 dígitos y razón social; boleta se admite también a un
+    cliente con RUC (consumidor final que no usará crédito fiscal).
     """
     cmd = cmd or IssueInvoiceCmd()
     raw_type = _clean(cmd.customer_doc_type or getattr(user, "document_type", None)).lower()
@@ -117,7 +122,12 @@ def resolve_customer(transaction, user, cmd: Optional[IssueInvoiceCmd]) -> tuple
 
     full_name = _clean(f"{getattr(user, 'names', '') or ''} {getattr(user, 'lastnames', '') or ''}")
     name = _clean(cmd.customer_name) or full_name
-    if sunat_code == SUNAT_IDENTITY_RUC:
+    requested = cmd.document_type
+    if requested == BillingDocumentType.factura.value or (
+        requested is None and sunat_code == SUNAT_IDENTITY_RUC
+    ):
+        if sunat_code != SUNAT_IDENTITY_RUC:
+            raise ValueError("Para emitir factura ingresa el RUC del cliente (11 dígitos)")
         if not name:
             raise ValueError("Falta la razón social del cliente con RUC")
         document_type = BillingDocumentType.factura
@@ -219,6 +229,121 @@ async def send_invoice(
     return invoice
 
 
+@dataclass(frozen=True)
+class IssuePlan:
+    """Todo lo que se decide antes de reservar el número (sin efectos)."""
+
+    transaction: object
+    document_type: BillingDocumentType
+    customer: CustomerParty
+    amounts: InvoiceAmounts
+    currency: object
+    currency_code: str
+    series: str
+
+
+async def prepare_issue(
+    repo: BillingRepositoryInterface,
+    settings: Settings,
+    transaction_id: UUID,
+    cmd: Optional[IssueInvoiceCmd] = None,
+) -> IssuePlan:
+    """Valida la operación y arma tipo, adquirente e importes. ``ValueError`` si no se puede emitir."""
+    transaction = await repo.get_transaction_for_billing(transaction_id)
+    if transaction is None:
+        raise LookupError("Operación no encontrada")
+    if transaction.status != TransactionStatus.completed:
+        raise ValueError("Solo se emiten comprobantes de operaciones completadas")
+    start_date = settings.billing_start_date
+    reference_date = transaction.payment_date or transaction.created_at
+    if start_date and reference_date and reference_date.date() < start_date:
+        raise ValueError(
+            f"La operación es anterior a la fecha de corte de facturación ({start_date.isoformat()})"
+        )
+    existing = await repo.get_open_invoice(transaction.id)
+    if existing is not None:
+        raise ValueError(
+            f"La operación ya tiene el comprobante {existing.series}-{existing.number:08d} "
+            f"en estado {existing.status}"
+        )
+    amounts = compute_invoice_amounts(
+        billable_amount(transaction),
+        igv_included=settings.BILLING_COMMISSION_INCLUDES_IGV,
+        igv_rate=Decimal(str(settings.BILLING_IGV_RATE)),
+    )
+    if amounts is None:
+        raise ValueError("La operación no tiene comisión cobrada: no hay nada que facturar")
+
+    tax_rate = await repo.get_tax_rate(transaction.tax_rate_id)
+    currency = tax_rate.coin_a if tax_rate is not None else Currency.pen
+    currency_code = currency.value if hasattr(currency, "value") else str(currency)
+
+    document_type, customer = resolve_customer(transaction, transaction.user, cmd)
+    return IssuePlan(
+        transaction=transaction,
+        document_type=document_type,
+        customer=customer,
+        amounts=amounts,
+        currency=currency,
+        currency_code=currency_code,
+        series=_series_for(settings, document_type),
+    )
+
+
+class PreviewInvoiceUseCase:
+    """Qué comprobante saldría para una operación, sin reservar número ni llamar a APISUNAT."""
+
+    def __init__(self, repo: BillingRepositoryInterface, settings: Settings):
+        self.repo = repo
+        self.settings = settings
+
+    async def execute(self, transaction_id: UUID, cmd: Optional[IssueInvoiceCmd] = None) -> InvoicePreviewDTO:
+        try:
+            plan = await prepare_issue(self.repo, self.settings, transaction_id, cmd)
+        except ValueError as exc:
+            return InvoicePreviewDTO(
+                transaction_id=transaction_id,
+                can_issue=False,
+                reason=str(exc),
+                enabled=self.settings.BILLING_ENABLED,
+                environment=self.settings.APISUNAT_ENVIRONMENT.lower(),
+            )
+        return InvoicePreviewDTO(
+            transaction_id=transaction_id,
+            can_issue=self.settings.BILLING_ENABLED,
+            reason=None if self.settings.BILLING_ENABLED else "La facturación electrónica está deshabilitada",
+            enabled=self.settings.BILLING_ENABLED,
+            environment=self.settings.APISUNAT_ENVIRONMENT.lower(),
+            document_type=plan.document_type.value,
+            document_type_label=plan.document_type.label,
+            series=plan.series,
+            currency=plan.currency_code,
+            taxable_amount=float(plan.amounts.taxable),
+            igv_amount=float(plan.amounts.igv),
+            total_amount=float(plan.amounts.total),
+            igv_rate=float(plan.amounts.igv_rate),
+            customer_doc_type=plan.customer.doc_type,
+            customer_doc_number=plan.customer.doc_number,
+            customer_name=plan.customer.name,
+            customer_address=plan.customer.address,
+            customer_email=plan.customer.email,
+            item_description=self.settings.BILLING_ITEM_DESCRIPTION.format(code=plan.transaction.code),
+        )
+
+
+class LatestInvoicesForTransactionsUseCase:
+    """Último comprobante de cada operación de una página (una sola consulta)."""
+
+    def __init__(self, repo: BillingRepositoryInterface):
+        self.repo = repo
+
+    async def execute(self, transaction_ids: list[UUID]) -> list[InvoiceDTO]:
+        ids = list(dict.fromkeys(transaction_ids))[:200]
+        if not ids:
+            return []
+        return [InvoiceDTO.from_entity(i) for i in await self.repo.latest_invoices_for_transactions(ids)]
+
+
 class IssueInvoiceUseCase:
     def __init__(
         self,
@@ -238,37 +363,10 @@ class IssueInvoiceUseCase:
         actor: Optional[str] = None,
     ) -> InvoiceDTO:
         _ensure_enabled(self.settings)
-        transaction = await self.repo.get_transaction_for_billing(transaction_id)
-        if transaction is None:
-            raise LookupError("Operación no encontrada")
-        if transaction.status != TransactionStatus.completed:
-            raise ValueError("Solo se emiten comprobantes de operaciones completadas")
-        start_date = self.settings.billing_start_date
-        reference_date = transaction.payment_date or transaction.created_at
-        if start_date and reference_date and reference_date.date() < start_date:
-            raise ValueError(
-                f"La operación es anterior a la fecha de corte de facturación ({start_date.isoformat()})"
-            )
-        existing = await self.repo.get_open_invoice(transaction.id)
-        if existing is not None:
-            raise ValueError(
-                f"La operación ya tiene el comprobante {existing.series}-{existing.number:08d} "
-                f"en estado {existing.status}"
-            )
-        amounts = compute_invoice_amounts(
-            billable_amount(transaction),
-            igv_included=self.settings.BILLING_COMMISSION_INCLUDES_IGV,
-            igv_rate=Decimal(str(self.settings.BILLING_IGV_RATE)),
-        )
-        if amounts is None:
-            raise ValueError("La operación no tiene comisión cobrada: no hay nada que facturar")
-
-        tax_rate = await self.repo.get_tax_rate(transaction.tax_rate_id)
-        currency = tax_rate.coin_a if tax_rate is not None else Currency.pen
-        currency_code = currency.value if hasattr(currency, "value") else str(currency)
-
-        document_type, customer = resolve_customer(transaction, transaction.user, cmd)
-        series = _series_for(self.settings, document_type)
+        plan = await prepare_issue(self.repo, self.settings, transaction_id, cmd)
+        transaction, document_type, customer = plan.transaction, plan.document_type, plan.customer
+        amounts, currency, currency_code = plan.amounts, plan.currency, plan.currency_code
+        series = plan.series
         environment = self.settings.APISUNAT_ENVIRONMENT.lower()
         number = await self.repo.reserve_next_number(document_type.value, series, environment)
 
@@ -503,6 +601,7 @@ class RetryInvoiceUseCase:
                 customer_email=invoice.customer_email,
                 customer_doc_type=invoice.customer_doc_type,
                 customer_doc_number=invoice.customer_doc_number,
+                document_type=invoice.document_type,
             )
             return await issue.execute(invoice.transaction_id, cmd, actor=actor)
         if status is InvoiceStatus.error:

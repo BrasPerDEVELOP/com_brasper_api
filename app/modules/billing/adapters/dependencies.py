@@ -12,8 +12,10 @@ from app.modules.billing.application.use_cases import (
     GetInvoicePdfUseCase,
     GetInvoiceUseCase,
     IssueInvoiceUseCase,
+    LatestInvoicesForTransactionsUseCase,
     ListInvoicesUseCase,
     PollInvoiceUseCase,
+    PreviewInvoiceUseCase,
     RetryInvoiceUseCase,
     VoidInvoiceUseCase,
 )
@@ -96,6 +98,14 @@ def billing_status_uc(repo: RepoDep, settings: SettingsDep) -> BillingStatusUseC
     return BillingStatusUseCase(repo, settings)
 
 
+def preview_invoice_uc(repo: RepoDep, settings: SettingsDep) -> PreviewInvoiceUseCase:
+    return PreviewInvoiceUseCase(repo, settings)
+
+
+def latest_invoices_uc(repo: RepoDep) -> LatestInvoicesForTransactionsUseCase:
+    return LatestInvoicesForTransactionsUseCase(repo)
+
+
 def align_series_uc(repo: RepoDep, client: ClientDep, settings: SettingsDep) -> AlignSeriesUseCase:
     return AlignSeriesUseCase(repo, client, settings)
 
@@ -109,3 +119,5 @@ ListInvoicesUseCaseDep = Annotated[ListInvoicesUseCase, Depends(list_invoices_uc
 GetInvoicePdfUseCaseDep = Annotated[GetInvoicePdfUseCase, Depends(get_invoice_pdf_uc)]
 BillingStatusUseCaseDep = Annotated[BillingStatusUseCase, Depends(billing_status_uc)]
 AlignSeriesUseCaseDep = Annotated[AlignSeriesUseCase, Depends(align_series_uc)]
+PreviewInvoiceUseCaseDep = Annotated[PreviewInvoiceUseCase, Depends(preview_invoice_uc)]
+LatestInvoicesUseCaseDep = Annotated[LatestInvoicesForTransactionsUseCase, Depends(latest_invoices_uc)]

@@ -15,8 +15,10 @@ from app.modules.billing.adapters.dependencies import (
     GetInvoicePdfUseCaseDep,
     GetInvoiceUseCaseDep,
     IssueInvoiceUseCaseDep,
+    LatestInvoicesUseCaseDep,
     ListInvoicesUseCaseDep,
     PollInvoiceUseCaseDep,
+    PreviewInvoiceUseCaseDep,
     RepoDep,
     RetryInvoiceUseCaseDep,
     VoidInvoiceUseCaseDep,
@@ -26,6 +28,7 @@ from app.modules.billing.application.schemas import (
     BillingStatusDTO,
     InvoiceDTO,
     InvoiceListDTO,
+    InvoicePreviewDTO,
     IssueInvoiceCmd,
     SeriesAlignmentDTO,
     VoidInvoiceCmd,
@@ -86,6 +89,49 @@ async def list_invoices(
         skip=skip,
         limit=limit,
     )
+
+
+@router.get(
+    "/invoices/by-transactions",
+    response_model=list[InvoiceDTO],
+    dependencies=[Depends(require_permission("billing.view"))],
+)
+async def latest_invoices_for_transactions(
+    use_case: LatestInvoicesUseCaseDep,
+    transaction_ids: list[UUID] = Query(..., min_length=1, max_length=100),
+):
+    """Último comprobante de cada operación (para pintar una página del backoffice en una consulta)."""
+    return await use_case.execute(transaction_ids)
+
+
+@router.get(
+    "/transactions/{transaction_id}/preview",
+    response_model=InvoicePreviewDTO,
+    dependencies=[Depends(require_permission("billing.view"))],
+)
+async def preview_transaction_invoice(
+    transaction_id: UUID,
+    use_case: PreviewInvoiceUseCaseDep,
+    customer_name: Optional[str] = Query(None, max_length=250),
+    customer_address: Optional[str] = Query(None, max_length=250),
+    customer_email: Optional[str] = Query(None, max_length=255),
+    customer_doc_type: Optional[str] = Query(None, max_length=20),
+    customer_doc_number: Optional[str] = Query(None, max_length=40),
+    document_type: Optional[str] = Query(None, pattern=r"^(01|03)$"),
+):
+    """Boleta o factura que saldría, con adquirente e importes. No reserva número ni llama a APISUNAT."""
+    cmd = IssueInvoiceCmd(
+        customer_name=customer_name,
+        customer_address=customer_address,
+        customer_email=customer_email,
+        customer_doc_type=customer_doc_type,
+        customer_doc_number=customer_doc_number,
+        document_type=document_type,
+    )
+    try:
+        return await use_case.execute(transaction_id, cmd)
+    except Exception as exc:  # noqa: BLE001
+        _raise_for(exc)
 
 
 @router.get(

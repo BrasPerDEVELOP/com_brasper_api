@@ -55,6 +55,28 @@ Prueba completa desde la API (con la base de desarrollo):
 2. `POST /billing/transactions/{id}/issue` → `sent`.
 3. Esperar un ciclo del poller (o `POST /billing/invoices/{id}/refresh`) → `accepted`, con XML, CDR y PDF en R2 (`invoices/AAAA/...pdf`).
 
+## Uso desde el backoffice
+
+| Dónde | Qué se hace |
+|---|---|
+| **Contabilidad** → columna «Comprobante SUNAT» | Botón **Emitir** en cada operación finalizada sin comprobante. Si ya tiene uno, muestra número y estado; al hacer clic abre el detalle. |
+| Diálogo **Emitir** | Selector **Boleta / Factura** (arranca en el que corresponde al documento del cliente: RUC → factura). Factura pide RUC de 11 dígitos y razón social si la ficha no los tiene; boleta se admite también a un cliente con RUC. Vista previa sin reservar número: serie, cliente, valor de venta, IGV y total, con el ambiente (Desarrollo/Producción) bien visible. Si no se puede emitir, dice por qué. |
+| Panel de **detalle** | Estado y explicación, errores y observaciones de SUNAT, PDF/XML/CDR, historial y acciones: *Consultar SUNAT*, *Reintentar* / *Emitir de nuevo* y *Anular* (con motivo). Mientras espera a SUNAT se actualiza solo cada 10 s. |
+| **Facturación** (menú lateral) | Listado de comprobantes con filtros por estado, tipo y fecha de emisión (hora de Lima), y la configuración vigente: ambiente, emisor y último número de cada serie. |
+
+Permisos: `billing.view` (ver), `billing.issue` (emitir y reintentar) y `billing.void`
+(anular). Contabilidad tiene ver y emitir; anular queda para admin.
+
+Rutas que usa el backoffice además de las ya descritas:
+
+- `GET /billing/invoices/by-transactions?transaction_ids=…` (hasta 100): último
+  comprobante de cada operación, para pintar una página de Contabilidad en una petición.
+- `GET /billing/transactions/{id}/preview`: lo que saldría al emitir, sin reservar
+  número ni llamar a APISUNAT. Acepta los mismos datos del cliente que `issue` como
+  parámetros de consulta y responde `can_issue` + `reason`.
+- `issue` y `preview` aceptan `document_type` (`01` factura, `03` boleta). Sin él, el
+  tipo es automático según el documento del cliente.
+
 ## Ciclo de vida
 
 ```
@@ -166,6 +188,9 @@ Técnico:
 - Una operación completada sigue editable aunque ya tenga comprobante aceptado.
 - `IntegrityError` por emisión simultánea (manual + automática) responde 500 en vez de 409.
 - `POST /billing/invoices/{id}/refresh` escribe estado con el permiso `billing.view`.
+- Con datos reales, la boleta (comisión cobrada con IGV incluido) y la «Venta final» de
+  Contabilidad no coinciden: p. ej. una operación de S/ 290 sale como boleta de S/ 16.32
+  y en Contabilidad figura con S/ 8.70. Es el punto 1 de las decisiones fiscales.
 
 ## Pase a producción
 
