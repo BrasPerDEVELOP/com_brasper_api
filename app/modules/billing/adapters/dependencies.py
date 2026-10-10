@@ -19,26 +19,22 @@ from app.modules.billing.application.use_cases import (
     RetryInvoiceUseCase,
     VoidInvoiceUseCase,
 )
-from app.modules.billing.infrastructure.apisunat_client import ApisunatHttpClient
+from app.modules.billing.infrastructure.apisunat_client import ApisunatClientsFromSettings
 from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
-from app.modules.billing.interfaces.apisunat_client import ApisunatClientInterface
+from app.modules.billing.interfaces.apisunat_client import ApisunatClientProvider
 from app.modules.billing.interfaces.repository import BillingRepositoryInterface
 
 
-def build_apisunat_client(settings: Settings) -> ApisunatClientInterface:
-    return ApisunatHttpClient(
-        base_url=settings.APISUNAT_BASE_URL,
-        persona_id=settings.APISUNAT_PERSONA_ID,
-        persona_token=settings.APISUNAT_PERSONA_TOKEN,
-        timeout_seconds=settings.APISUNAT_TIMEOUT_SECONDS,
-    )
+def build_apisunat_client(settings: Settings) -> ApisunatClientProvider:
+    """Clientes de APISUNAT por empresa emisora (cada RUC con su token)."""
+    return ApisunatClientsFromSettings(settings)
 
 
 def get_billing_repository(db: Annotated[AsyncSession, Depends(get_db)]) -> BillingRepositoryInterface:
     return SQLAlchemyBillingRepository(db)
 
 
-def get_apisunat_client() -> ApisunatClientInterface:
+def get_apisunat_client() -> ApisunatClientProvider:
     return build_apisunat_client(get_settings())
 
 
@@ -57,7 +53,7 @@ def require_billing_enabled() -> None:
 
 
 RepoDep = Annotated[BillingRepositoryInterface, Depends(get_billing_repository)]
-ClientDep = Annotated[ApisunatClientInterface, Depends(get_apisunat_client)]
+ClientDep = Annotated[ApisunatClientProvider, Depends(get_apisunat_client)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 FileServiceDep = Annotated[object, Depends(get_file_service)]
 

@@ -92,6 +92,10 @@ services:
       APISUNAT_PERSONA_ID: ${APISUNAT_PERSONA_ID:-}
       APISUNAT_PERSONA_TOKEN: ${APISUNAT_PERSONA_TOKEN:-}
       APISUNAT_TIMEOUT_SECONDS: ${APISUNAT_TIMEOUT_SECONDS:-30}
+      # Varias empresas emisoras (JSON con ruc, name, address, ubigeo, district,
+      # persona_id y persona_token de cada una). Vacío = una sola empresa (vars de arriba).
+      BILLING_ISSUERS: ${BILLING_ISSUERS:-[]}
+      BILLING_DEFAULT_ISSUER_RUC: ${BILLING_DEFAULT_ISSUER_RUC:-}
     depends_on:
       db:
         condition: service_healthy

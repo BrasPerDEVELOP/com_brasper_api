@@ -45,18 +45,19 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
 
     # --- Series ----------------------------------------------------------------
     async def _series_row_for_update(
-        self, document_type: str, series: str, environment: str
+        self, issuer_ruc: str, document_type: str, series: str, environment: str
     ) -> BillingSeries:
         # Alta idempotente de la fila: dos procesos pueden intentar crearla a la vez.
         await self.session.execute(
             text(
                 'INSERT INTO "billing".series '
-                "(id, document_type, series, environment, last_number, is_active, deleted, enable) "
-                "VALUES (:id, :document_type, :series, :environment, 0, true, false, true) "
+                "(id, issuer_ruc, document_type, series, environment, last_number, is_active, deleted, enable) "
+                "VALUES (:id, :issuer_ruc, :document_type, :series, :environment, 0, true, false, true) "
                 "ON CONFLICT ON CONSTRAINT uq_billing_series DO NOTHING"
             ),
             {
                 "id": uuid.uuid4(),
+                "issuer_ruc": issuer_ruc,
                 "document_type": document_type,
                 "series": series,
                 "environment": environment,
@@ -65,6 +66,7 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         stmt = (
             select(BillingSeries)
             .where(
+                BillingSeries.issuer_ruc == issuer_ruc,
                 BillingSeries.document_type == document_type,
                 BillingSeries.series == series,
                 BillingSeries.environment == environment,
@@ -73,10 +75,12 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         )
         return (await self.session.execute(stmt)).scalar_one()
 
-    async def reserve_next_number(self, document_type: str, series: str, environment: str) -> int:
-        row = await self._series_row_for_update(document_type, series, environment)
+    async def reserve_next_number(
+        self, issuer_ruc: str, document_type: str, series: str, environment: str
+    ) -> int:
+        row = await self._series_row_for_update(issuer_ruc, document_type, series, environment)
         if not row.is_active:
-            raise ValueError(f"La serie {series} ({document_type}) está inactiva")
+            raise ValueError(f"La serie {series} ({document_type}) de {issuer_ruc} está inactiva")
         row.last_number = int(row.last_number or 0) + 1
         await self.session.flush()
         return row.last_number
@@ -85,14 +89,14 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         stmt = (
             select(BillingSeries)
             .where(BillingSeries.environment == environment, BillingSeries.deleted.is_(False))
-            .order_by(BillingSeries.document_type, BillingSeries.series)
+            .order_by(BillingSeries.issuer_ruc, BillingSeries.document_type, BillingSeries.series)
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
     async def set_last_number(
-        self, document_type: str, series: str, environment: str, last_number: int
+        self, issuer_ruc: str, document_type: str, series: str, environment: str, last_number: int
     ) -> BillingSeries:
-        row = await self._series_row_for_update(document_type, series, environment)
+        row = await self._series_row_for_update(issuer_ruc, document_type, series, environment)
         row.last_number = int(last_number)
         await self.session.flush()
         return row
@@ -130,6 +134,7 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,
+        issuer_ruc: Optional[str] = None,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         skip: int = 0,
@@ -142,6 +147,8 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
             conditions.append(Invoice.document_type == document_type)
         if transaction_id is not None:
             conditions.append(Invoice.transaction_id == transaction_id)
+        if issuer_ruc:
+            conditions.append(Invoice.issuer_ruc == issuer_ruc)
         if date_from is not None:
             conditions.append(Invoice.issue_date >= date_from)
         if date_to is not None:

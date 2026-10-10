@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.settings import get_settings
 from app.modules.billing.domain.enums import BillingDocumentType
 
 
@@ -23,6 +24,8 @@ class InvoiceEventDTO(BaseModel):
 class InvoiceDTO(BaseModel):
     id: UUID
     transaction_id: UUID
+    issuer_ruc: str
+    issuer_name: str
     document_type: str
     document_type_label: str
     series: str
@@ -67,9 +70,13 @@ class InvoiceDTO(BaseModel):
         except ValueError:
             label = entity.document_type
         currency = entity.currency.value if hasattr(entity.currency, "value") else str(entity.currency)
+        issuer_ruc = getattr(entity, "issuer_ruc", None) or str(entity.file_name).split("-")[0]
+        issuer = get_settings().billing_issuer(issuer_ruc)
         return cls(
             id=entity.id,
             transaction_id=entity.transaction_id,
+            issuer_ruc=issuer_ruc,
+            issuer_name=issuer.display_name if issuer else issuer_ruc,
             document_type=entity.document_type,
             document_type_label=label,
             series=entity.series,
@@ -130,6 +137,8 @@ class IssueInvoiceCmd(BaseModel):
     customer_doc_number: Optional[str] = Field(default=None, max_length=40)
     #: "01" factura o "03" boleta. Vacío = automático según el documento del cliente.
     document_type: Optional[Literal["01", "03"]] = None
+    #: RUC de la empresa emisora. Vacío = la empresa por defecto.
+    issuer_ruc: Optional[str] = Field(default=None, pattern=r"^\d{11}$")
 
 
 class InvoicePreviewDTO(BaseModel):
@@ -140,6 +149,8 @@ class InvoicePreviewDTO(BaseModel):
     reason: Optional[str] = None
     enabled: bool
     environment: str
+    issuer_ruc: Optional[str] = None
+    issuer_name: Optional[str] = None
     document_type: Optional[str] = None
     document_type_label: Optional[str] = None
     series: Optional[str] = None
@@ -165,10 +176,22 @@ class VoidInvoiceCmd(BaseModel):
 
 
 class SeriesStatusDTO(BaseModel):
+    issuer_ruc: str
     document_type: str
     series: str
     environment: str
     last_number: int
+
+
+class BillingIssuerDTO(BaseModel):
+    """Empresa emisora visible en el backoffice (sin credenciales)."""
+
+    ruc: str
+    name: str
+    trade_name: Optional[str] = None
+    is_default: bool = False
+    #: Tiene personaId y token de APISUNAT cargados.
+    configured: bool = False
 
 
 class BillingStatusDTO(BaseModel):
@@ -183,10 +206,13 @@ class BillingStatusDTO(BaseModel):
     commission_includes_igv: bool
     igv_rate: float
     start_date: Optional[str] = None
+    default_issuer_ruc: Optional[str] = None
+    issuers: list[BillingIssuerDTO] = Field(default_factory=list)
     series: list[SeriesStatusDTO] = Field(default_factory=list)
 
 
 class SeriesAlignmentDTO(BaseModel):
+    issuer_ruc: str
     document_type: str
     series: str
     previous_last_number: int

@@ -25,6 +25,7 @@ import httpx
 
 from app.modules.billing.interfaces.apisunat_client import (
     ApisunatClientInterface,
+    ApisunatClientProvider,
     ApisunatError,
     ApisunatTimeout,
     DocumentInfo,
@@ -231,3 +232,26 @@ class ApisunatHttpClient(ApisunatClientInterface):
         if response.status_code != 200:
             raise ApisunatError(f"getPDF respondió {response.status_code} para {document_id}")
         return response.content
+
+
+class ApisunatClientsFromSettings(ApisunatClientProvider):
+    """Arma (y reutiliza) un ``ApisunatHttpClient`` por empresa de ``Settings.billing_issuers``."""
+
+    def __init__(self, settings, transport: Optional[httpx.AsyncBaseTransport] = None):
+        self._settings = settings
+        self._transport = transport
+        self._clients: dict[str, ApisunatHttpClient] = {}
+
+    def for_issuer(self, ruc: str) -> ApisunatHttpClient:
+        if ruc not in self._clients:
+            issuer = self._settings.billing_issuer(ruc)
+            if issuer is None:
+                raise ValueError(f"La empresa emisora con RUC {ruc} no está configurada")
+            self._clients[ruc] = ApisunatHttpClient(
+                base_url=self._settings.APISUNAT_BASE_URL,
+                persona_id=issuer.persona_id,
+                persona_token=issuer.persona_token,
+                timeout_seconds=self._settings.APISUNAT_TIMEOUT_SECONDS,
+                transport=self._transport,
+            )
+        return self._clients[ruc]

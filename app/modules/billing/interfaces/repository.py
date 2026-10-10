@@ -26,7 +26,9 @@ class BillingRepositoryInterface(ABC):
 
     # --- Series ----------------------------------------------------------------
     @abstractmethod
-    async def reserve_next_number(self, document_type: str, series: str, environment: str) -> int:
+    async def reserve_next_number(
+        self, issuer_ruc: str, document_type: str, series: str, environment: str
+    ) -> int:
         """Incrementa y devuelve el correlativo bajo bloqueo de fila."""
         ...
 
@@ -35,7 +37,7 @@ class BillingRepositoryInterface(ABC):
 
     @abstractmethod
     async def set_last_number(
-        self, document_type: str, series: str, environment: str, last_number: int
+        self, issuer_ruc: str, document_type: str, series: str, environment: str, last_number: int
     ) -> BillingSeries: ...
 
     # --- Comprobantes ------------------------------------------------------------
@@ -55,6 +57,7 @@ class BillingRepositoryInterface(ABC):
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,
+        issuer_ruc: Optional[str] = None,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         skip: int = 0,

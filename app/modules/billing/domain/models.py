@@ -26,10 +26,12 @@ from app.shared.model_base import ORMBaseModel
 class BillingSeries(ORMBaseModel):
     __tablename__ = "series"
     __table_args__ = (
-        UniqueConstraint("document_type", "series", "environment", name="uq_billing_series"),
+        UniqueConstraint("issuer_ruc", "document_type", "series", "environment", name="uq_billing_series"),
         {"schema": "billing"},
     )
 
+    # Cada empresa emisora lleva su propia numeración (la B001 de una no es la de otra).
+    issuer_ruc: Mapped[str] = mapped_column(String(11), nullable=False)
     document_type: Mapped[str] = mapped_column(String(2), nullable=False)
     series: Mapped[str] = mapped_column(String(4), nullable=False)
     environment: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -57,6 +59,8 @@ class Invoice(ORMBaseModel):
         nullable=False,
         index=True,
     )
+    # RUC de la empresa emisora (decide el token de APISUNAT y la numeración).
+    issuer_ruc: Mapped[str] = mapped_column(String(11), nullable=False, index=True)
     document_type: Mapped[str] = mapped_column(String(2), nullable=False)  # BillingDocumentType
     series: Mapped[str] = mapped_column(String(4), nullable=False)
     number: Mapped[int] = mapped_column(Integer, nullable=False)

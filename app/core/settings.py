@@ -5,7 +5,7 @@ import hmac
 import ipaddress
 import time
 from urllib.parse import quote, urlparse
-from pydantic import model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 from aiocache import caches
 
@@ -14,6 +14,28 @@ from aiocache import caches
 # está, el cálculo agrupa de más y la validación de cookies deja pasar la
 # configuración en vez de rechazar un despliegue válido.
 _MULTI_LABEL_PUBLIC_SUFFIXES = frozenset({"com.pe", "com.br", "com.mx", "com.ar", "co.uk"})
+
+
+class BillingIssuer(BaseModel):
+    """Empresa emisora de comprobantes (cada una con su RUC y su token de APISUNAT)."""
+
+    ruc: str
+    name: str
+    trade_name: str = ""
+    address: str
+    ubigeo: str
+    district: str
+    province: str = "LIMA"
+    department: str = "LIMA"
+    persona_id: str = ""
+    # repr=False: el token nunca aparece al imprimir/loguear la configuración.
+    persona_token: str = Field(default="", repr=False)
+
+    @property
+    def display_name(self) -> str:
+        # Razón social: las empresas pueden compartir nombre comercial (p. ej. las dos
+        # usan "brasper transferencias"), así que no sirve para distinguirlas.
+        return self.name
 
 
 def _registrable_domain(host: Optional[str]) -> Optional[str]:
@@ -146,6 +168,13 @@ class Settings(BaseSettings):
     BILLING_SEND_CUSTOMER_EMAIL: bool = False
     # Fecha de corte (YYYY-MM-DD): operaciones completadas antes no se facturan. Vacío = sin corte.
     BILLING_START_DATE: str = ""
+    # Varias empresas emisoras (JSON). Si está vacío se usa una sola empresa con
+    # BILLING_ISSUER_* + APISUNAT_PERSONA_*. Ejemplo:
+    # BILLING_ISSUERS='[{"ruc":"20608550454","name":"BRASPER 21 S.A.C.","address":"...",
+    #   "ubigeo":"150116","district":"LINCE","persona_id":"...","persona_token":"DEV_..."}]'
+    BILLING_ISSUERS: list[BillingIssuer] = []
+    # RUC de la empresa que se propone por defecto al emitir. Vacío = la primera.
+    BILLING_DEFAULT_ISSUER_RUC: str = ""
 
     @model_validator(mode="after")
     def validate_billing_config(self) -> "Settings":
@@ -160,6 +189,16 @@ class Settings(BaseSettings):
             raise ValueError("BILLING_SERIES_FACTURA debe tener 4 caracteres y empezar con F (ej. F001)")
         if not re.fullmatch(r"\d{11}", self.BILLING_ISSUER_RUC):
             raise ValueError("BILLING_ISSUER_RUC debe tener 11 dígitos")
+        issuer_rucs = [issuer.ruc for issuer in self.billing_issuers]
+        for issuer in self.billing_issuers:
+            if not re.fullmatch(r"\d{11}", issuer.ruc):
+                raise ValueError(f"BILLING_ISSUERS: el RUC {issuer.ruc!r} debe tener 11 dígitos")
+            if not issuer.name or not issuer.address or not issuer.ubigeo:
+                raise ValueError(f"BILLING_ISSUERS: faltan nombre, dirección o ubigeo de {issuer.ruc}")
+        if len(set(issuer_rucs)) != len(issuer_rucs):
+            raise ValueError("BILLING_ISSUERS: hay RUC repetidos")
+        if self.BILLING_DEFAULT_ISSUER_RUC and self.BILLING_DEFAULT_ISSUER_RUC not in issuer_rucs:
+            raise ValueError("BILLING_DEFAULT_ISSUER_RUC no corresponde a ninguna empresa configurada")
         if not 0 < self.BILLING_IGV_RATE < 1:
             raise ValueError("BILLING_IGV_RATE debe estar entre 0 y 1 (ej. 0.18)")
         if self.BILLING_PDF_FORMAT not in ("A4", "A5", "ticket58mm", "ticket80mm"):
@@ -172,10 +211,12 @@ class Settings(BaseSettings):
             except ValueError as exc:
                 raise ValueError("BILLING_START_DATE debe tener formato YYYY-MM-DD") from exc
         if self.BILLING_ENABLED:
-            if not self.APISUNAT_PERSONA_ID or not self.APISUNAT_PERSONA_TOKEN:
-                raise ValueError(
-                    "BILLING_ENABLED=True exige APISUNAT_PERSONA_ID y APISUNAT_PERSONA_TOKEN"
-                )
+            for issuer in self.billing_issuers:
+                if not issuer.persona_id or not issuer.persona_token:
+                    raise ValueError(
+                        f"BILLING_ENABLED=True exige personaId y personaToken de APISUNAT para "
+                        f"{issuer.name} (RUC {issuer.ruc})"
+                    )
             if urlparse(self.APISUNAT_BASE_URL).scheme != "https":
                 raise ValueError("APISUNAT_BASE_URL debe usar HTTPS")
             if (
@@ -193,6 +234,37 @@ class Settings(BaseSettings):
         from datetime import date
 
         return date.fromisoformat(self.BILLING_START_DATE) if self.BILLING_START_DATE else None
+
+    @property
+    def billing_issuers(self) -> list[BillingIssuer]:
+        """Empresas emisoras: las de BILLING_ISSUERS o, si no hay, la de las variables sueltas."""
+        if self.BILLING_ISSUERS:
+            return list(self.BILLING_ISSUERS)
+        return [
+            BillingIssuer(
+                ruc=self.BILLING_ISSUER_RUC,
+                name=self.BILLING_ISSUER_NAME,
+                trade_name=self.BILLING_ISSUER_TRADE_NAME,
+                address=self.BILLING_ISSUER_ADDRESS,
+                ubigeo=self.BILLING_ISSUER_UBIGEO,
+                district=self.BILLING_ISSUER_DISTRICT,
+                province=self.BILLING_ISSUER_PROVINCE,
+                department=self.BILLING_ISSUER_DEPARTMENT,
+                persona_id=self.APISUNAT_PERSONA_ID,
+                persona_token=self.APISUNAT_PERSONA_TOKEN,
+            )
+        ]
+
+    @property
+    def default_billing_issuer(self) -> BillingIssuer:
+        issuers = self.billing_issuers
+        return next((i for i in issuers if i.ruc == self.BILLING_DEFAULT_ISSUER_RUC), issuers[0])
+
+    def billing_issuer(self, ruc: Optional[str]) -> Optional[BillingIssuer]:
+        """Empresa por RUC; sin RUC, la de por defecto. ``None`` si el RUC no está configurado."""
+        if not ruc:
+            return self.default_billing_issuer
+        return next((i for i in self.billing_issuers if i.ruc == ruc), None)
 
     @property
     def apisunat_is_production(self) -> bool:

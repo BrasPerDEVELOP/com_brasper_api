@@ -13,12 +13,34 @@ En el portal hay dos empresas en **DESARROLLO**:
 
 | Empresa | RUC | Uso |
 |---|---|---|
-| BRASPER 21 S.A.C. ("brasper transferencias") | 20608550454 | Emisor por defecto (`BILLING_ISSUER_RUC`) |
-| INGENITECH S.A.C. | 20611936428 | No configurada en la API |
+| BRASPER 21 S.A.C. ("brasper transferencias") | 20608550454 | Emisora por defecto |
+| INGENITECH S.A.C. ("brasper transferencias") | 20611936428 | Se elige al emitir |
 
 Cada `personaToken` vale para **una empresa y un ambiente**. El token se crea en
-apisunat.com → la empresa → *Configuración de Empresa*. Para emitir como BRASPER 21
-hace falta el `personaId` y un token de DESARROLLO de esa empresa.
+apisunat.com → la empresa → *Configuración de Empresa*.
+
+### Varias empresas emisoras
+
+Al emitir se elige la empresa. Cada una usa **su token** de APISUNAT y **su propia
+numeración**: la B001-00000001 de BRASPER 21 y la de INGENITECH son comprobantes
+distintos (migración **087**: `issuer_ruc` en `billing.series` y `billing.invoices`).
+Consultar, reintentar, anular y descargar el PDF usan siempre el token de la empresa
+del comprobante.
+
+Se configuran en una sola variable JSON (en una línea, entre comillas simples):
+
+```env
+BILLING_ISSUERS='[{"ruc":"20608550454","name":"BRASPER 21 S.A.C.","trade_name":"brasper transferencias","address":"AV. AREQUIPA NRO. 2447 INT. 409","ubigeo":"150116","district":"LINCE","province":"LIMA","department":"LIMA","persona_id":"…","persona_token":"…"},{"ruc":"20611936428","name":"INGENITECH S.A.C.","trade_name":"brasper transferencias","address":"PJ. LOS LAURELES MZ. M LT. 13 A.H. SECTOR B","ubigeo":"150132","district":"SAN JUAN DE LURIGANCHO","province":"LIMA","department":"LIMA","persona_id":"…","persona_token":"…"}]'
+BILLING_DEFAULT_ISSUER_RUC=20608550454
+```
+
+- Si `BILLING_ISSUERS` está vacío, se usa una sola empresa con `BILLING_ISSUER_*` +
+  `APISUNAT_PERSONA_ID/TOKEN` (configuración anterior, sigue funcionando).
+- Con `BILLING_ENABLED=true`, **cada** empresa necesita `persona_id` y
+  `persona_token`; si falta alguno la API no arranca y el mensaje dice cuál.
+- Los tokens de una misma lista deben ser todos del mismo ambiente
+  (`APISUNAT_ENVIRONMENT`).
+- Probar el token de una empresa: `python scripts/apisunat_smoke.py --issuer 20611936428`.
 
 ## Configuración
 
@@ -36,7 +58,7 @@ BILLING_POLL_INTERVAL_SECONDS=30
 BILLING_START_DATE=                  # YYYY-MM-DD: operaciones anteriores no se facturan
 ```
 
-Después: `alembic upgrade head` (migraciones 085 y 086).
+Después: `alembic upgrade head` (migraciones 085, 086 y 087).
 
 ### En el servidor (Docker)
 
@@ -74,7 +96,7 @@ Prueba completa desde la API (con la base de desarrollo):
 | Dónde | Qué se hace |
 |---|---|
 | **Contabilidad** → columna «Comprobante SUNAT» | Botón **Emitir** en cada operación finalizada sin comprobante. Si ya tiene uno, muestra número y estado; al hacer clic abre el detalle. |
-| Diálogo **Emitir** | Selector **Boleta / Factura** (arranca en el que corresponde al documento del cliente: RUC → factura). Factura pide RUC de 11 dígitos y razón social si la ficha no los tiene; boleta se admite también a un cliente con RUC. Vista previa sin reservar número: serie, cliente, valor de venta, IGV y total, con el ambiente (Desarrollo/Producción) bien visible. Si no se puede emitir, dice por qué. |
+| Diálogo **Emitir** | Selector de **empresa emisora** (si hay más de una) y selector **Boleta / Factura** (arranca en el que corresponde al documento del cliente: RUC → factura). Factura pide RUC de 11 dígitos y razón social si la ficha no los tiene; boleta se admite también a un cliente con RUC. Vista previa sin reservar número: serie, cliente, valor de venta, IGV y total, con el ambiente (Desarrollo/Producción) bien visible. Si no se puede emitir, dice por qué. |
 | Panel de **detalle** | Estado y explicación, errores y observaciones de SUNAT, PDF/XML/CDR, historial y acciones: *Consultar SUNAT*, *Reintentar* / *Emitir de nuevo* y *Anular* (con motivo). Mientras espera a SUNAT se actualiza solo cada 10 s. |
 | **Facturación** (menú lateral) | Listado de comprobantes con filtros por estado, tipo y fecha de emisión (hora de Lima), y la configuración vigente: ambiente, emisor y último número de cada serie. |
 

@@ -75,6 +75,7 @@ async def list_invoices(
     status_filter: Optional[str] = Query(None, alias="status"),
     document_type: Optional[str] = Query(None, pattern=r"^(01|03|07)$"),
     transaction_id: Optional[UUID] = Query(None),
+    issuer_ruc: Optional[str] = Query(None, pattern=r"^\d{11}$"),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0, ge=0),
@@ -84,6 +85,7 @@ async def list_invoices(
         status=status_filter,
         document_type=document_type,
         transaction_id=transaction_id,
+        issuer_ruc=issuer_ruc,
         date_from=date_from,
         date_to=date_to,
         skip=skip,
@@ -118,6 +120,7 @@ async def preview_transaction_invoice(
     customer_doc_type: Optional[str] = Query(None, max_length=20),
     customer_doc_number: Optional[str] = Query(None, max_length=40),
     document_type: Optional[str] = Query(None, pattern=r"^(01|03)$"),
+    issuer_ruc: Optional[str] = Query(None, pattern=r"^\d{11}$"),
 ):
     """Boleta o factura que saldría, con adquirente e importes. No reserva número ni llama a APISUNAT."""
     cmd = IssueInvoiceCmd(
@@ -127,6 +130,7 @@ async def preview_transaction_invoice(
         customer_doc_type=customer_doc_type,
         customer_doc_number=customer_doc_number,
         document_type=document_type,
+        issuer_ruc=issuer_ruc,
     )
     try:
         return await use_case.execute(transaction_id, cmd)

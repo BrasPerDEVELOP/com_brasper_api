@@ -22,8 +22,9 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from app.core.settings import Settings
+from app.core.settings import BillingIssuer, Settings
 from app.modules.billing.application.schemas import (
+    BillingIssuerDTO,
     BillingStatusDTO,
     InvoiceDTO,
     InvoicePreviewDTO,
@@ -79,17 +80,35 @@ def _ensure_enabled(settings: Settings) -> None:
         raise BillingDisabledError("La facturación electrónica está deshabilitada (BILLING_ENABLED=False)")
 
 
-def issuer_from_settings(settings: Settings) -> IssuerParty:
+def issuer_party(issuer: BillingIssuer) -> IssuerParty:
     return IssuerParty(
-        ruc=settings.BILLING_ISSUER_RUC,
-        name=settings.BILLING_ISSUER_NAME,
-        trade_name=settings.BILLING_ISSUER_TRADE_NAME or settings.BILLING_ISSUER_NAME,
-        address=settings.BILLING_ISSUER_ADDRESS,
-        ubigeo=settings.BILLING_ISSUER_UBIGEO,
-        district=settings.BILLING_ISSUER_DISTRICT,
-        province=settings.BILLING_ISSUER_PROVINCE,
-        department=settings.BILLING_ISSUER_DEPARTMENT,
+        ruc=issuer.ruc,
+        name=issuer.name,
+        trade_name=issuer.trade_name or issuer.name,
+        address=issuer.address,
+        ubigeo=issuer.ubigeo,
+        district=issuer.district,
+        province=issuer.province,
+        department=issuer.department,
     )
+
+
+def issuer_from_settings(settings: Settings, ruc: Optional[str] = None) -> IssuerParty:
+    """Datos del emisor (por RUC o el de por defecto) para el ``documentBody``."""
+    issuer = settings.billing_issuer(ruc)
+    if issuer is None:
+        raise ValueError(f"La empresa emisora con RUC {ruc} no está configurada")
+    return issuer_party(issuer)
+
+
+def _client_for(clients, issuer_ruc: Optional[str]) -> ApisunatClientInterface:
+    """Cliente de APISUNAT de la empresa emisora.
+
+    En producción ``clients`` es un ``ApisunatClientProvider`` (un token por RUC); los
+    tests pueden pasar directamente un cliente, que se usa para cualquier empresa.
+    """
+    for_issuer = getattr(clients, "for_issuer", None)
+    return for_issuer(issuer_ruc) if callable(for_issuer) else clients
 
 
 def _clean(value: Optional[str]) -> str:
@@ -234,6 +253,7 @@ class IssuePlan:
     """Todo lo que se decide antes de reservar el número (sin efectos)."""
 
     transaction: object
+    issuer: BillingIssuer
     document_type: BillingDocumentType
     customer: CustomerParty
     amounts: InvoiceAmounts
@@ -278,9 +298,14 @@ async def prepare_issue(
     currency = tax_rate.coin_a if tax_rate is not None else Currency.pen
     currency_code = currency.value if hasattr(currency, "value") else str(currency)
 
+    issuer = settings.billing_issuer(cmd.issuer_ruc if cmd else None)
+    if issuer is None:
+        raise ValueError("La empresa emisora elegida no está configurada")
+
     document_type, customer = resolve_customer(transaction, transaction.user, cmd)
     return IssuePlan(
         transaction=transaction,
+        issuer=issuer,
         document_type=document_type,
         customer=customer,
         amounts=amounts,
@@ -314,6 +339,8 @@ class PreviewInvoiceUseCase:
             reason=None if self.settings.BILLING_ENABLED else "La facturación electrónica está deshabilitada",
             enabled=self.settings.BILLING_ENABLED,
             environment=self.settings.APISUNAT_ENVIRONMENT.lower(),
+            issuer_ruc=plan.issuer.ruc,
+            issuer_name=plan.issuer.display_name,
             document_type=plan.document_type.value,
             document_type_label=plan.document_type.label,
             series=plan.series,
@@ -367,8 +394,9 @@ class IssueInvoiceUseCase:
         transaction, document_type, customer = plan.transaction, plan.document_type, plan.customer
         amounts, currency, currency_code = plan.amounts, plan.currency, plan.currency_code
         series = plan.series
+        issuer = plan.issuer
         environment = self.settings.APISUNAT_ENVIRONMENT.lower()
-        number = await self.repo.reserve_next_number(document_type.value, series, environment)
+        number = await self.repo.reserve_next_number(issuer.ruc, document_type.value, series, environment)
 
         issued_at = _now()
         issue_date, issue_time = issue_moment(issued_at)
@@ -382,14 +410,15 @@ class IssueInvoiceUseCase:
             amounts=amounts,
             item_description=self.settings.BILLING_ITEM_DESCRIPTION.format(code=transaction.code),
         )
-        body = build_document_body(draft, issuer_from_settings(self.settings), customer)
+        body = build_document_body(draft, issuer_party(issuer), customer)
 
         invoice = Invoice(
             transaction_id=transaction.id,
+            issuer_ruc=issuer.ruc,
             document_type=document_type.value,
             series=series,
             number=number,
-            file_name=build_file_name(self.settings.BILLING_ISSUER_RUC, document_type, series, number),
+            file_name=build_file_name(issuer.ruc, document_type, series, number),
             environment=environment,
             currency=currency,
             taxable_amount=amounts.taxable,
@@ -419,7 +448,7 @@ class IssueInvoiceUseCase:
         # Commit antes de la red: el número queda reservado aunque el envío falle.
         await self.repo.commit()
 
-        await send_invoice(self.repo, self.client, self.settings, invoice)
+        await send_invoice(self.repo, _client_for(self.client, invoice.issuer_ruc), self.settings, invoice)
         return InvoiceDTO.from_entity(invoice)
 
 
@@ -442,7 +471,7 @@ class PollInvoiceUseCase:
         if invoice.status != InvoiceStatus.sent.value or not invoice.apisunat_document_id:
             return invoice
         try:
-            info = await self.client.get_by_id(invoice.apisunat_document_id)
+            info = await _client_for(self.client, invoice.issuer_ruc).get_by_id(invoice.apisunat_document_id)
         except ApisunatError as exc:
             invoice.last_polled_at = _now()
             invoice.last_error = str(exc)
@@ -483,7 +512,7 @@ class PollInvoiceUseCase:
         if self.file_service is None or not invoice.apisunat_document_id:
             return
         try:
-            content = await self.client.get_pdf(
+            content = await _client_for(self.client, invoice.issuer_ruc).get_pdf(
                 invoice.apisunat_document_id,
                 pdf_format=self.settings.BILLING_PDF_FORMAT,
                 file_name=invoice.file_name,
@@ -549,7 +578,7 @@ class RecoverStaleReservedUseCase:
         recovered = 0
         for invoice in stale:
             try:
-                remote = await self.client.find_by_file_name(invoice.file_name)
+                remote = await _client_for(self.client, invoice.issuer_ruc).find_by_file_name(invoice.file_name)
             except (ApisunatError, ValueError) as exc:
                 logger.warning("No se pudo verificar el reservado %s: %s", invoice.file_name, exc)
                 continue
@@ -602,6 +631,7 @@ class RetryInvoiceUseCase:
                 customer_doc_type=invoice.customer_doc_type,
                 customer_doc_number=invoice.customer_doc_number,
                 document_type=invoice.document_type,
+                issuer_ruc=invoice.issuer_ruc,
             )
             return await issue.execute(invoice.transaction_id, cmd, actor=actor)
         if status is InvoiceStatus.error:
@@ -609,7 +639,7 @@ class RetryInvoiceUseCase:
             # antes de reenviar el MISMO número se verifica en APISUNAT. Si no se puede
             # verificar, no se reenvía a ciegas.
             try:
-                remote = await self.client.find_by_file_name(invoice.file_name)
+                remote = await _client_for(self.client, invoice.issuer_ruc).find_by_file_name(invoice.file_name)
             except (ApisunatError, ValueError) as exc:
                 await self.repo.commit()
                 raise ApisunatError(
@@ -624,7 +654,7 @@ class RetryInvoiceUseCase:
         invoice.status = InvoiceStatus.reserved.value
         invoice.reserved_at = _now()
         await self.repo.commit()
-        await send_invoice(self.repo, self.client, self.settings, invoice)
+        await send_invoice(self.repo, _client_for(self.client, invoice.issuer_ruc), self.settings, invoice)
         return InvoiceDTO.from_entity(invoice)
 
 
@@ -653,7 +683,9 @@ class VoidInvoiceUseCase:
             invoice.id, InvoiceEventType.void_requested.value, {"reason": reason, "actor": actor}
         )
         try:
-            result = await self.client.void_bill(document_id=invoice.apisunat_document_id, reason=reason)
+            result = await _client_for(self.client, invoice.issuer_ruc).void_bill(
+                document_id=invoice.apisunat_document_id, reason=reason
+            )
         except ApisunatError as exc:
             await self.repo.add_event(invoice.id, InvoiceEventType.error.value, {"error": str(exc)})
             await self.repo.commit()
@@ -702,6 +734,7 @@ class ListInvoicesUseCase:
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,
+        issuer_ruc: Optional[str] = None,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         skip: int = 0,
@@ -711,6 +744,7 @@ class ListInvoicesUseCase:
             status=status,
             document_type=document_type,
             transaction_id=transaction_id,
+            issuer_ruc=issuer_ruc,
             date_from=date_from,
             date_to=date_to,
             skip=skip,
@@ -746,7 +780,7 @@ class GetInvoicePdfUseCase:
                 return stored[0], f"{invoice.file_name}.pdf"
         if not invoice.apisunat_document_id:
             raise ValueError("El comprobante aún no fue enviado a APISUNAT")
-        content = await self.client.get_pdf(
+        content = await _client_for(self.client, invoice.issuer_ruc).get_pdf(
             invoice.apisunat_document_id,
             pdf_format=self.settings.BILLING_PDF_FORMAT,
             file_name=invoice.file_name,
@@ -771,13 +805,25 @@ class BillingStatusUseCase:
         s = self.settings
         environment = s.APISUNAT_ENVIRONMENT.lower()
         rows = await self.repo.list_series(environment)
+        default = s.default_billing_issuer
         return BillingStatusDTO(
             enabled=s.BILLING_ENABLED,
             auto_issue=s.BILLING_AUTO_ISSUE,
             environment=environment,
             is_production=s.apisunat_is_production,
-            issuer_ruc=s.BILLING_ISSUER_RUC,
-            issuer_name=s.BILLING_ISSUER_NAME,
+            issuer_ruc=default.ruc,
+            issuer_name=default.name,
+            default_issuer_ruc=default.ruc,
+            issuers=[
+                BillingIssuerDTO(
+                    ruc=i.ruc,
+                    name=i.name,
+                    trade_name=i.trade_name or None,
+                    is_default=i.ruc == default.ruc,
+                    configured=bool(i.persona_id and i.persona_token),
+                )
+                for i in s.billing_issuers
+            ],
             series_boleta=s.BILLING_SERIES_BOLETA,
             series_factura=s.BILLING_SERIES_FACTURA,
             commission_includes_igv=s.BILLING_COMMISSION_INCLUDES_IGV,
@@ -785,6 +831,7 @@ class BillingStatusUseCase:
             start_date=s.BILLING_START_DATE or None,
             series=[
                 SeriesStatusDTO(
+                    issuer_ruc=r.issuer_ruc,
                     document_type=r.document_type,
                     series=r.series,
                     environment=r.environment,
@@ -830,26 +877,31 @@ class AlignSeriesUseCase:
         _ensure_enabled(self.settings)
         environment = self.settings.APISUNAT_ENVIRONMENT.lower()
         results: list[SeriesAlignmentDTO] = []
-        for document_type in (BillingDocumentType.boleta, BillingDocumentType.factura):
-            series = _series_for(self.settings, document_type)
-            local = {
-                (r.document_type, r.series): int(r.last_number or 0)
-                for r in await self.repo.list_series(environment)
-            }
-            previous = local.get((document_type.value, series), 0)
-            payload = await self.client.last_document(document_type=document_type.value, series=series)
-            remote = self._extract_last_number(payload if isinstance(payload, dict) else {})
-            new_value = max(previous, remote or 0)
-            if new_value != previous:
-                await self.repo.set_last_number(document_type.value, series, environment, new_value)
-            results.append(
-                SeriesAlignmentDTO(
-                    document_type=document_type.value,
-                    series=series,
-                    previous_last_number=previous,
-                    apisunat_last_number=remote,
-                    new_last_number=new_value,
+        local = {
+            (r.issuer_ruc, r.document_type, r.series): int(r.last_number or 0)
+            for r in await self.repo.list_series(environment)
+        }
+        for issuer in self.settings.billing_issuers:
+            client = _client_for(self.client, issuer.ruc)
+            for document_type in (BillingDocumentType.boleta, BillingDocumentType.factura):
+                series = _series_for(self.settings, document_type)
+                previous = local.get((issuer.ruc, document_type.value, series), 0)
+                payload = await client.last_document(document_type=document_type.value, series=series)
+                remote = self._extract_last_number(payload if isinstance(payload, dict) else {})
+                new_value = max(previous, remote or 0)
+                if new_value != previous:
+                    await self.repo.set_last_number(
+                        issuer.ruc, document_type.value, series, environment, new_value
+                    )
+                results.append(
+                    SeriesAlignmentDTO(
+                        issuer_ruc=issuer.ruc,
+                        document_type=document_type.value,
+                        series=series,
+                        previous_last_number=previous,
+                        apisunat_last_number=remote,
+                        new_last_number=new_value,
+                    )
                 )
-            )
         await self.repo.commit()
         return results

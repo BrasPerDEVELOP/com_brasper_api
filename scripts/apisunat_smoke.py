@@ -9,6 +9,7 @@ Uso (lee APISUNAT_* y BILLING_ISSUER_* del .env):
     python scripts/apisunat_smoke.py                 # solo lectura: lastDocument de B001/F001
     python scripts/apisunat_smoke.py --emit          # además emite una boleta de S/ 1.18 y espera a SUNAT
     python scripts/apisunat_smoke.py --emit --series B999
+    python scripts/apisunat_smoke.py --issuer 20611936428   # otra empresa de BILLING_ISSUERS
 
 Se niega a emitir si APISUNAT_ENVIRONMENT no es ``development``: un comprobante
 de producción tiene validez tributaria.
@@ -51,14 +52,19 @@ def _next_number(payload: dict) -> int:
     return 1
 
 
-async def main(emit: bool, series: str, wait_seconds: int) -> int:
+async def main(emit: bool, series: str, wait_seconds: int, issuer_ruc: str | None) -> int:
     settings = get_settings()
     env = settings.APISUNAT_ENVIRONMENT.lower()
-    if not settings.APISUNAT_PERSONA_ID or not settings.APISUNAT_PERSONA_TOKEN:
-        print("Faltan APISUNAT_PERSONA_ID / APISUNAT_PERSONA_TOKEN en el .env")
+    issuer = settings.billing_issuer(issuer_ruc)
+    if issuer is None:
+        configured = ", ".join(f"{i.ruc} ({i.name})" for i in settings.billing_issuers)
+        print(f"La empresa {issuer_ruc} no está configurada. Configuradas: {configured}")
         return 2
-    print(f"Empresa: {settings.BILLING_ISSUER_NAME} (RUC {settings.BILLING_ISSUER_RUC}) · ambiente {env}")
-    client = build_apisunat_client(settings)
+    if not issuer.persona_id or not issuer.persona_token:
+        print(f"Faltan personaId / personaToken de {issuer.name} en el .env")
+        return 2
+    print(f"Empresa: {issuer.name} (RUC {issuer.ruc}) · ambiente {env}")
+    client = build_apisunat_client(settings).for_issuer(issuer.ruc)
 
     # 1) Credenciales: lastDocument es de solo lectura.
     for doc_type, serie in (("03", settings.BILLING_SERIES_BOLETA), ("01", settings.BILLING_SERIES_FACTURA)):
@@ -101,8 +107,8 @@ async def main(emit: bool, series: str, wait_seconds: int) -> int:
         item_description="Prueba de integración Brasper (desarrollo)",
     )
     customer = CustomerParty(doc_type="0", doc_number="-", name="CLIENTE DE PRUEBA")
-    body = build_document_body(draft, issuer_from_settings(settings), customer)
-    file_name = build_file_name(settings.BILLING_ISSUER_RUC, BillingDocumentType.boleta, series, number)
+    body = build_document_body(draft, issuer_from_settings(settings, issuer.ruc), customer)
+    file_name = build_file_name(issuer.ruc, BillingDocumentType.boleta, series, number)
     print(f"Enviando {file_name} ...")
     result = await client.send_bill(file_name=file_name, document_body=body, reference="smoke-test")
     if not result.accepted_for_processing:
@@ -134,7 +140,8 @@ if __name__ == "__main__":
     parser.add_argument("--emit", action="store_true", help="emite una boleta de prueba en desarrollo")
     parser.add_argument("--series", default="B999", help="serie de prueba (4 caracteres, empieza con B)")
     parser.add_argument("--wait", type=int, default=60, help="segundos máximos esperando a SUNAT")
+    parser.add_argument("--issuer", default=None, help="RUC de la empresa emisora (por defecto, la principal)")
     args = parser.parse_args()
     if len(args.series) != 4 or not args.series.startswith("B"):
         parser.error("--series debe tener 4 caracteres y empezar con B")
-    raise SystemExit(asyncio.run(main(args.emit, args.series.upper(), args.wait)))
+    raise SystemExit(asyncio.run(main(args.emit, args.series.upper(), args.wait, args.issuer)))

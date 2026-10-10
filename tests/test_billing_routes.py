@@ -24,6 +24,8 @@ def _invoice_dto(**overrides) -> InvoiceDTO:
     data = dict(
         id=uuid4(),
         transaction_id=uuid4(),
+        issuer_ruc="20608550454",
+        issuer_name="brasper transferencias",
         document_type="03",
         document_type_label="Boleta de venta",
         series="B001",

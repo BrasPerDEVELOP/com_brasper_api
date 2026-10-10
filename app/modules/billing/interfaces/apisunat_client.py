@@ -69,3 +69,12 @@ class ApisunatClientInterface(ABC):
     async def last_document(self, *, document_type: str, series: str) -> dict[str, Any]:
         """Último número usado en APISUNAT para alinear el correlativo al arrancar."""
         ...
+
+
+class ApisunatClientProvider(ABC):
+    """Un cliente de APISUNAT por empresa emisora: cada RUC tiene su propio token."""
+
+    @abstractmethod
+    def for_issuer(self, ruc: str) -> ApisunatClientInterface:
+        """Cliente de la empresa con ese RUC. ``ValueError`` si no está configurada."""
+        ...

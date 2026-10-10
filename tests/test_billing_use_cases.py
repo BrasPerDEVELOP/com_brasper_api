@@ -74,10 +74,12 @@ class FakeRepo(BillingRepositoryInterface):
     async def set_transaction_billing_date(self, transaction_id, value):
         self.billing_dates.setdefault(transaction_id, value)
 
-    async def reserve_next_number(self, document_type, series, environment):
+    async def reserve_next_number(self, issuer_ruc, document_type, series, environment):
         row = self.series.setdefault(
-            (document_type, series, environment),
-            BillingSeries(document_type=document_type, series=series, environment=environment, last_number=0),
+            (issuer_ruc, document_type, series, environment),
+            BillingSeries(
+                issuer_ruc=issuer_ruc, document_type=document_type, series=series, environment=environment, last_number=0
+            ),
         )
         row.last_number += 1
         return row.last_number
@@ -85,10 +87,12 @@ class FakeRepo(BillingRepositoryInterface):
     async def list_series(self, environment):
         return [r for r in self.series.values() if r.environment == environment]
 
-    async def set_last_number(self, document_type, series, environment, last_number):
+    async def set_last_number(self, issuer_ruc, document_type, series, environment, last_number):
         row = self.series.setdefault(
-            (document_type, series, environment),
-            BillingSeries(document_type=document_type, series=series, environment=environment, last_number=0),
+            (issuer_ruc, document_type, series, environment),
+            BillingSeries(
+                issuer_ruc=issuer_ruc, document_type=document_type, series=series, environment=environment, last_number=0
+            ),
         )
         row.last_number = last_number
         return row
@@ -222,6 +226,9 @@ def _settings(**overrides):
         "BILLING_SERIES_BOLETA": "B001",
         "BILLING_SERIES_FACTURA": "F001",
         "BILLING_ISSUER_RUC": "20608550454",
+        # Aislado del .env/.env.local del equipo: una sola empresa salvo que el test diga otra cosa.
+        "BILLING_ISSUERS": [],
+        "BILLING_DEFAULT_ISSUER_RUC": "",
         "BILLING_SEND_CUSTOMER_EMAIL": False,
         "BILLING_START_DATE": "",
     }
@@ -453,7 +460,7 @@ async def test_anula_solo_comprobantes_aceptados():
 async def test_alinear_series_nunca_retrocede():
     tx = _transaction()
     repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
-    await repo.set_last_number("03", "B001", "development", 10)
+    await repo.set_last_number("20608550454", "03", "B001", "development", 10)
     client.last = {"suggestedNumber": 8}  # APISUNAT va por el 7 → local sigue en 10
     result = await AlignSeriesUseCase(repo, client, settings).execute()
     boleta = next(r for r in result if r.document_type == "03")
@@ -694,3 +701,145 @@ async def test_emitir_boleta_a_cliente_con_ruc_usa_serie_b():
     client.send_results = [PENDING]
     dto = await IssueInvoiceUseCase(repo, client, _settings()).execute(tx.id, IssueInvoiceCmd(document_type="03"))
     assert dto.series == "B001" and dto.document_type == "03"
+
+
+# --- Varias empresas emisoras --------------------------------------------------
+def _two_issuers(**overrides):
+    from app.core.settings import BillingIssuer
+
+    issuers = [
+        BillingIssuer(
+            ruc="20608550454", name="BRASPER 21 S.A.C.", trade_name="brasper transferencias",
+            address="AV. AREQUIPA 2447", ubigeo="150116", district="LINCE",
+            persona_id="p-brasper", persona_token="t-brasper",
+        ),
+        BillingIssuer(
+            ruc="20611936428", name="INGENITECH S.A.C.", address="PJ. LOS LAURELES",
+            ubigeo="150132", district="SAN JUAN DE LURIGANCHO",
+            persona_id="p-ingenitech", persona_token="t-ingenitech",
+        ),
+    ]
+    return _settings(BILLING_ISSUERS=issuers, **overrides)
+
+
+class FakeClients:
+    """Un FakeClient por RUC, como ApisunatClientsFromSettings."""
+
+    def __init__(self):
+        self.by_ruc: dict[str, FakeClient] = {}
+
+    def for_issuer(self, ruc):
+        return self.by_ruc.setdefault(ruc, FakeClient())
+
+
+@pytest.mark.asyncio
+async def test_cada_empresa_emite_con_su_ruc_su_token_y_su_numeracion():
+    settings = _two_issuers()
+    clients = FakeClients()
+    for ruc in ("20608550454", "20611936428"):
+        clients.for_issuer(ruc).send_results = [PENDING]
+
+    tx1, tx2 = _transaction(), _transaction()
+    repo = FakeRepo(tx1)
+    first = await IssueInvoiceUseCase(repo, clients, settings).execute(tx1.id)
+
+    repo.transaction = tx2
+    second = await IssueInvoiceUseCase(repo, clients, settings).execute(
+        tx2.id, IssueInvoiceCmd(issuer_ruc="20611936428")
+    )
+
+    assert (first.issuer_ruc, second.issuer_ruc) == ("20608550454", "20611936428")
+    # Numeración independiente: las dos son la B001-00000001 de su empresa.
+    assert first.full_number == second.full_number == "B001-00000001"
+    assert second.file_name == "20611936428-03-B001-00000001"
+    # Cada envío salió con el cliente (token) de su empresa.
+    assert len(clients.for_issuer("20608550454").sent) == 1
+    assert len(clients.for_issuer("20611936428").sent) == 1
+    body = clients.for_issuer("20611936428").sent[0]["document_body"]
+    supplier = body["cac:AccountingSupplierParty"]["cac:Party"]
+    assert supplier["cac:PartyIdentification"]["cbc:ID"]["_text"] == "20611936428"
+
+
+@pytest.mark.asyncio
+async def test_preview_con_empresa_no_configurada_explica_el_problema():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+
+    tx = _transaction()
+    preview = await PreviewInvoiceUseCase(FakeRepo(tx), _two_issuers()).execute(
+        tx.id, IssueInvoiceCmd(issuer_ruc="20999999999")
+    )
+    assert preview.can_issue is False and "no está configurada" in preview.reason
+
+    ok = await PreviewInvoiceUseCase(FakeRepo(tx), _two_issuers()).execute(
+        tx.id, IssueInvoiceCmd(issuer_ruc="20611936428")
+    )
+    assert ok.can_issue is True and ok.issuer_name == "INGENITECH S.A.C."
+
+
+@pytest.mark.asyncio
+async def test_consultas_y_reintentos_usan_el_token_de_la_empresa_del_comprobante():
+    settings = _two_issuers()
+    clients = FakeClients()
+    ingenitech = clients.for_issuer("20611936428")
+    ingenitech.send_results = [ApisunatTimeout("timeout")]
+    tx = _transaction()
+    repo = FakeRepo(tx)
+    dto = await IssueInvoiceUseCase(repo, clients, settings).execute(
+        tx.id, IssueInvoiceCmd(issuer_ruc="20611936428")
+    )
+    assert dto.status == InvoiceStatus.error.value
+
+    ingenitech.found = DocumentInfo(document_id="doc-ing", status="PENDIENTE", file_name=dto.file_name)
+    retried = await RetryInvoiceUseCase(repo, clients, settings).execute(dto.id)
+    assert retried.apisunat_document_id == "doc-ing"
+    assert clients.for_issuer("20608550454").find_calls == 0  # nunca se consultó con el token de la otra
+
+
+@pytest.mark.asyncio
+async def test_alinear_series_recorre_cada_empresa():
+    settings = _two_issuers()
+    clients = FakeClients()
+    clients.for_issuer("20608550454").last = {"lastNumber": "00000004"}
+    clients.for_issuer("20611936428").last = {"lastNumber": "00000009"}
+    repo = FakeRepo(_transaction())
+    result = await AlignSeriesUseCase(repo, clients, settings).execute()
+    by_issuer = {(r.issuer_ruc, r.document_type): r.new_last_number for r in result}
+    assert by_issuer[("20608550454", "03")] == 4
+    assert by_issuer[("20611936428", "03")] == 9
+    assert len(result) == 4
+
+
+def test_settings_valida_empresas():
+    from app.core.settings import BillingIssuer
+
+    with pytest.raises(ValueError, match="RUC repetidos"):
+        Settings_ = type(get_settings())
+        Settings_(
+            BILLING_ISSUERS=[
+                BillingIssuer(ruc="20608550454", name="A", address="x", ubigeo="150116", district="L"),
+                BillingIssuer(ruc="20608550454", name="B", address="y", ubigeo="150116", district="L"),
+            ]
+        )
+    with pytest.raises(ValueError, match="personaToken"):
+        type(get_settings())(
+            BILLING_ENABLED=True,
+            BILLING_ISSUERS=[
+                BillingIssuer(ruc="20608550454", name="A", address="x", ubigeo="150116", district="L",
+                              persona_id="p", persona_token=""),
+            ],
+        )
+
+
+def test_invoice_dto_muestra_el_nombre_de_la_empresa(monkeypatch):
+    import app.modules.billing.application.schemas as schemas
+
+    monkeypatch.setattr(schemas, "get_settings", lambda: _two_issuers())
+    invoice = Invoice(
+        transaction_id=uuid4(), issuer_ruc="20611936428", document_type="03", series="B001", number=1,
+        file_name="20611936428-03-B001-00000001", environment="development", currency=Currency.pen,
+        taxable_amount=1, igv_amount=0.18, total_amount=1.18, igv_rate=0.18, customer_doc_type="0",
+        customer_doc_number="-", customer_name="X", status="sent", issue_date=datetime.now(timezone.utc),
+    )
+    invoice.id = uuid4()
+    dto = schemas.InvoiceDTO.from_entity(invoice)
+    assert (dto.issuer_ruc, dto.issuer_name) == ("20611936428", "INGENITECH S.A.C.")
