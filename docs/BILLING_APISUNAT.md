@@ -38,6 +38,20 @@ BILLING_START_DATE=                  # YYYY-MM-DD: operaciones anteriores no se 
 
 Después: `alembic upgrade head` (migraciones 085 y 086).
 
+### En el servidor (Docker)
+
+`docker-compose.yml` pasa al contenedor una lista **explícita** de variables y
+`.dockerignore` excluye `.env*`: una variable que no esté en esa lista no llega a la
+API aunque esté en el `.env` del servidor. Las `BILLING_*` y `APISUNAT_*` ya están en
+la lista, con los mismos valores por defecto que `Settings` (módulo apagado).
+
+- Sin tocar nada: la facturación queda **apagada** y la API arranca normal.
+- **Nunca** pongas `BILLING_ENABLED=true` sin `APISUNAT_PERSONA_ID` y
+  `APISUNAT_PERSONA_TOKEN`: la validación de arranque falla y el contenedor no levanta.
+- `APISUNAT_ENVIRONMENT=production` exige `ENVIRONMENT` distinto de `development`.
+- Tras cambiar el `.env`: `docker compose up -d api` (recrea el contenedor con las
+  variables nuevas; un simple `restart` no las relee).
+
 ## Probar que funciona
 
 ```bash
