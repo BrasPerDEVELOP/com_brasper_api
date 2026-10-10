@@ -1,29 +1,17 @@
-"""Official quotes with customer eligibility; quotes do not create transfers."""
-from datetime import datetime, timezone
+"""Cálculo puro de cotización (tramo, cupón y descuento sobre la comisión), sin rutas HTTP.
+
+La API principal ya no cotiza para la plataforma IA ni administra campañas: la ruta
+``POST /brasper/ai/quotes`` y ``quote_for_client`` se retiraron (las campañas viven solo
+en com_brasper_ia). ``calculate`` e ``inverse_quote`` se conservan como referencia
+determinista que las pruebas de integridad C1 comparan con el registro de operaciones
+(misma selección de tramo y misma precisión ``normalize_amount``). Sin consumidores en
+producción; no exponerlas de nuevo sin decisión del responsable de la API.
+"""
 from math import isfinite
-from typing import Literal
-from uuid import UUID
 
-from pydantic import BaseModel, Field
-from sqlalchemy import select, func
-
-from app.modules.coin.domain.models import TaxRate, Commission
-from app.modules.coin.domain.enums import Currency
 from app.modules.coin.domain.commission_selection import normalize_amount, select_commission
-from app.modules.transactions.domain.models import Coupon, CouponRedemption
 from app.modules.transactions.domain.enums import ExchangeRateScope
 from app.modules.transactions.application.campaign_policy import discount_for
-from .ai_service import BrasperAIService
-
-
-class CampaignQuoteRequest(BaseModel):
-    user_id: UUID
-    code_phone: str = Field(pattern=r"^\+[0-9]{1,4}$")
-    phone: int = Field(gt=0, le=999_999_999_999_999)
-    origin: Currency
-    destination: Currency
-    amount: float = Field(gt=0, le=1_000_000_000, allow_inf_nan=False)
-    mode: Literal["send", "receive"] = "send"
 
 
 def calculate(amount, rate, commissions, coupons, uses, history, origin, destination, now):
@@ -68,35 +56,6 @@ def calculate(amount, rate, commissions, coupons, uses, history, origin, destina
             "eligibility_checked_at": now.isoformat(), "reserved": False,
             # C1: a quote never reserves; registration reserves, completion consumes.
             "discount_state": "quoted" if coupon else None}
-
-
-async def quote_for_client(session, request: CampaignQuoteRequest):
-    history = await BrasperAIService(session).client_history(request.user_id, code_phone=request.code_phone, phone=request.phone)
-    if history is None:
-        raise KeyError("Cliente no disponible para esta identidad")
-    rate_row = (await session.scalars(select(TaxRate).where(
-        TaxRate.coin_a == request.origin, TaxRate.coin_b == request.destination,
-        TaxRate.deleted.is_(False), TaxRate.enable.is_(True)).order_by(TaxRate.updated_at.desc()).limit(1))).first()
-    if not rate_row or not isfinite(float(rate_row.tax)) or float(rate_row.tax) <= 0:
-        raise ValueError("Tipo de cambio no disponible")
-    commissions = list((await session.scalars(select(Commission).where(
-        Commission.coin_a == request.origin, Commission.coin_b == request.destination,
-        Commission.deleted.is_(False), Commission.enable.is_(True)).order_by(Commission.min_amount.asc()))).all())
-    coupons = list((await session.scalars(select(Coupon).where(
-        Coupon.deleted.is_(False), Coupon.is_active.is_(True), Coupon.lifecycle_status == "ACTIVE"))).all())
-    uses = dict((await session.execute(select(CouponRedemption.coupon_id, func.count(CouponRedemption.id)).where(
-        CouponRedemption.user_id == request.user_id, CouponRedemption.deleted.is_(False))
-        .group_by(CouponRedemption.coupon_id))).all())
-    now, rate = datetime.now(timezone.utc), float(rate_row.tax)
-    def compute(amount):
-        return calculate(amount, rate, commissions, coupons, uses, history, request.origin, request.destination, now)
-    if request.mode == "send":
-        result = compute(request.amount)
-    else:
-        result = inverse_quote(request.amount, rate, commissions, coupons, compute)
-    result["mode"] = request.mode
-    result["valid_for_seconds"] = 1200
-    return result
 
 
 def inverse_quote(target, rate, commissions, coupons, compute):

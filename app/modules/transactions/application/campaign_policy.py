@@ -1,4 +1,9 @@
-"""Deterministic eligibility shared by quotes and transaction registration."""
+"""Deterministic coupon discount and eligibility used by transaction registration.
+
+``discount_for`` also validates the 0–100 % range for traditional coupons. The campaign
+branch (``campaign_rules``) is dormant: campaign administration moved to com_brasper_ia
+and the API no longer creates or publishes campaign rules.
+"""
 from math import isfinite
 
 from .schemas.campaign_schema import CampaignRules

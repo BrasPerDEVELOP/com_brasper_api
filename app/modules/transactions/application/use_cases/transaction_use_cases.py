@@ -828,6 +828,9 @@ class CreateTransactionUseCase:
                 if int(used_by_user or 0) >= coupon.per_user_limit:
                     raise ValueError("Ya alcanzaste el límite de uso de este cupón")
             completed = pending = 0
+            # Rama latente: solo aplica a filas con campaign_rules (migración 083). La API ya no
+            # crea ni publica campañas (viven en com_brasper_ia); se conserva para que una fila
+            # existente nunca se aplique sin sus límites (segmento, mínimo/máximo, tope).
             if getattr(coupon, "campaign_rules", None):
                 completed = int(await self._session.scalar(select(func.count(Transaction.id)).where(
                     Transaction.user_id == cmd.user_id, Transaction.status == TransactionStatus.completed)) or 0)

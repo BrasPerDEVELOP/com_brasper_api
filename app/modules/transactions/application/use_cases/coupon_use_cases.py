@@ -66,7 +66,8 @@ class CreateCouponUseCase:
 
     async def execute(self, cmd: CouponCreateCmd) -> CouponReadDTO:
         if cmd.campaign_rules or cmd.coupon_type == "CAMPAIGN":
-            raise ValueError("Usa el editor versionado para crear campañas")
+            # Las campañas viven solo en com_brasper_ia; la API no crea cupones de campaña.
+            raise ValueError("Las campañas se gestionan en la plataforma IA; no se crean como cupones")
         entity = Coupon(
             code=cmd.code,
             discount_percentage=cmd.discount_percentage,
@@ -99,7 +100,7 @@ class UpdateCouponUseCase:
             return None
         version = getattr(entity, "campaign_version", 1)
         if entity.coupon_type == "CAMPAIGN" or cmd.campaign_rules:
-            raise ValueError("Usa el editor versionado de campañas para modificar esta promoción")
+            raise ValueError("Las campañas se gestionan en la plataforma IA; esta promoción no se modifica como cupón")
         if (getattr(entity, "campaign_rules", None) or cmd.campaign_rules) and cmd.expected_version != version:
             raise ValueError("La campaña cambió; recarga antes de guardar")
         if cmd.expected_version is not None and cmd.expected_version != version:
@@ -148,7 +149,7 @@ class DeleteCouponUseCase:
     async def execute(self, coupon_id: UUID) -> None:
         entity = await self.repo.get_for_update(coupon_id)
         if entity is not None and entity.coupon_type == "CAMPAIGN":
-            # C1: campaigns keep their versioned history; use the admin disable flow.
-            raise ValueError("Las campañas no se eliminan desde cupones; desactívala en el editor de campañas")
+            # C1: campaign rows (migración 083) keep their history; never deleted from coupons.
+            raise ValueError("Las campañas no se eliminan desde cupones; su historial se conserva")
         await self.repo.delete(coupon_id)
         await self.repo.commit()

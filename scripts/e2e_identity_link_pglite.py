@@ -74,7 +74,7 @@ def _configure_env(pg_port: int, secret: str, auth_required: bool) -> None:
         "ROOT_PATH": "", "PUBLIC_URL": "", "FRONTEND_URL": "",
         "SECRET_KEY": "e2e-synthetic-secret-key-not-for-prod-000000",
         "JWT_SECRET_KEY": "e2e-synthetic-jwt-key-not-for-prod-0000000000",
-        "BRASPER_IA_SHARED_SECRET": secret, "BRASPER_IA_ADMIN_SECRET": "",
+        "BRASPER_IA_SHARED_SECRET": secret,
         "BRASPER_IA_IDENTITY_LINK_ENABLED": "true",
         "R2_ENDPOINT_URL": "http://127.0.0.1:9", "R2_ACCESS_KEY_ID": "e2e", "R2_SECRET_ACCESS_KEY": "e2e",
         "R2_BUCKET_NAME": "e2e", "R2_PUBLIC_URL": "", "MEDIA_SIGNING_SECRET": "",

@@ -54,7 +54,6 @@ class Settings(BaseSettings):
     # Secreto compartido exclusivamente con com_brasper_ia. Si está vacío,
     # los endpoints /brasper/ai responden 503 y nunca quedan abiertos.
     BRASPER_IA_SHARED_SECRET: str = ""
-    BRASPER_IA_ADMIN_SECRET: str = ""  # Distinto del secreto de herramientas conversacionales.
     BRASPER_IA_IDENTITY_LINK_ENABLED: bool = False
 
     # Seguridad y Middleware (Fase 1)

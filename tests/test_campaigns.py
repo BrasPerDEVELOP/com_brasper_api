@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock
@@ -6,11 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from app.modules.transactions.application.schemas.campaign_schema import CampaignRules, CampaignDraft
+from app.modules.transactions.application.schemas.campaign_schema import CampaignRules
 from app.modules.transactions.application.campaign_policy import discount_for
 from app.modules.transactions.application.use_cases.transaction_use_cases import release_coupon_usage
 from app.modules.brasper.application.campaign_quote import calculate, inverse_quote
-from app.modules.brasper.application.campaign_service import CampaignService, CampaignConflict
 from app.modules.brasper.application.ai_schemas import AIClientHistoryDTO
 from app.modules.coin.domain.enums import Currency
 
@@ -26,13 +25,6 @@ def coupon(**overrides):
                   is_active=True, lifecycle_status="ACTIVE", max_uses=100, used_count=0, per_user_limit=1,
                   start_date=None, end_date=None, published_version=1)
     return SimpleNamespace(**{**values, **overrides})
-
-
-def draft():
-    return CampaignDraft(code="TEST25", discount_percentage=25, max_uses=100,
-                         origin_currency="PEN", destination_currency="BRL",
-                         start_date=datetime.now(timezone.utc), end_date=datetime.now(timezone.utc)+timedelta(days=1),
-                         campaign_rules=rules())
 
 
 def test_campaign_validation_rejects_missing_translations_and_inverted_limits():
@@ -69,19 +61,6 @@ def test_quote_priority_limits_and_inverse_cap():
     assert abs(inv["amount_send"] - 500) <= 0.01
     a.is_active = b.is_active = False
     assert compute(500)["coupon_id"] is None
-
-
-async def test_save_draft_does_not_change_published_rules():
-    session = MagicMock()
-    session.commit = AsyncMock()
-    published = coupon(code="TEST25", campaign_version=3)
-    service = CampaignService(session)
-    service._coupon = AsyncMock(return_value=published)
-    result = await service.save(draft(), "admin@example.test", published.id, 3)
-    assert result["version"] == 4 and published.published_version == 1
-    assert published.campaign_rules["segment"] == "first_transfer"
-    with pytest.raises(CampaignConflict):
-        await service.save(draft(), "admin@example.test", published.id, 3)
 
 
 async def test_release_redemption_is_idempotent():
@@ -125,15 +104,20 @@ def test_coupon_edits_cannot_bypass_ledger_or_erase_completed_history():
             validate_coupon_edit(entity, {"user_id": uuid4()})
 
 
-def test_bot_secret_cannot_manage_campaigns():
+def test_campaign_admin_and_quote_routes_were_removed_from_the_api():
+    """Las campañas viven solo en com_brasper_ia: la API no expone administración ni cotización IA."""
     from fastapi.testclient import TestClient
     from app.main import app
     from app.core.settings import get_settings
-    settings = get_settings()
-    previous = settings.BRASPER_IA_ADMIN_SECRET, settings.BRASPER_IA_SHARED_SECRET
-    settings.BRASPER_IA_ADMIN_SECRET, settings.BRASPER_IA_SHARED_SECRET = "admin-only", "bot-only"
-    try:
-        assert TestClient(app).get("/brasper/ai/admin/campaigns", headers={"X-Brasper-IA-Secret": "bot-only"}).status_code == 401
-        assert TestClient(app).get("/brasper/ai/admin/campaigns", headers={"X-Brasper-IA-Admin-Secret": "bot-only"}).status_code == 401
-    finally:
-        settings.BRASPER_IA_ADMIN_SECRET, settings.BRASPER_IA_SHARED_SECRET = previous
+    paths = set(app.openapi()["paths"])
+    assert not any("/ai/admin/campaigns" in path for path in paths)
+    assert "/brasper/ai/quotes" not in paths
+    assert not hasattr(get_settings(), "BRASPER_IA_ADMIN_SECRET")
+    client = TestClient(app)
+    assert client.get("/brasper/ai/admin/campaigns").status_code == 404
+    assert client.post("/brasper/ai/quotes", json={}).status_code in (404, 405)
+    # Identity linking and client lookups stay available.
+    for kept in ("/brasper/ai/clients/lookup", "/brasper/ai/clients/upsert", "/brasper/ai/deposit-accounts",
+                 "/brasper/ai/clients/{user_id}/history", "/brasper/ai/clients/{user_id}/operations",
+                 "/brasper/identity-links", "/brasper/ai/identity-links/redeem"):
+        assert kept in paths

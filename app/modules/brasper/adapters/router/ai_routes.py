@@ -19,7 +19,6 @@ from app.modules.brasper.application.ai_schemas import (
     AIDepositAccountsDTO,
 )
 from app.modules.brasper.application.ai_service import BrasperAIService
-from app.modules.brasper.application.campaign_quote import CampaignQuoteRequest, quote_for_client
 
 from app.core.routing import LegacyAliasRouter
 
@@ -36,16 +35,6 @@ def require_ai_secret(x_brasper_ia_secret: Annotated[str | None, Header()] = Non
 
 def get_ai_service(db: AsyncSession = Depends(get_db)) -> BrasperAIService:
     return BrasperAIService(db)
-
-
-@router.post("/quotes", dependencies=[Depends(require_ai_secret)])
-async def personalized_quote(body: CampaignQuoteRequest, db: AsyncSession = Depends(get_db)):
-    try:
-        return await quote_for_client(db, body)
-    except KeyError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/clients/lookup", response_model=AIClientLookupDTO,

@@ -92,12 +92,6 @@ AUDITED_MUTATION_ROUTES = {
     # Brasper Public / AI (con prefijo /brasper registrado en main.py)
     ("POST", "/brasper/contact-form"),
     ("POST", "/brasper/ai/clients/upsert"),
-    ("POST", "/brasper/ai/quotes"),
-    # Campañas (secreto administrativo separado del bot)
-    ("POST", "/brasper/ai/admin/campaigns"),
-    ("PUT", "/brasper/ai/admin/campaigns/{coupon_id}"),
-    ("POST", "/brasper/ai/admin/campaigns/{coupon_id}/publish"),
-    ("POST", "/brasper/ai/admin/campaigns/{coupon_id}/disable"),
     # Vinculación de chats (token y grant se redactan en auditoría)
     ("POST", "/brasper/identity-links"),
     ("DELETE", "/brasper/identity-links"),

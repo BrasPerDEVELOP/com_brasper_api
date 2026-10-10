@@ -1,6 +1,10 @@
-"""Reglas comerciales de campañas de cupones; nunca instrucciones para el LLM."""
-from datetime import datetime
-from app.modules.coin.domain.enums import Currency
+"""Validación de ``Coupon.campaign_rules`` (columna de la migración 083).
+
+La administración de campañas se retiró de la API principal (vive en com_brasper_ia).
+Se conserva solo este esquema porque el registro de operaciones (``campaign_policy.discount_for``)
+y los DTO de cupones siguen validando reglas de filas que ya existan; no se pueden crear
+reglas nuevas desde la API (``CreateCouponUseCase``/``UpdateCouponUseCase`` las rechazan).
+"""
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -37,23 +41,3 @@ class CampaignRules(BaseModel):
             raise ValueError("La campaña requiere condiciones aprobadas en español y portugués")
         return self
 
-
-class CampaignDraft(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
-    discount_percentage: float = Field(ge=0, le=100, allow_inf_nan=False)
-    max_uses: int = Field(gt=0)
-    per_user_limit: int = Field(default=1, gt=0)
-    origin_currency: Currency
-    destination_currency: Currency
-    start_date: datetime
-    end_date: datetime
-    campaign_rules: CampaignRules
-
-    @model_validator(mode="after")
-    def dates_and_pair(self):
-        if self.start_date.tzinfo is None or self.end_date.tzinfo is None or self.end_date <= self.start_date:
-            raise ValueError("Inicio y fin deben incluir zona horaria, con fin posterior al inicio")
-        if self.origin_currency == self.destination_currency:
-            raise ValueError("Origen y destino deben ser distintos")
-        return self
