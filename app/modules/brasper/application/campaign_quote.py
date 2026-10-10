@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 
 from app.modules.coin.domain.models import TaxRate, Commission
 from app.modules.coin.domain.enums import Currency
-from app.modules.coin.domain.commission_selection import select_commission
+from app.modules.coin.domain.commission_selection import normalize_amount, select_commission
 from app.modules.transactions.domain.models import Coupon, CouponRedemption
 from app.modules.transactions.domain.enums import ExchangeRateScope
 from app.modules.transactions.application.campaign_policy import discount_for
@@ -27,7 +27,7 @@ class CampaignQuoteRequest(BaseModel):
 
 
 def calculate(amount, rate, commissions, coupons, uses, history, origin, destination, now):
-    amount = round(amount, 2)
+    amount = normalize_amount(amount)
     commission = select_commission(amount, commissions)
     gross = round(amount * float(commission.percentage) / 100, 2)
     if not isfinite(gross) or gross < 0 or gross > amount:
@@ -124,7 +124,7 @@ def inverse_quote(target, rate, commissions, coupons, compute):
     choices = []
     for value in amounts:
         for offset in (-0.02, -0.01, 0, 0.01, 0.02):
-            amount = round(value + offset, 2)
+            amount = normalize_amount(value + offset)
             if not 0 < amount <= 1_000_000_000:
                 continue
             try:

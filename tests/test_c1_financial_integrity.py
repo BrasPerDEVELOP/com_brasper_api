@@ -353,3 +353,33 @@ def test_discount_state_distinguishes_reserved_consumed_released():
     assert discount_state(cid, TransactionStatus.completed) == "consumed"
     assert discount_state(cid, TransactionStatus.failed) == "released"
     assert "coupon_discount_state" in TransactionReadDTO.model_computed_fields
+
+
+# --------------------------------------------------------------------------- #
+# Precisión común: el monto se normaliza ANTES de elegir tramo (revisión 10 oct)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw, normalized", [(1000.004, 1000.00), (1000.005, 1000.01), (999.995, 1000.00),
+                                             (1000.0049999, 1000.00)])
+async def test_registration_normalizes_amount_like_quote_before_selecting_bracket(raw, normalized):
+    from app.modules.coin.domain.commission_selection import normalize_amount
+    low, high = _commission(0, 1000, 2), _commission(1000, 2000, 1)
+    history = SimpleNamespace(completed_transfers=0, pending_transfers=0)
+    assert normalize_amount(raw) == normalized
+    quote = calculate(raw, RATE, [low, high], [], {}, history, Currency.pen, Currency.brl, NOW)
+    uc, captured, _ = _create_use_case(LedgerSession(coupon=None), [low, high], client_commission=high)
+    await uc.execute(_create_cmd(raw, commission_id=high.id))
+    entity = captured["entity"]
+    assert quote["amount_send"] == normalized
+    assert entity.commission_id == (low if normalized <= 1000 else high).id, "mismo tramo que la cotización"
+    assert float(entity.origin_amount) == normalized
+    assert float(entity.commission_result) == quote["commission"]
+    assert float(entity.destination_amount) == quote["amount_receive"]
+
+
+def test_normalize_amount_rejects_non_numbers():
+    from app.modules.coin.domain.commission_selection import normalize_amount
+    for bad in ("abc", float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            normalize_amount(bad)
+

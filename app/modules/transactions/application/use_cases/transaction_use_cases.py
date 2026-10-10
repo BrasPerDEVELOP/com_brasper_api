@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from app.shared.query_filter import FilterSchema, OperatorEnum, QueryFilter
 from app.core.pagination.offset import PaginatedResult
 from app.modules.coin.domain.enums import Currency
-from app.modules.coin.domain.commission_selection import select_commission
+from app.modules.coin.domain.commission_selection import normalize_amount, select_commission
 from app.modules.coin.domain.accounting_settings_calc import (
     DEFAULT_AMOUNT_THRESHOLD,
     DEFAULT_FIXED_COMMISSION,
@@ -762,9 +762,11 @@ class CreateTransactionUseCase:
             raise ValueError(f"No existe commission con id {cmd.commission_id}")
         if commission.coin_a != tax_rate.coin_a or commission.coin_b != tax_rate.coin_b:
             raise ValueError("La comisión no corresponde al par de monedas de la tasa")
-        amount = float(cmd.origin_amount)
+        # Misma precisión que la cotización ANTES de elegir tramo, calcular y persistir.
+        amount = normalize_amount(cmd.origin_amount)
         if amount <= 0:
             raise ValueError("El monto de origen debe ser mayor que cero")
+        entity_data["origin_amount"] = amount
         # C1: the bracket is ALWAYS chosen by the shared policy over the enabled
         # brackets of the pair (same rows as the official quote). A client-sent
         # commission_id that is disabled or that wins an overlapping boundary

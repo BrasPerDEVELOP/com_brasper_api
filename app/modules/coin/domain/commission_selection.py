@@ -1,5 +1,19 @@
 """One bracket policy for official quotes and transaction registration."""
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from math import isfinite
+
+
+def normalize_amount(value) -> float:
+    """Única política de precisión para cotizar, elegir tramo, registrar y persistir:
+    2 decimales con redondeo comercial (mitad hacia arriba). Sin esto, 1000.004 se
+    cotizaba en un tramo (1000.00) y se registraba en otro (1000.004)."""
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("El monto debe ser un número válido") from exc
+    if not amount.is_finite():
+        raise ValueError("El monto debe ser positivo y finito")
+    return float(amount)
 
 
 def select_commission(amount, rows):
