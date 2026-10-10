@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -151,6 +151,25 @@ def _error_text(payload) -> str:
         return str(payload)[:2000]
 
 
+async def _adopt_remote_document(
+    repo: BillingRepositoryInterface,
+    invoice: Invoice,
+    info: DocumentInfo,
+    event_payload: dict,
+) -> None:
+    """El documento ya existe en APISUNAT: se vincula y el poller resuelve su estado final."""
+    invoice.status = InvoiceStatus.sent.value
+    invoice.apisunat_document_id = info.document_id
+    invoice.sunat_status = info.status or SunatDocumentStatus.PENDIENTE.value
+    invoice.sent_at = invoice.sent_at or _now()
+    invoice.last_error = None
+    await repo.add_event(
+        invoice.id,
+        InvoiceEventType.sent.value,
+        {**event_payload, "documentId": info.document_id, "sunat_status": info.status},
+    )
+
+
 async def send_invoice(
     repo: BillingRepositoryInterface,
     client: ApisunatClientInterface,
@@ -174,16 +193,7 @@ async def send_invoice(
         except (ApisunatError, ValueError):
             recovered = None
         if recovered is not None:
-            invoice.status = InvoiceStatus.sent.value
-            invoice.apisunat_document_id = recovered.document_id
-            invoice.sunat_status = recovered.status or SunatDocumentStatus.PENDIENTE.value
-            invoice.sent_at = _now()
-            invoice.last_error = None
-            await repo.add_event(
-                invoice.id,
-                InvoiceEventType.sent.value,
-                {"recovered_after_timeout": True, "documentId": recovered.document_id},
-            )
+            await _adopt_remote_document(repo, invoice, recovered, {"recovered_after_timeout": True})
         else:
             invoice.status = InvoiceStatus.error.value
             invoice.last_error = str(exc)
@@ -294,6 +304,7 @@ class IssueInvoiceUseCase:
             customer_address=customer.address,
             customer_email=customer.email,
             status=InvoiceStatus.reserved.value,
+            reserved_at=issued_at,
             issue_date=issued_at,
             document_body=body,
             attempts=0,
@@ -402,6 +413,61 @@ class PollPendingInvoicesUseCase:
         return changed
 
 
+def stale_reserved_after_seconds(settings: Settings) -> float:
+    """Tiempo a partir del cual un ``reserved`` se considera envío interrumpido.
+
+    Un envío normal dura como máximo ``sendBill`` + ``getAll`` (dos timeouts); se
+    deja un minuto de margen para no "recuperar" un envío que sigue en curso.
+    """
+    return 2 * float(settings.APISUNAT_TIMEOUT_SECONDS) + 60
+
+
+class RecoverStaleReservedUseCase:
+    """Rescata comprobantes atascados en ``reserved``.
+
+    Pasa cuando el proceso se cae (deploy, reinicio, OOM) entre el commit de la
+    reserva y la respuesta de ``sendBill``. Sin esto el comprobante bloquea la
+    operación para siempre: cuenta como vivo, no es reintentable y el poller
+    solo mira ``sent``. Se busca por serie-número en APISUNAT:
+
+    - existe → se vincula como ``sent`` y el poller resuelve su estado;
+    - no existe → ``error`` (el número no se consumió; se reintenta con el mismo);
+    - APISUNAT no responde → se deja como está y se intenta en el siguiente ciclo.
+    """
+
+    def __init__(
+        self,
+        repo: BillingRepositoryInterface,
+        client: ApisunatClientInterface,
+        settings: Settings,
+    ):
+        self.repo = repo
+        self.client = client
+        self.settings = settings
+
+    async def execute(self, *, now: Optional[datetime] = None, limit: int = 20) -> int:
+        cutoff = (now or _now()) - timedelta(seconds=stale_reserved_after_seconds(self.settings))
+        stale = await self.repo.list_stale_reserved(cutoff, limit=limit)
+        recovered = 0
+        for invoice in stale:
+            try:
+                remote = await self.client.find_by_file_name(invoice.file_name)
+            except (ApisunatError, ValueError) as exc:
+                logger.warning("No se pudo verificar el reservado %s: %s", invoice.file_name, exc)
+                continue
+            if remote is not None:
+                await _adopt_remote_document(self.repo, invoice, remote, {"recovered_stale_reserved": True})
+            else:
+                invoice.status = InvoiceStatus.error.value
+                invoice.last_error = "Envío interrumpido antes de llegar a APISUNAT; reintentar"
+                await self.repo.add_event(
+                    invoice.id, InvoiceEventType.send_failed.value, {"stale_reserved": True}
+                )
+            await self.repo.commit()
+            recovered += 1
+        return recovered
+
+
 class RetryInvoiceUseCase:
     """Reintenta un comprobante en ``exception``/``error`` (mismo número) o ``rejected`` (nuevo número)."""
 
@@ -439,7 +505,25 @@ class RetryInvoiceUseCase:
                 customer_doc_number=invoice.customer_doc_number,
             )
             return await issue.execute(invoice.transaction_id, cmd, actor=actor)
+        if status is InvoiceStatus.error:
+            # En `error` no se sabe si el envío llegó (p. ej. timeout sin confirmación):
+            # antes de reenviar el MISMO número se verifica en APISUNAT. Si no se puede
+            # verificar, no se reenvía a ciegas.
+            try:
+                remote = await self.client.find_by_file_name(invoice.file_name)
+            except (ApisunatError, ValueError) as exc:
+                await self.repo.commit()
+                raise ApisunatError(
+                    f"No se pudo verificar en APISUNAT si {invoice.file_name} ya existe; "
+                    f"reintenta más tarde: {exc}"
+                ) from exc
+            if remote is not None:
+                await _adopt_remote_document(self.repo, invoice, remote, {"recovered_on_retry": True})
+                await self.repo.commit()
+                await self.repo.refresh(invoice)
+                return InvoiceDTO.from_entity(invoice)
         invoice.status = InvoiceStatus.reserved.value
+        invoice.reserved_at = _now()
         await self.repo.commit()
         await send_invoice(self.repo, self.client, self.settings, invoice)
         return InvoiceDTO.from_entity(invoice)

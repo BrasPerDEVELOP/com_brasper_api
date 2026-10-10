@@ -65,6 +65,11 @@ class BillingRepositoryInterface(ABC):
     async def list_by_status(self, statuses: Sequence[str], *, limit: int = 50) -> list[Invoice]: ...
 
     @abstractmethod
+    async def list_stale_reserved(self, reserved_before: datetime, *, limit: int = 50) -> list[Invoice]:
+        """Comprobantes en ``reserved`` desde antes de ``reserved_before`` (envío interrumpido)."""
+        ...
+
+    @abstractmethod
     async def list_events(self, invoice_id: UUID) -> list[InvoiceEvent]: ...
 
     @abstractmethod

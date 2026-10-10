@@ -88,6 +88,8 @@ class Invoice(ORMBaseModel):
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Lo fija Python (UTC) al pasar a `reserved`; el poller detecta así los envíos interrumpidos.
+    reserved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -164,6 +164,19 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
             select(Invoice)
             .where(Invoice.deleted.is_(False), Invoice.status.in_(list(statuses)))
             .order_by(Invoice.last_polled_at.asc().nulls_first(), Invoice.created_at.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def list_stale_reserved(self, reserved_before: datetime, *, limit: int = 50) -> list[Invoice]:
+        stmt = (
+            select(Invoice)
+            .where(
+                Invoice.deleted.is_(False),
+                Invoice.status == "reserved",
+                or_(Invoice.reserved_at.is_(None), Invoice.reserved_at < reserved_before),
+            )
+            .order_by(Invoice.reserved_at.asc().nulls_first())
             .limit(limit)
         )
         return list((await self.session.execute(stmt)).scalars().all())

@@ -135,7 +135,7 @@ Sin credenciales, el resto de la API y la home continúan funcionando; la sincro
 
 ## Facturación electrónica (APISUNAT)
 
-Boletas y facturas electrónicas por la comisión cobrada en cada operación `completed`, emitidas vía [APISUNAT](https://docs.apisunat.com). Módulo `app/modules/billing`, rutas `/billing/*`, permisos `billing.view`, `billing.issue` y `billing.void`. Diseño completo en el documento "Integración Brasper · APISUNAT".
+Boletas y facturas electrónicas por la comisión cobrada en cada operación `completed`, emitidas vía [APISUNAT](https://docs.apisunat.com). Módulo `app/modules/billing`, rutas `/billing/*`, permisos `billing.view`, `billing.issue` y `billing.void`. Diseño completo en el documento "Integración Brasper · APISUNAT". Guía de uso, prueba con `scripts/apisunat_smoke.py` y registro de cambios en [docs/BILLING_APISUNAT.md](docs/BILLING_APISUNAT.md).
 
 Apagado por defecto. Para activarlo en **desarrollo** (nada llega a SUNAT):
 

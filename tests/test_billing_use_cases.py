@@ -1,5 +1,5 @@
 """Casos de uso de facturación: emisión, reintentos, consulta de estado y anulación."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Optional, Sequence
@@ -12,6 +12,7 @@ from app.modules.billing.application.schemas import IssueInvoiceCmd
 from app.modules.billing.application.triggers import should_auto_issue
 from app.modules.billing.application.use_cases import (
     AlignSeriesUseCase,
+    RecoverStaleReservedUseCase,
     BillingDisabledError,
     IssueInvoiceUseCase,
     PollInvoiceUseCase,
@@ -111,6 +112,14 @@ class FakeRepo(BillingRepositoryInterface):
     async def list_by_status(self, statuses: Sequence[str], *, limit=50):
         return [i for i in self.invoices if i.status in statuses][:limit]
 
+    async def list_stale_reserved(self, reserved_before, *, limit=50):
+        return [
+            i
+            for i in self.invoices
+            if i.status == InvoiceStatus.reserved.value
+            and (i.reserved_at is None or i.reserved_at < reserved_before)
+        ][:limit]
+
     async def list_events(self, invoice_id):
         return [e for e in self.events if e.invoice_id == invoice_id]
 
@@ -149,6 +158,7 @@ class FakeClient(ApisunatClientInterface):
         self.void_result = SendBillResult(status="PENDIENTE", document_id="void-1", raw={})
         self.voided: list[dict] = []
         self.last = {"lastNumber": 0}
+        self.find_calls = 0
 
     async def send_bill(self, **kwargs):
         self.sent.append(kwargs)
@@ -164,6 +174,9 @@ class FakeClient(ApisunatClientInterface):
         return info
 
     async def find_by_file_name(self, file_name):
+        self.find_calls += 1
+        if isinstance(self.found, Exception):
+            raise self.found
         return self.found
 
     async def get_pdf(self, document_id, *, pdf_format, file_name):
@@ -452,3 +465,136 @@ def test_should_auto_issue_respeta_configuracion_y_transicion(monkeypatch):
     assert not should_auto_issue(TransactionStatus.verified, TransactionStatus.verified)
     monkeypatch.setattr(settings, "BILLING_AUTO_ISSUE", False)
     assert not should_auto_issue(TransactionStatus.verified, TransactionStatus.completed)
+
+
+# --- Reintento de `error`: verificar antes de reenviar el mismo número --------
+async def _invoice_in_error(repo, client, settings):
+    client.send_results = [ApisunatTimeout("timeout")]
+    dto = await IssueInvoiceUseCase(repo, client, settings).execute(repo.transaction.id)
+    assert dto.status == InvoiceStatus.error.value
+    return dto
+
+
+@pytest.mark.asyncio
+async def test_reintento_de_error_adopta_el_documento_si_ya_llego_a_apisunat():
+    tx = _transaction()
+    repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
+    dto = await _invoice_in_error(repo, client, settings)
+
+    # El envío sí había llegado: aparece al buscar por serie-número.
+    client.found = DocumentInfo(document_id="doc-tardio", status="PENDIENTE", file_name=dto.file_name)
+    retried = await RetryInvoiceUseCase(repo, client, settings).execute(dto.id, actor="x")
+
+    assert retried.status == InvoiceStatus.sent.value
+    assert retried.apisunat_document_id == "doc-tardio"
+    assert len(client.sent) == 1  # no se reenvió: habría duplicado el número
+    assert repo.event_names(dto.id)[-2:] == ["retry", "sent"]
+
+
+@pytest.mark.asyncio
+async def test_reintento_de_error_no_reenvia_si_no_puede_verificar():
+    tx = _transaction()
+    repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
+    dto = await _invoice_in_error(repo, client, settings)
+
+    client.found = ApisunatError("APISUNAT caído")
+    with pytest.raises(ApisunatError, match="No se pudo verificar"):
+        await RetryInvoiceUseCase(repo, client, settings).execute(dto.id, actor="x")
+    assert len(client.sent) == 1
+    assert (await repo.get_invoice(dto.id)).status == InvoiceStatus.error.value
+
+
+@pytest.mark.asyncio
+async def test_reintento_de_error_reenvia_si_el_documento_no_existe():
+    tx = _transaction()
+    repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
+    dto = await _invoice_in_error(repo, client, settings)
+
+    client.found = None
+    client.send_results = [PENDING]
+    retried = await RetryInvoiceUseCase(repo, client, settings).execute(dto.id, actor="x")
+    assert retried.status == InvoiceStatus.sent.value and retried.file_name == dto.file_name
+    assert len(client.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_excepcion_reenvia_sin_buscar_antes():
+    """EXCEPCION existe en APISUNAT pero libera el número: se reenvía directo."""
+    tx = _transaction()
+    repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
+    invoice = await _sent_invoice(repo, client, settings)
+    invoice.status = InvoiceStatus.exception.value
+    calls_before = client.find_calls
+    client.send_results = [PENDING]
+
+    await RetryInvoiceUseCase(repo, client, settings).execute(invoice.id, actor="x")
+    assert client.find_calls == calls_before and len(client.sent) == 2
+
+
+# --- Rescate de comprobantes atascados en `reserved` -------------------------
+def _stuck_reserved(repo, *, minutes_ago):
+    invoice = Invoice(
+        transaction_id=repo.transaction.id,
+        document_type="03",
+        series="B001",
+        number=7,
+        file_name="20608550454-03-B001-00000007",
+        environment="development",
+        currency=Currency.pen,
+        status=InvoiceStatus.reserved.value,
+        reserved_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+        issue_date=datetime.now(timezone.utc),
+        attempts=0,
+    )
+    invoice.id = uuid4()
+    repo.invoices.append(invoice)
+    return invoice
+
+
+@pytest.mark.asyncio
+async def test_rescata_reservado_que_si_llego_a_apisunat():
+    repo, client, settings = FakeRepo(_transaction()), FakeClient(), _settings()
+    invoice = _stuck_reserved(repo, minutes_ago=10)
+    client.found = DocumentInfo(document_id="doc-7", status="PENDIENTE", file_name=invoice.file_name)
+
+    assert await RecoverStaleReservedUseCase(repo, client, settings).execute() == 1
+    assert invoice.status == InvoiceStatus.sent.value and invoice.apisunat_document_id == "doc-7"
+
+
+@pytest.mark.asyncio
+async def test_rescata_reservado_que_no_llego_y_queda_reintentable():
+    repo, client, settings = FakeRepo(_transaction()), FakeClient(), _settings()
+    invoice = _stuck_reserved(repo, minutes_ago=10)
+
+    assert await RecoverStaleReservedUseCase(repo, client, settings).execute() == 1
+    assert invoice.status == InvoiceStatus.error.value
+    assert InvoiceStatus(invoice.status).can_retry
+    # Ya no bloquea la operación: deja de contar como comprobante vivo.
+    assert await repo.get_open_invoice(repo.transaction.id) is None
+
+
+@pytest.mark.asyncio
+async def test_no_toca_reservados_recientes_ni_si_apisunat_no_responde():
+    repo, client, settings = FakeRepo(_transaction()), FakeClient(), _settings()
+    reciente = _stuck_reserved(repo, minutes_ago=0)
+    assert await RecoverStaleReservedUseCase(repo, client, settings).execute() == 0
+    assert reciente.status == InvoiceStatus.reserved.value and client.find_calls == 0
+
+    viejo = _stuck_reserved(repo, minutes_ago=10)
+    client.found = ApisunatError("caído")
+    assert await RecoverStaleReservedUseCase(repo, client, settings).execute() == 0
+    assert viejo.status == InvoiceStatus.reserved.value
+
+
+@pytest.mark.asyncio
+async def test_emitir_y_reintentar_fijan_reserved_at():
+    tx = _transaction()
+    repo, client, settings = FakeRepo(tx), FakeClient(), _settings()
+    dto = await _invoice_in_error(repo, client, settings)
+    invoice = await repo.get_invoice(dto.id)
+    first = invoice.reserved_at
+    assert first is not None and first.tzinfo is not None
+
+    client.send_results = [PENDING]
+    await RetryInvoiceUseCase(repo, client, settings).execute(dto.id, actor="x")
+    assert invoice.reserved_at >= first

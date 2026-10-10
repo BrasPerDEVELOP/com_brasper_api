@@ -58,29 +58,44 @@ class InvoicePoller:
             await asyncio.sleep(interval)
 
     async def tick(self) -> int:
-        """Un ciclo: devuelve cuántos comprobantes cambiaron de estado."""
-        from app.db.base import AsyncSessionLocal
+        """Un ciclo: devuelve cuántos comprobantes cambiaron de estado.
+
+        El bloqueo consultivo es de SESIÓN de Postgres: hay que liberarlo en la misma
+        conexión que lo tomó. Por eso vive en una conexión dedicada, separada de la
+        sesión ORM de trabajo, que hace ``commit`` por comprobante y con cada commit
+        devuelve su conexión al pool (si el lock viviera ahí, el unlock correría en
+        otra conexión y el lock quedaría pegado a una conexión del pool).
+        """
+        from app.db.base import AsyncSessionLocal, engine
         from app.modules.billing.adapters.dependencies import build_apisunat_client
-        from app.modules.billing.application.use_cases import PollInvoiceUseCase, PollPendingInvoicesUseCase
+        from app.modules.billing.application.use_cases import (
+            PollInvoiceUseCase,
+            PollPendingInvoicesUseCase,
+            RecoverStaleReservedUseCase,
+        )
         from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
         from app.shared.services.file_service import file_service
 
         settings = get_settings()
         if not settings.BILLING_ENABLED:
             return 0
-        async with AsyncSessionLocal() as session:
+        async with engine.connect() as lock_conn:
             locked = (
-                await session.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
+                await lock_conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
             ).scalar()
+            await lock_conn.commit()
             if not locked:
                 return 0
             try:
-                repo = SQLAlchemyBillingRepository(session)
-                poll = PollInvoiceUseCase(repo, build_apisunat_client(settings), settings, file_service)
-                return await PollPendingInvoicesUseCase(poll, repo).execute()
+                client = build_apisunat_client(settings)
+                async with AsyncSessionLocal() as session:
+                    repo = SQLAlchemyBillingRepository(session)
+                    recovered = await RecoverStaleReservedUseCase(repo, client, settings).execute()
+                    poll = PollInvoiceUseCase(repo, client, settings, file_service)
+                    return recovered + await PollPendingInvoicesUseCase(poll, repo).execute()
             finally:
-                await session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
-                await session.commit()
+                await lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
+                await lock_conn.commit()
 
 
 invoice_poller = InvoicePoller()

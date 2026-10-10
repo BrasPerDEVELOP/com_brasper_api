@@ -18,6 +18,7 @@ se propaga como ``ApisunatTimeout`` para que el caso de uso verifique con
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 import httpx
@@ -31,6 +32,41 @@ from app.modules.billing.interfaces.apisunat_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PERSONA_TOKEN_RE = re.compile(r"(personaToken=)[^&\s\"']+")
+
+
+def redact_persona_token(text: str) -> str:
+    return _PERSONA_TOKEN_RE.sub(lambda m: m.group(1) + "***", text)
+
+
+class _RedactPersonaTokenFilter(logging.Filter):
+    """Oculta ``personaToken`` en los logs de httpx.
+
+    ``GET /documents/getAll`` exige el token en la query string (así lo define
+    APISUNAT) y httpx registra la URL completa a nivel INFO
+    (``HTTP Request: GET https://...&personaToken=...``).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str) and "personaToken=" in record.msg:
+            record.msg = redact_persona_token(record.msg)
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(
+                redact_persona_token(str(arg)) if "personaToken=" in str(arg) else arg
+                for arg in record.args
+            )
+        return True
+
+
+def install_log_redaction() -> None:
+    for name in ("httpx", "httpcore"):
+        target = logging.getLogger(name)
+        if not any(isinstance(f, _RedactPersonaTokenFilter) for f in target.filters):
+            target.addFilter(_RedactPersonaTokenFilter())
+
+
+install_log_redaction()
 
 
 def _as_list(value) -> list:
@@ -178,7 +214,8 @@ class ApisunatHttpClient(ApisunatClientInterface):
             **self._credentials(),
             "type": document_type,
             "serie": series,
-            "number": int(number),
+            # APISUNAT filtra por el número como texto de 8 dígitos ("00000001").
+            "number": f"{int(number):08d}",
             "limit": 5,
         }
         response = await self._get("/documents/getAll", params=params)

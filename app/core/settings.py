@@ -330,7 +330,9 @@ class Settings(BaseSettings):
         })
 
     class Config:
-        env_file = ".env"
+        # `.env.local` (no versionado) pisa a `.env`: permite apuntar a una base local
+        # sin tocar el `.env` real. En el servidor no existe y no tiene efecto.
+        env_file = (".env", ".env.local")
         case_sensitive = True
         # El .env es compartido con docker-compose (API_PORT, etc.). Sin esto,
         # pydantic-settings usa extra="forbid" y cualquier clave ajena a la app
