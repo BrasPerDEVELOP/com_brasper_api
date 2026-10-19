@@ -22,6 +22,24 @@ DEFAULT_BODY = (
 )
 
 
+SPANISH_TEMPLATE_KEY = "brasper_brasil_es_v1"
+SPANISH_ASSET_NAMES = tuple(name.replace("portugues", "espanol").replace("celular_pt", "celular_es") for name in ASSET_NAMES)
+ALL_ASSET_NAMES = tuple(dict.fromkeys((*ASSET_NAMES, *SPANISH_ASSET_NAMES)))
+TEMPLATES = {
+    TEMPLATE_KEY: {"key": TEMPLATE_KEY, "name": "Brasil · Portugués · Envíos a Perú", "language": "pt-BR",
+                   "default_subject": DEFAULT_SUBJECT, "default_body": DEFAULT_BODY},
+    SPANISH_TEMPLATE_KEY: {"key": SPANISH_TEMPLATE_KEY, "name": "Perú · Español · Envíos a Brasil", "language": "es-PE",
+        "default_subject": "Perú y Brasil más cerca: cotiza tu envío con BrasPer",
+        "default_body": "¡Hola!\n\nEn BrasPer te conectamos con quienes más importan. Envía dinero de Perú a Brasil con atención en español y portugués.\n\nCotiza y revisa el tipo de cambio, las comisiones, los plazos y el monto final en reales antes de confirmar tu transferencia."},
+}
+
+
+def template_assets(template_key):
+    if template_key not in TEMPLATES:
+        raise ValueError("Plantilla de correo desconocida")
+    return SPANISH_ASSET_NAMES if template_key == SPANISH_TEMPLATE_KEY else ASSET_NAMES
+
+
 def asset_cid(name):
     return name + "@brasper.marketing"
 
@@ -36,10 +54,10 @@ def render_email(subject, body, unsubscribe, template_key=None, asset_base=None)
             '<h2>Brasper Transferencias</h2>' + escaped
             + '<hr><p><a href="' + link + '">Dejar de recibir estos correos</a></p></div></body></html>'
         )
-    if template_key != TEMPLATE_KEY:
+    if template_key not in TEMPLATES:
         raise ValueError("Plantilla de correo desconocida")
-    source = (Path(__file__).parent / "email_templates" / (TEMPLATE_KEY + ".html")).read_text(encoding="utf-8")
-    for name in ASSET_NAMES:
+    source = (Path(__file__).parent / "email_templates" / (template_key + ".html")).read_text(encoding="utf-8")
+    for name in template_assets(template_key):
         url = asset_base.rstrip("/") + ASSET_PREFIX + "/" + name if asset_base else "cid:" + asset_cid(name)
         source = source.replace("assets/" + name, html.escape(url, quote=True))
     values = {"unsubscribe_url": link, "subject": html.escape(subject), "message_html": escaped,

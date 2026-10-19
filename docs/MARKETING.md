@@ -36,3 +36,5 @@ La migración 089 agrega `template_key` a campañas. Los registros anteriores ma
 `GET /marketing/templates` devuelve los diseños y textos iniciales. `POST /marketing/preview` genera la vista previa con el mismo renderer del correo y requiere `marketing.view`; se registra como vista previa en auditoría. La vista previa usa imágenes HTTPS de un catálogo público de archivos fijos y se muestra en un iframe aislado. Los correos usan CID y una URL de baja firmada exclusiva para el destinatario; el enlace de la vista previa es un marcador sin efectos.
 
 Revisar mediante «Enviar prueba» en los clientes de correo usados antes de una campaña real: la vista del navegador no garantiza compatibilidad exacta en Gmail/Outlook. Ninguna prueba automatizada envía correos.
+
+Dos públicos: Brasil (portugués, brasper_peru_pt_v1) y Perú (español, brasper_brasil_es_v1). Cada campaña conserva su plantilla; el selector no filtra destinatarios por país.

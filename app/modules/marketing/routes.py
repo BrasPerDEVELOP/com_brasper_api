@@ -15,7 +15,7 @@ from app.modules.marketing.mail import check_config, decode_unsubscribe, send_em
 from app.modules.marketing.models import Campaign, Recipient, Suppression
 from app.modules.marketing.schemas import CampaignInput, TestInput, PreviewInput
 from app.modules.marketing.template_renderer import (
-    ASSET_DIR, ASSET_NAMES, TEMPLATE_KEY, DEFAULT_BODY, DEFAULT_SUBJECT, render_email,
+    ASSET_DIR, ALL_ASSET_NAMES, TEMPLATES, render_email,
 )
 from app.modules.users.domain.models import User
 from app.core.settings import get_settings
@@ -25,8 +25,7 @@ router = LegacyAliasRouter(prefix="/marketing", tags=["Marketing"])
 
 @router.get("/templates", dependencies=[Depends(require_permission("marketing.view"))])
 async def templates():
-    return {"items": [{"key": TEMPLATE_KEY, "name": "BrasPer · Brasil → Perú",
-                       "language": "pt-BR", "default_subject": DEFAULT_SUBJECT, "default_body": DEFAULT_BODY}]}
+    return {"items": list(TEMPLATES.values())}
 
 
 @router.post("/preview", dependencies=[Depends(require_permission("marketing.view")),
@@ -38,7 +37,7 @@ async def preview(payload: PreviewInput):
 
 @router.get("/assets/brasper-peru-pt-v1/{filename}", include_in_schema=False)
 async def template_asset(filename: str):
-    if filename not in ASSET_NAMES:
+    if filename not in ALL_ASSET_NAMES:
         raise HTTPException(404, "Imagen no encontrada")
     return FileResponse(ASSET_DIR / filename, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 

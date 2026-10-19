@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 
-TemplateKey = Literal["brasper_peru_pt_v1"]
+TemplateKey = Literal["brasper_peru_pt_v1", "brasper_brasil_es_v1"]
 
 
 class PreviewInput(BaseModel):

@@ -83,3 +83,28 @@ def test_branded_message_embeds_each_cid_once_and_keeps_text_alternative(monkeyp
     assert 'href="{{ unsubscribe_url }}"' not in html
     assert 'src="assets/' not in html
     assert len(message.as_bytes()) < 2_000_000
+
+
+@pytest.mark.parametrize("key,language,banner", [
+    ("brasper_peru_pt_v1", "pt-BR", "banner_superior_portugues.jpg"),
+    ("brasper_brasil_es_v1", "es-PE", "banner_superior_espanol.jpg"),
+])
+def test_each_audience_uses_its_own_images_and_language(key, language, banner, monkeypatch):
+    from app.modules.marketing.template_renderer import TEMPLATES, template_assets
+    settings = SimpleNamespace(SMTP_HOST='smtp.gmail.com', SMTP_PORT=587, SMTP_USERNAME='sender@example.com',
+        SMTP_PASSWORD='secret', SMTP_FROM_EMAIL='sender@example.com', SMTP_USE_TLS=True,
+        PUBLIC_URL='https://api.example.com', SECRET_KEY='test-key-long-enough-12345678901234567890')
+    monkeypatch.setattr(mail, 'get_settings', lambda: settings)
+    item = TEMPLATES[key]
+    message = mail.build_message('recipient@example.com', item['default_subject'], item['default_body'], template_key=key)
+    markup = message.get_body(preferencelist=('html',)).get_content()
+    assert f'lang="{language}"' in markup
+    assert 'cid:' + asset_cid(banner) in markup
+    images = [part for part in message.walk() if part.get_content_maintype() == 'image']
+    assert {part.get_filename() for part in images} == set(template_assets(key))
+    for part in images:
+        assert part.get_payload(decode=True) == (ASSET_DIR / part.get_filename()).read_bytes()
+    if language == 'es-PE':
+        assert 'Haz tu cotización' in message.get_body(preferencelist=('plain',)).get_content()
+        assert 'Cancelar inscrição' not in markup
+    PreviewInput(template_key=key)
