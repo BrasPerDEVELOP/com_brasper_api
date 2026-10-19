@@ -14,6 +14,7 @@ class Campaign(ORMBase):
     name: Mapped[str] = mapped_column(String(150))
     subject: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
+    template_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

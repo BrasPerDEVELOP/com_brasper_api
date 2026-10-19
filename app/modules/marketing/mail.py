@@ -1,6 +1,6 @@
-import html
 import smtplib
 import ssl
+import mimetypes
 from email.message import EmailMessage
 from urllib.parse import urlencode
 
@@ -8,6 +8,7 @@ import jwt
 from fastapi import HTTPException
 
 from app.core.settings import get_settings
+from app.modules.marketing.template_renderer import ASSET_DIR, ASSET_NAMES, asset_cid, render_email
 
 
 def check_config():
@@ -34,7 +35,7 @@ def decode_unsubscribe(token):
         raise HTTPException(400, "Enlace de baja inválido")
 
 
-def send_email(email, subject, body, test=False):
+def build_message(email, subject, body, test=False, template_key=None):
     check_config()
     s = get_settings()
     url = unsubscribe_url(email)
@@ -42,13 +43,22 @@ def send_email(email, subject, body, test=False):
     message["From"] = s.SMTP_FROM_EMAIL
     message["To"] = email
     message["Subject"] = ("[PRUEBA] " if test else "") + subject
-    message.set_content(body + "\n\nDejar de recibir correos: " + url)
-    content = html.escape(body).replace("\n", "<br>")
-    message.add_alternative(
-        '<html><body><div style="font-family:Arial;max-width:640px;margin:auto">'
-        '<h2>Brasper Transferencias</h2>' + content
-        + '<hr><p><a href="' + html.escape(url, quote=True)
-        + '">Dejar de recibir estos correos</a></p></div></body></html>', subtype="html")
+    footer = "Cancelar inscrição: " if template_key else "Dejar de recibir correos: "
+    plain = body + ("\n\nFaça sua cotação: https://www.brasper.com" if template_key else "")
+    message.set_content(plain + "\n\n" + footer + url)
+    message.add_alternative(render_email(subject, body, url, template_key), subtype="html")
+    if template_key:
+        html_part = message.get_payload()[-1]
+        for name in ASSET_NAMES:
+            maintype, subtype = mimetypes.guess_type(name)[0].split("/")
+            html_part.add_related((ASSET_DIR / name).read_bytes(), maintype=maintype, subtype=subtype,
+                                  cid="<" + asset_cid(name) + ">", disposition="inline", filename=name)
+    return message
+
+
+def send_email(email, subject, body, test=False, template_key=None):
+    message = build_message(email, subject, body, test, template_key)
+    s = get_settings()
     with smtplib.SMTP(s.SMTP_HOST, s.SMTP_PORT, timeout=30) as smtp:
         smtp.ehlo()
         smtp.starttls(context=ssl.create_default_context())

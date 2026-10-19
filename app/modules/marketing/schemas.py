@@ -1,4 +1,13 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Literal
+
+TemplateKey = Literal["brasper_peru_pt_v1"]
+
+
+class PreviewInput(BaseModel):
+    template_key: TemplateKey | None = None
+    subject: str = Field(default="", max_length=200)
+    body: str = Field(default="", max_length=100000)
 
 
 class CampaignInput(BaseModel):
@@ -7,6 +16,7 @@ class CampaignInput(BaseModel):
     body: str = Field(min_length=1, max_length=100000)
     emails: list[EmailStr] = Field(min_length=1, max_length=10000)
     consent_confirmed: bool
+    template_key: TemplateKey | None = None
 
     @field_validator("name", "subject", "body")
     @classmethod

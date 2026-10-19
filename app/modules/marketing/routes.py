@@ -2,7 +2,7 @@ import asyncio
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,11 +13,34 @@ from app.core.routing import LegacyAliasRouter
 from app.db.base import get_db
 from app.modules.marketing.mail import check_config, decode_unsubscribe, send_email
 from app.modules.marketing.models import Campaign, Recipient, Suppression
-from app.modules.marketing.schemas import CampaignInput, TestInput
+from app.modules.marketing.schemas import CampaignInput, TestInput, PreviewInput
+from app.modules.marketing.template_renderer import (
+    ASSET_DIR, ASSET_NAMES, TEMPLATE_KEY, DEFAULT_BODY, DEFAULT_SUBJECT, render_email,
+)
 from app.modules.users.domain.models import User
 from app.core.settings import get_settings
 
 router = LegacyAliasRouter(prefix="/marketing", tags=["Marketing"])
+
+
+@router.get("/templates", dependencies=[Depends(require_permission("marketing.view"))])
+async def templates():
+    return {"items": [{"key": TEMPLATE_KEY, "name": "BrasPer · Brasil → Perú",
+                       "language": "pt-BR", "default_subject": DEFAULT_SUBJECT, "default_body": DEFAULT_BODY}]}
+
+
+@router.post("/preview", dependencies=[Depends(require_permission("marketing.view")),
+             Depends(stage_mutation_audit("marketing.preview", "marketing_template"))])
+async def preview(payload: PreviewInput):
+    return {"html": render_email(payload.subject, payload.body, "#preview-unsubscribe",
+                                  payload.template_key, asset_base=get_settings().PUBLIC_URL)}
+
+
+@router.get("/assets/brasper-peru-pt-v1/{filename}", include_in_schema=False)
+async def template_asset(filename: str):
+    if filename not in ASSET_NAMES:
+        raise HTTPException(404, "Imagen no encontrada")
+    return FileResponse(ASSET_DIR / filename, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.get("/configuration", dependencies=[Depends(require_permission("marketing.view"))])
@@ -56,6 +79,7 @@ async def campaign_dto(db, item):
     counts = dict((await db.execute(select(Recipient.status, func.count()).where(
         Recipient.campaign_id == item.id).group_by(Recipient.status))).all())
     return dict(id=item.id, name=item.name, subject=item.subject, body=item.body,
+                template_key=item.template_key,
                 status=item.status, created_at=item.created_at, counts=counts, total=sum(counts.values()))
 
 
@@ -70,7 +94,7 @@ async def campaigns(db: AsyncSession = Depends(get_db), skip: int = Query(0, ge=
 async def create(payload: CampaignInput, db: AsyncSession = Depends(get_db)):
     if not payload.consent_confirmed:
         raise HTTPException(422, "Confirma que los destinatarios autorizaron recibir correos")
-    item = Campaign(name=payload.name, subject=payload.subject, body=payload.body)
+    item = Campaign(name=payload.name, subject=payload.subject, body=payload.body, template_key=payload.template_key)
     db.add(item)
     await db.flush()
     db.add_all([Recipient(campaign_id=item.id, email=email) for email in sorted({str(e).lower() for e in payload.emails})])
@@ -93,7 +117,7 @@ async def test_send(campaign_id: UUID, payload: TestInput, db: AsyncSession = De
     if await db.get(Suppression, email):
         raise HTTPException(409, "El destinatario solicitó la baja")
     try:
-        await asyncio.to_thread(send_email, email, item.subject, item.body, True)
+        await asyncio.to_thread(send_email, email, item.subject, item.body, True, item.template_key)
     except Exception:
         raise HTTPException(502, "No se pudo enviar la prueba; revisa la configuración SMTP")
     return {"detail": "Correo de prueba aceptado por SMTP"}

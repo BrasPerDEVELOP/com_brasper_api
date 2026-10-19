@@ -13,6 +13,7 @@ from app.modules.auth.infrastructure.cookies import MEDIA_COOKIE_NAME
 from app.modules.auth.infrastructure.jwt_service import decode_access_token
 
 logger = logging.getLogger(__name__)
+from app.modules.marketing.template_renderer import ASSET_NAMES, ASSET_PREFIX
 
 current_user_var = ContextVar("current_user", default=None)
 current_token_var = ContextVar("current_token", default=None)
@@ -45,6 +46,7 @@ _HOME_POPUP_ID_PATTERN = re.compile(r"^/home-banner/home-popup/[^/]+/?$", re.IGN
 
 # Lista de rutas públicas exactas sin barras finales (salvo '/')
 _EXACT_PUBLIC_ROUTES = {
+    *(("GET", ASSET_PREFIX + "/" + name) for name in ASSET_NAMES),
     ("GET", "/marketing/unsubscribe"),
     ("POST", "/marketing/unsubscribe"),
     ("GET", "/"),

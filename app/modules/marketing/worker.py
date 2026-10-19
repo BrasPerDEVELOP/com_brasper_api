@@ -46,7 +46,8 @@ async def deliver_one(db):
     recipient.attempted_at = datetime.now(timezone.utc)
     await db.commit()
     try:
-        await asyncio.to_thread(send_email, recipient.email, campaign.subject, campaign.body)
+        await asyncio.to_thread(send_email, recipient.email, campaign.subject, campaign.body,
+                                False, getattr(campaign, "template_key", None))
         recipient.status = "sent"
         recipient.sent_at = datetime.now(timezone.utc)
     except Exception:

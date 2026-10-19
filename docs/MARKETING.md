@@ -26,3 +26,13 @@ Cada correo incluye una URL de baja firmada sin caducidad. GET muestra confirmac
 
 Backend: `python -m pytest tests/test_marketing.py tests/test_role_permissions.py -q`.
 Frontend: `pnpm run check` y compilación Vite. Las pruebas SMTP usan un cliente simulado y no envían correos reales.
+
+## Plantilla BrasPer Brasil → Perú (pt-BR)
+
+Las nuevas campañas seleccionan por defecto `brasper_peru_pt_v1`, basado en el HTML y las doce imágenes entregadas. Se puede elegir «Mensaje sencillo». El asunto y el mensaje son editables; el mensaje aparece debajo del banner principal y siempre se escapa como texto. El diseño utiliza tablas, estilos en línea, enlaces HTTPS y ajustes para móvil. El cuerpo HTML pesa menos de 25 KB; las imágenes viajan como partes MIME `inline` referidas por CID, una sola copia por imagen. Se conserva una alternativa de texto.
+
+La migración 089 agrega `template_key` a campañas. Los registros anteriores mantienen `NULL` y conservan el formato original. Un diseño ya usado no debe modificarse: publicar otra versión con una nueva clave y mantener la anterior, para que las pruebas y los envíos pendientes usen la misma plantilla elegida al crear la campaña.
+
+`GET /marketing/templates` devuelve los diseños y textos iniciales. `POST /marketing/preview` genera la vista previa con el mismo renderer del correo y requiere `marketing.view`; se registra como vista previa en auditoría. La vista previa usa imágenes HTTPS de un catálogo público de archivos fijos y se muestra en un iframe aislado. Los correos usan CID y una URL de baja firmada exclusiva para el destinatario; el enlace de la vista previa es un marcador sin efectos.
+
+Revisar mediante «Enviar prueba» en los clientes de correo usados antes de una campaña real: la vista del navegador no garantiza compatibilidad exacta en Gmail/Outlook. Ninguna prueba automatizada envía correos.
