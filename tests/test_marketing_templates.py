@@ -71,6 +71,11 @@ def test_branded_message_embeds_each_cid_once_and_keeps_text_alternative(monkeyp
     monkeypatch.setattr(mail, 'get_settings', lambda: settings)
     message = mail.build_message('recipient@example.com', DEFAULT_SUBJECT, DEFAULT_BODY, True, TEMPLATE_KEY)
     assert message['Subject'].startswith('[PRUEBA]')
+    assert message['Date']
+    assert message['Message-ID'].endswith('@example.com>')
+    assert 'BrasPer Transferencias' in message['From']
+    assert message['List-Unsubscribe'].startswith('<https://api.example.com/marketing/unsubscribe?token=')
+    assert message['List-Unsubscribe-Post'] == 'List-Unsubscribe=One-Click'
     assert message.get_body(preferencelist=('plain',)) is not None
     html = message.get_body(preferencelist=('html',)).get_content()
     images = [part for part in message.walk() if part.get_content_maintype() == 'image']

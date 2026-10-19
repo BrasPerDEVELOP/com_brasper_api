@@ -38,3 +38,8 @@ La migración 089 agrega `template_key` a campañas. Los registros anteriores ma
 Revisar mediante «Enviar prueba» en los clientes de correo usados antes de una campaña real: la vista del navegador no garantiza compatibilidad exacta en Gmail/Outlook. Ninguna prueba automatizada envía correos.
 
 Dos públicos: Brasil (portugués, brasper_peru_pt_v1) y Perú (español, brasper_brasil_es_v1). Cada campaña conserva su plantilla; el selector no filtra destinatarios por país.
+
+
+## Entregabilidad
+El remitente incluye nombre, Date, Message-ID y cabeceras de baja HTTPS con un clic (POST firmado en /marketing/unsubscribe). El proveedor SMTP debe firmar también las cabeceras List-Unsubscribe y List-Unsubscribe-Post con DKIM para cumplir RFC 8058.
+La cuenta SMTP no configura el DNS: verificar SPF, DKIM y DMARC con el original recibido. Gmail puede bloquear imágenes en mensajes sospechosos; no se puede garantizar la bandeja principal desde la aplicación. Las imágenes siguen incluidas como partes MIME relacionadas con CID, sin depender de archivos locales del destinatario.

@@ -2,6 +2,8 @@ import smtplib
 import ssl
 import mimetypes
 from email.message import EmailMessage
+from email.utils import formatdate, formataddr, make_msgid
+from email.policy import SMTP
 from urllib.parse import urlencode
 
 import jwt
@@ -39,8 +41,12 @@ def build_message(email, subject, body, test=False, template_key=None):
     check_config()
     s = get_settings()
     url = unsubscribe_url(email)
-    message = EmailMessage()
-    message["From"] = s.SMTP_FROM_EMAIL
+    message = EmailMessage(policy=SMTP)
+    message["From"] = formataddr(("BrasPer Transferencias", s.SMTP_FROM_EMAIL))
+    message["Date"] = formatdate(localtime=False, usegmt=True)
+    message["Message-ID"] = make_msgid(domain=s.SMTP_FROM_EMAIL.rsplit("@", 1)[-1])
+    message["List-Unsubscribe"] = "<" + url + ">"
+    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     message["To"] = email
     message["Subject"] = ("[PRUEBA] " if test else "") + subject
     footer = "Cancelar inscrição: " if template_key == TEMPLATE_KEY else "Dejar de recibir correos: "
