@@ -13,7 +13,7 @@ from app.core.routing import LegacyAliasRouter
 from app.db.base import get_db
 from app.modules.marketing.mail import check_config, decode_unsubscribe, send_email
 from app.modules.marketing.models import Campaign, Recipient, Suppression
-from app.modules.marketing.schemas import CampaignInput, TestInput, PreviewInput
+from app.modules.marketing.schemas import CampaignInput, TestInput, PreviewInput, DispatchInput, DirectTestInput
 from app.modules.marketing.template_renderer import (
     ASSET_DIR, ALL_ASSET_NAMES, TEMPLATES, render_email,
 )
@@ -99,6 +99,48 @@ async def create(payload: CampaignInput, db: AsyncSession = Depends(get_db)):
     db.add_all([Recipient(campaign_id=item.id, email=email) for email in sorted({str(e).lower() for e in payload.emails})])
     await db.commit()
     return await campaign_dto(db, item)
+
+
+@router.post("/dispatch", status_code=201, dependencies=[
+    Depends(require_permission("marketing.create")), Depends(require_permission("marketing.send")),
+    Depends(stage_mutation_audit("marketing.dispatch", "marketing_campaign"))])
+async def dispatch(payload: DispatchInput, db: AsyncSession = Depends(get_db)):
+    check_config()
+    if not get_settings().MARKETING_ENABLED:
+        raise HTTPException(503, "El envío de campañas no está disponible")
+    if not payload.consent_confirmed:
+        raise HTTPException(422, "Confirma que los destinatarios autorizaron recibir correos")
+    # Serialize a request key so retries cannot enqueue the same campaign twice.
+    await db.execute(select(func.pg_advisory_xact_lock(payload.request_id.int % (2**63))))
+    existing = await db.get(Campaign, payload.request_id)
+    emails = sorted({str(email).lower() for email in payload.emails})
+    if existing:
+        stored = (await db.execute(select(Recipient.email).where(Recipient.campaign_id == existing.id))).scalars().all()
+        if (existing.name, existing.subject, existing.body, existing.template_key, sorted(stored)) != (
+                payload.name, payload.subject, payload.body, payload.template_key, emails):
+            raise HTTPException(409, "La solicitud de envío ya existe con otros datos")
+        return await campaign_dto(db, existing)
+    item = Campaign(id=payload.request_id, name=payload.name, subject=payload.subject,
+                    body=payload.body, template_key=payload.template_key, status="queued")
+    db.add(item)
+    await db.flush()
+    db.add_all([Recipient(campaign_id=item.id, email=email) for email in emails])
+    await db.commit()
+    return await campaign_dto(db, item)
+
+
+@router.post("/test", dependencies=[Depends(require_permission("marketing.send")),
+             Depends(stage_mutation_audit("marketing.test_direct", "marketing_campaign"))])
+async def direct_test(payload: DirectTestInput, db: AsyncSession = Depends(get_db)):
+    check_config()
+    email = str(payload.email).lower()
+    if await db.get(Suppression, email):
+        raise HTTPException(409, "El destinatario solicitó la baja")
+    try:
+        await asyncio.to_thread(send_email, email, payload.subject, payload.body, True, payload.template_key)
+    except Exception:
+        raise HTTPException(502, "No se pudo enviar la prueba; revisa la configuración SMTP")
+    return {"detail": "Correo de prueba aceptado por SMTP"}
 
 
 @router.get("/campaigns/{campaign_id}/recipients", dependencies=[Depends(require_permission("marketing.view"))])

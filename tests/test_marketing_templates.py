@@ -64,7 +64,7 @@ def test_template_images_are_public_but_campaigns_are_private():
     assert not middleware._is_public_path(request('/marketing/campaigns'))
 
 
-def test_branded_message_embeds_each_cid_once_and_keeps_text_alternative(monkeypatch):
+def test_branded_message_uses_https_images_without_attachments_and_keeps_text_alternative(monkeypatch):
     settings = SimpleNamespace(SMTP_HOST='smtp.gmail.com', SMTP_PORT=587, SMTP_USERNAME='sender@example.com',
         SMTP_PASSWORD='secret', SMTP_FROM_EMAIL='sender@example.com', SMTP_USE_TLS=True,
         PUBLIC_URL='https://api.example.com', SECRET_KEY='test-key-long-enough-12345678901234567890')
@@ -79,11 +79,12 @@ def test_branded_message_embeds_each_cid_once_and_keeps_text_alternative(monkeyp
     assert message.get_body(preferencelist=('plain',)) is not None
     html = message.get_body(preferencelist=('html',)).get_content()
     images = [part for part in message.walk() if part.get_content_maintype() == 'image']
-    assert len(images) == len(ASSET_NAMES)
-    assert len({image['Content-ID'] for image in images}) == len(ASSET_NAMES)
-    for image in images:
-        assert image.get_content_disposition() == 'inline'
-        assert 'cid:' + image['Content-ID'].strip('<>') in html
+    assert not images
+    assert not list(message.iter_attachments())
+    sources = set(re.findall(r'src="([^"]+)"', html))
+    assert sources == {'https://api.example.com' + ASSET_PREFIX + '/' + name for name in ASSET_NAMES}
+    assert 'cid:' not in html
+    assert len(message.as_bytes()) < 100_000
     assert 'Cancelar inscrição' in message.get_body(preferencelist=('plain',)).get_content()
     assert 'href="{{ unsubscribe_url }}"' not in html
     assert 'src="assets/' not in html
@@ -104,11 +105,11 @@ def test_each_audience_uses_its_own_images_and_language(key, language, banner, m
     message = mail.build_message('recipient@example.com', item['default_subject'], item['default_body'], template_key=key)
     markup = message.get_body(preferencelist=('html',)).get_content()
     assert f'lang="{language}"' in markup
-    assert 'cid:' + asset_cid(banner) in markup
+    assert 'https://api.example.com' + ASSET_PREFIX + '/' + banner in markup
     images = [part for part in message.walk() if part.get_content_maintype() == 'image']
-    assert {part.get_filename() for part in images} == set(template_assets(key))
-    for part in images:
-        assert part.get_payload(decode=True) == (ASSET_DIR / part.get_filename()).read_bytes()
+    assert not images
+    assert set(re.findall(r'src="([^"]+)"', markup)) == {
+        'https://api.example.com' + ASSET_PREFIX + '/' + name for name in template_assets(key)}
     if language == 'es-PE':
         assert 'Haz tu cotización' in message.get_body(preferencelist=('plain',)).get_content()
         assert 'Cancelar inscrição' not in markup
