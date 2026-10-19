@@ -67,7 +67,18 @@ async def lifespan(app: FastAPI):
     logger.info("✓ Aplicación iniciada correctamente")
     logger.info("=" * 70)
     
-    yield
+    import asyncio
+    marketing_stop = asyncio.Event()
+    marketing_task = None
+    if settings.MARKETING_ENABLED:
+        from app.modules.marketing.worker import run_worker
+        marketing_task = asyncio.create_task(run_worker(marketing_stop))
+    try:
+        yield
+    finally:
+        marketing_stop.set()
+        if marketing_task:
+            await marketing_task
     
     logger.info("=" * 70)
     logger.info("Cerrando aplicación...")
@@ -313,3 +324,6 @@ async def root_transactions_websocket(
     )
 
     await handle_transactions_websocket(websocket, token)
+
+from app.modules.marketing.routes import router as marketing_router
+app.include_router(marketing_router)

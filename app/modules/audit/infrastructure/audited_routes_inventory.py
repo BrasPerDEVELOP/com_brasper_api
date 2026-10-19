@@ -6,6 +6,10 @@ Excluye expl√≠citamente GETs y /auth/login, /auth/refresh, /auth/logout que est√
 """
 
 AUDITED_MUTATION_ROUTES = {
+    ("POST", "/marketing/campaigns"),
+    ("POST", "/marketing/campaigns/{campaign_id}/test"),
+    ("POST", "/marketing/campaigns/{campaign_id}/send"),
+    ("POST", "/marketing/unsubscribe"),
     ("POST", "/notifications/read-all"),
     ("POST", "/notifications/{notification_id}/read"),
     ("POST", "/notifications/avisos"),

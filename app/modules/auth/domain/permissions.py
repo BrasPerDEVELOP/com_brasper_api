@@ -6,6 +6,7 @@ from app.modules.users.domain.enums import UserRole
 
 
 PERMISSION_MODULES: tuple[dict[str, object], ...] = (
+    {"key": "marketing", "permissions": ("marketing.view", "marketing.create", "marketing.send")},
     {"key": "notifications", "permissions": ("notifications.view", "notifications.create")},
     {"key": "dashboard", "permissions": ("dashboard.view",)},
     {"key": "metrics", "permissions": ("metrics.view",)},
@@ -222,6 +223,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "profile.change_password",
     ),
     UserRole.marketing.value: (
+        "marketing.view", "marketing.create", "marketing.send",
         "notifications.view",
         "dashboard.view",
         "coupons.view",

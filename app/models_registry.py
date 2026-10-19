@@ -47,3 +47,5 @@ from app.modules.finance.domain.models import Expense, ExpenseCategory, FxMonthR
 
 # Billing (comprobantes electrónicos vía APISUNAT)
 from app.modules.billing.domain.models import BillingSeries, Invoice, InvoiceEvent
+
+from app.modules.marketing.models import Campaign, Recipient, Suppression

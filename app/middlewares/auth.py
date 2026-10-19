@@ -45,6 +45,8 @@ _HOME_POPUP_ID_PATTERN = re.compile(r"^/home-banner/home-popup/[^/]+/?$", re.IGN
 
 # Lista de rutas públicas exactas sin barras finales (salvo '/')
 _EXACT_PUBLIC_ROUTES = {
+    ("GET", "/marketing/unsubscribe"),
+    ("POST", "/marketing/unsubscribe"),
     ("GET", "/"),
     ("GET", "/health"),
     ("GET", "/blog"),

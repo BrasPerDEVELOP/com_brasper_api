@@ -118,9 +118,12 @@ class Settings(BaseSettings):
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
+    SMTP_PASSWORD: str = Field(default="", repr=False)
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
+    MARKETING_ENABLED: bool = False
+    MARKETING_DAILY_LIMIT: int = Field(default=400, ge=1, le=10000)
+    MARKETING_INTERVAL_SECONDS: float = Field(default=10, ge=2, le=3600)
 
     # Cloudflare R2 (S3-compatible) — almacenamiento obligatorio de archivos
     R2_ENDPOINT_URL: str
