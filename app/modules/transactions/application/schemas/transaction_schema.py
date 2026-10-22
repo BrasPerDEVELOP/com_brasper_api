@@ -831,6 +831,29 @@ class TransactionUserRef(BaseModel):
 
     id: UUID
     role: Optional[UserRole] = None
+    document_type: Optional[str] = None
+    document_number: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_identity_document(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        identifications = payload.get("identifications") or []
+        def value(row: Any, key: str) -> Any:
+            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        primary = next((row for row in identifications if value(row, "is_primary")), None)
+        if primary is None and identifications:
+            primary = identifications[0]
+        for key in ("document_type", "document_number"):
+            raw = payload.get(key)
+            text = str(raw).strip() if raw is not None else ""
+            if not text and primary is not None:
+                raw = value(primary, key)
+                text = str(raw).strip() if raw is not None else ""
+            payload[key] = text or None
+        return payload
 
     @field_validator("role", mode="before")
     @classmethod
@@ -848,8 +871,6 @@ class TransactionUserRef(BaseModel):
 class TransactionAccountingUserRef(TransactionUserRef):
     """Usuario en el listado contable, con el documento de identidad principal."""
 
-    document_type: Optional[str] = None
-    document_number: Optional[str] = None
 
 
 class TransactionReadDTO(BaseModel):
@@ -938,6 +959,7 @@ class TransactionReadDTO(BaseModel):
                 "role": u.role if u is not None else None,
                 "document_type": getattr(u, "document_type", None) if u is not None else None,
                 "document_number": getattr(u, "document_number", None) if u is not None else None,
+                "identifications": list(getattr(u, "identifications", None) or []) if u is not None else [],
             }
             return payload
         if isinstance(data, dict) and "user_id" in data and "user" not in data:
