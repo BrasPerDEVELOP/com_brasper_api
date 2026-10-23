@@ -21,6 +21,9 @@ class UserInfoDTO(BaseModel):
     names: Optional[str] = None
     lastnames: Optional[str] = None
     email: Optional[EmailStr] = None
+    local_area_code: Optional[str] = None
+    local_area_name: Optional[str] = None
+    country: Optional[str] = None
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     role: Optional[str] = None

@@ -181,6 +181,9 @@ class CreateUserUseCase:
                 role=cmd.role.value if cmd.role else None,
                 phone=cmd.phone,
                 code_phone=cmd.code_phone.value if cmd.code_phone else None,
+                local_area_code=cmd.local_area_code,
+                local_area_name=cmd.local_area_name,
+                country=cmd.country,
             )
             user.identifications = _build_identification_entities(cmd)
             if user.identifications:
@@ -249,6 +252,9 @@ class UpdateUserUseCase:
                 existing_user.phone = cmd.phone
             if "code_phone" in cmd.model_fields_set:
                 existing_user.code_phone = cmd.code_phone.value if cmd.code_phone else None
+            for field in ("local_area_code", "local_area_name", "country"):
+                if field in cmd.model_fields_set:
+                    setattr(existing_user, field, getattr(cmd, field))
 
             updated_user = await self._uow.user_repository.update(existing_user)
             await self._uow.commit()
