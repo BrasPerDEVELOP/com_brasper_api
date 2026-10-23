@@ -39,3 +39,22 @@ de zona deben reflejar esa ambigüedad.
 
 Aplicar con `python -m alembic upgrade head` usando la conexión configurada
 para el entorno de destino.
+
+
+## Métricas del directorio
+
+`GET /user/metrics` requiere `users.view` y admite `role` (enum de roles).
+Devuelve conteos agregados de usuarios no eliminados: total, habilitados,
+Brasil, Brasil con DDD válido, Brasil sin DDD válido, países y áreas. Los
+agregados se calculan en SQL sin transferir el directorio al navegador.
+Brasil incluye los países Brasil/Brazil/BR/BRA; el prefijo +55 se usa solo
+cuando no hay país registrado. La zona usa `local_area_code` y
+`local_area_name` guardados; los datos faltantes se contabilizan aparte.
+No se infieren ciudades ni se expone información personal en la respuesta.
+Los porcentajes de cada DDD usan como denominador todos los usuarios de Brasil.
+Los códigos válidos siguen la lista de códigos nacionales de Anatel:
+https://www.gov.br/anatel/pt-br/regulado/numeracao/plano-de-numeracao-brasileiro
+
+El backoffice lo presenta en `/app/usuarios?view=metrics`, junto al directorio.
+Este cambio no añade columnas ni migraciones; requiere las columnas de zona
+telefónica de la migración 090 ya existente.

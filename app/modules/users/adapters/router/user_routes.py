@@ -58,6 +58,20 @@ from app.modules.transactions.adapters.router.transactions_websocket import (
 router = LegacyAliasRouter(prefix="/user", tags=["user"])
 
 
+@router.get("/metrics", response_model=dict)
+async def user_metrics(
+    role: Optional[UserRole] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _permissions=Depends(require_permission("users.view")),
+):
+    from app.modules.users.application.user_metrics import GetUserMetricsUseCase
+    from app.modules.users.infrastructure.user_metrics_repository import UserMetricsRepository
+
+    return await GetUserMetricsUseCase(UserMetricsRepository(db)).execute(
+        role=role.value if role else None
+    )
+
+
 @router.get("/email/{email}", response_model=UserReadDTO)
 async def get_user_by_email(
     email: str,
