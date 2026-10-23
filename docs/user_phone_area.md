@@ -40,6 +40,18 @@ de zona deben reflejar esa ambigüedad.
 Aplicar con `python -m alembic upgrade head` usando la conexión configurada
 para el entorno de destino.
 
+## Filtros del directorio
+
+`GET /user` acepta `country`, `role` y `search`, combinados con AND en SQL.
+`search` busca por nombre completo, correo e identificaciones, y trata `%` y
+`_` como texto literal. `country=peru` coincide con `Perú`; `country=sin-pais`
+selecciona valores nulos o vacíos. Los usuarios eliminados se excluyen.
+`GET /user/filter-options` devuelve `{"countries": ["Brasil", "Perú"]}` con
+los países registrados; admite `role` y requiere `users.view`.
+
+El back office envía los filtros al servidor y no filtra usuarios en memoria.
+Se debe desplegar esta versión de la API junto con la actualización del cliente.
+
 
 ## Métricas del directorio
 

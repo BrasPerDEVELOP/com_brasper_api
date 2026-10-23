@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 from uuid import UUID
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, or_
+import unicodedata
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.users.domain.models import User, UserIdentification
@@ -13,6 +14,43 @@ from app.shared.repositorie_base import BaseAsyncRepository
 class SQLAlchemyUserRepository(BaseAsyncRepository[User], UserRepositoryInterface):
     def __init__(self, db: AsyncSession):
         super().__init__(User, db)
+
+    async def list_filtered(self, user_id=None, role=None, country=None, search=None):
+        stmt = select(User).where(User.deleted.is_(False))
+        if user_id is not None:
+            stmt = stmt.where(User.id == user_id)
+        if role and role.strip():
+            stmt = stmt.where(func.lower(User.role) == role.strip().lower())
+        if country and country.strip():
+            value = ''.join(c for c in unicodedata.normalize('NFD', country.strip().lower())
+                            if not unicodedata.combining(c))
+            normalized_country = func.translate(func.lower(func.trim(func.coalesce(User.country, ''))),
+                                                'áéíóúüñ', 'aeiouun')
+            stmt = stmt.where(normalized_country == ('' if value == 'sin-pais' else value))
+        if search and search.strip():
+            value = search.strip()
+            full_name = func.trim(func.coalesce(User.names, '') + ' ' + func.coalesce(User.lastnames, ''))
+            stmt = stmt.where(or_(
+                full_name.icontains(value, autoescape=True),
+                User.email.icontains(value, autoescape=True),
+                User.document_number.icontains(value, autoescape=True),
+                User.identifications.any(
+                    (UserIdentification.deleted.is_(False)) & or_(
+                        UserIdentification.document_number.icontains(value, autoescape=True),
+                        UserIdentification.document_type.icontains(value, autoescape=True),
+                    )
+                ),
+            ))
+        result = await self.session.execute(stmt.order_by(User.names.asc(), User.lastnames.asc(), User.id.asc()))
+        return list(result.scalars().all())
+
+    async def list_countries(self, role=None):
+        country = func.trim(User.country)
+        stmt = select(country).where(User.deleted.is_(False), country.is_not(None), country != '')
+        if role and role.strip():
+            stmt = stmt.where(func.lower(User.role) == role.strip().lower())
+        result = await self.session.execute(stmt.distinct().order_by(country))
+        return list(result.scalars().all())
 
     async def get_by_id(self, user_id: UUID) -> Optional[User]:
         return await self.get(user_id)

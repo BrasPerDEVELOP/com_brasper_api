@@ -336,14 +336,18 @@ class ListUserUseCase:
         self,
         user_id: Optional[UUID] = None,
         role: Optional[str] = None,
+        country: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> List[UserReadGeneralDTO]:
         try:
-            query_filter = _build_user_query_filter(user_id=user_id, role=role)
-            users = await self.repo.list(query_filter=query_filter)
+            users = await self.repo.list_filtered(user_id=user_id, role=role, country=country, search=search)
             return [UserReadGeneralDTO.model_validate(user) for user in users]
         except Exception as e:
             await self.repo.rollback()
             raise e
+
+    async def countries(self, role: Optional[str] = None) -> List[str]:
+        return await self.repo.list_countries(role=role)
 
 
 class ListSalesUserIdsUseCase:

@@ -9,6 +9,15 @@ class UserRepositoryInterface(BaseRepositoryInterface[User]):
     """Puerto de persistencia para la entidad *User*."""
 
     @abstractmethod
+    async def list_filtered(self, user_id: Optional[UUID] = None, role: Optional[str] = None,
+                            country: Optional[str] = None, search: Optional[str] = None) -> List[User]:
+        ...
+
+    @abstractmethod
+    async def list_countries(self, role: Optional[str] = None) -> List[str]:
+        ...
+
+    @abstractmethod
     async def get_by_id(self, user_id: UUID) -> Optional[User]:
         ...
 
