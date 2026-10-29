@@ -8,7 +8,7 @@ La API usa Gmail SMTP con STARTTLS, un correo individual por destinatario y una 
 2. Configurar en el `.env` privado del backend: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_USE_TLS=true`, `PUBLIC_URL` (base HTTPS pública de esta API, incluyendo el prefijo del proxy si corresponde), `MARKETING_ENABLED=true`.
 3. Reiniciar la API. El worker arranca con el lifespan de FastAPI.
 4. Dar `marketing.view`, `marketing.create`, `marketing.send` al equipo. El rol Marketing los incluye por defecto; si hay una matriz de permisos personalizada guardada, actualizarla en Roles y permisos. Admin tiene acceso automáticamente.
-5. Crear borrador, revisar destinatarios, enviar una prueba y confirmar el envío masivo desde la interfaz.
+5. Completar el formulario, enviar una prueba sin guardar y confirmar el envío masivo directamente.
 
 Nunca incluir la contraseña en variables VITE, documentación, commits o respuestas HTTP. La configuración pública solo devuelve remitente y disponibilidad.
 
@@ -33,8 +33,19 @@ Las nuevas campañas seleccionan por defecto `brasper_peru_pt_v1`, basado en el 
 
 La migración 089 agrega `template_key` a campañas. Los registros anteriores mantienen `NULL` y conservan el formato original. Un diseño ya usado no debe modificarse: publicar otra versión con una nueva clave y mantener la anterior, para que las pruebas y los envíos pendientes usen la misma plantilla elegida al crear la campaña.
 
-`GET /marketing/templates` devuelve los diseños y textos iniciales. `POST /marketing/preview` genera la vista previa con el mismo renderer del correo y requiere `marketing.view`; se registra como vista previa en auditoría. La vista previa usa imágenes HTTPS de un catálogo público de archivos fijos y se muestra en un iframe aislado. Los correos usan CID y una URL de baja firmada exclusiva para el destinatario; el enlace de la vista previa es un marcador sin efectos.
+`GET /marketing/templates` devuelve los diseños y textos iniciales. `POST /marketing/preview` genera la vista previa con el mismo renderer del correo y requiere `marketing.view`; se registra como vista previa en auditoría. La vista previa usa imágenes HTTPS de un catálogo público de archivos fijos y se muestra en un iframe aislado. Los correos usan las mismas imágenes HTTPS públicas y una URL de baja firmada exclusiva para el destinatario; el enlace de la vista previa es un marcador sin efectos.
 
 Revisar mediante «Enviar prueba» en los clientes de correo usados antes de una campaña real: la vista del navegador no garantiza compatibilidad exacta en Gmail/Outlook. Ninguna prueba automatizada envía correos.
 
 Dos públicos: Brasil (portugués, brasper_peru_pt_v1) y Perú (español, brasper_brasil_es_v1). Cada campaña conserva su plantilla; el selector no filtra destinatarios por país.
+
+
+## Entregabilidad
+El remitente incluye nombre, Date, Message-ID y cabeceras de baja HTTPS con un clic (POST firmado en /marketing/unsubscribe). El proveedor SMTP debe firmar también las cabeceras List-Unsubscribe y List-Unsubscribe-Post con DKIM para cumplir RFC 8058.
+La cuenta SMTP no configura el DNS: verificar SPF, DKIM y DMARC con el original recibido. Gmail puede bloquear imágenes en mensajes sospechosos; no se puede garantizar la bandeja principal desde la aplicación. Las imágenes se cargan mediante HTTPS desde la API pública, sin adjuntos ni referencias CID. Gmail puede bloquearlas si clasifica el correo como sospechoso.
+
+
+## Envío directo
+POST /marketing/test recibe asunto, mensaje, plantilla y email de prueba; respeta las bajas y no crea campañas.
+POST /marketing/dispatch requiere marketing.create y marketing.send, consentimiento y MARKETING_ENABLED. Recibe request_id UUID; crea campaña queued y destinatarios en una sola transacción. Un bloqueo transaccional por request_id evita duplicar campañas ante reintentos concurrentes. Reutilizar la clave con datos distintos devuelve 409. La interfaz conserva la clave hasta editar el formulario.
+Las rutas antiguas se mantienen para pestañas previas al despliegue y campañas pendientes históricas. La interfaz nueva no crea borradores. No se convierten ni se envían automáticamente campañas anteriores.

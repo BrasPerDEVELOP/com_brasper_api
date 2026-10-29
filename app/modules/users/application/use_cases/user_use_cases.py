@@ -181,6 +181,9 @@ class CreateUserUseCase:
                 role=cmd.role.value if cmd.role else None,
                 phone=cmd.phone,
                 code_phone=cmd.code_phone.value if cmd.code_phone else None,
+                local_area_code=cmd.local_area_code,
+                local_area_name=cmd.local_area_name,
+                country=cmd.country,
             )
             user.identifications = _build_identification_entities(cmd)
             if user.identifications:
@@ -249,6 +252,9 @@ class UpdateUserUseCase:
                 existing_user.phone = cmd.phone
             if "code_phone" in cmd.model_fields_set:
                 existing_user.code_phone = cmd.code_phone.value if cmd.code_phone else None
+            for field in ("local_area_code", "local_area_name", "country"):
+                if field in cmd.model_fields_set:
+                    setattr(existing_user, field, getattr(cmd, field))
 
             updated_user = await self._uow.user_repository.update(existing_user)
             await self._uow.commit()
@@ -330,14 +336,18 @@ class ListUserUseCase:
         self,
         user_id: Optional[UUID] = None,
         role: Optional[str] = None,
+        country: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> List[UserReadGeneralDTO]:
         try:
-            query_filter = _build_user_query_filter(user_id=user_id, role=role)
-            users = await self.repo.list(query_filter=query_filter)
+            users = await self.repo.list_filtered(user_id=user_id, role=role, country=country, search=search)
             return [UserReadGeneralDTO.model_validate(user) for user in users]
         except Exception as e:
             await self.repo.rollback()
             raise e
+
+    async def countries(self, role: Optional[str] = None) -> List[str]:
+        return await self.repo.list_countries(role=role)
 
 
 class ListSalesUserIdsUseCase:

@@ -130,3 +130,79 @@ def test_marketing_permissions_and_public_optout():
     for method in ("GET", "POST"):
         request = Request({"type": "http", "method": method, "path": "/marketing/unsubscribe", "headers": []})
         assert middleware._is_public_path(request)
+
+
+async def test_direct_dispatch_queues_atomically_and_deduplicates(monkeypatch):
+    from app.modules.marketing.schemas import DispatchInput
+    monkeypatch.setattr(routes, 'check_config', lambda: None)
+    monkeypatch.setattr(routes, 'get_settings', lambda: SimpleNamespace(MARKETING_ENABLED=True))
+    dto = AsyncMock(return_value={'status': 'queued'})
+    monkeypatch.setattr(routes, 'campaign_dto', dto)
+    db = MagicMock()
+    db.execute = AsyncMock()
+    db.get = AsyncMock(return_value=None)
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    payload = DispatchInput(**{**campaign_payload(), 'emails':['a@example.com','A@example.com'], 'request_id': uuid4()})
+    await routes.dispatch(payload, db)
+    item = db.add.call_args.args[0]
+    assert item.id == payload.request_id
+    assert item.status == 'queued'
+    assert len(db.add_all.call_args.args[0]) == 1
+    db.commit.assert_awaited_once()
+
+
+async def test_direct_dispatch_retry_returns_existing_without_requeue(monkeypatch):
+    from app.modules.marketing.schemas import DispatchInput
+    monkeypatch.setattr(routes, 'check_config', lambda: None)
+    monkeypatch.setattr(routes, 'get_settings', lambda: SimpleNamespace(MARKETING_ENABLED=True))
+    monkeypatch.setattr(routes, 'campaign_dto', AsyncMock(return_value={'status':'completed'}))
+    payload = DispatchInput(**campaign_payload(), request_id=uuid4())
+    existing = SimpleNamespace(id=payload.request_id, name=payload.name, subject=payload.subject, body=payload.body, template_key=None)
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = ['a@example.com']
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+    db.get = AsyncMock(return_value=existing)
+    await routes.dispatch(payload, db)
+    db.add.assert_not_called()
+    payload.body = 'different'
+    with pytest.raises(HTTPException) as exc:
+        await routes.dispatch(payload, db)
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.parametrize('enabled,consent,expected', [(False,True,503),(True,False,422)])
+async def test_direct_dispatch_requires_enabled_and_consent(monkeypatch,enabled,consent,expected):
+    from app.modules.marketing.schemas import DispatchInput
+    monkeypatch.setattr(routes, 'check_config', lambda: None)
+    monkeypatch.setattr(routes, 'get_settings', lambda: SimpleNamespace(MARKETING_ENABLED=enabled))
+    db=MagicMock()
+    with pytest.raises(HTTPException) as exc:
+        await routes.dispatch(DispatchInput(**{**campaign_payload(),'consent_confirmed':consent},request_id=uuid4()),db)
+    assert exc.value.status_code == expected
+    db.add.assert_not_called()
+
+
+async def test_unsaved_test_does_not_create_campaign_and_respects_optout(monkeypatch):
+    from app.modules.marketing.schemas import DirectTestInput
+    monkeypatch.setattr(routes, 'check_config', lambda: None)
+    smtp=MagicMock()
+    monkeypatch.setattr(routes, 'send_email', smtp)
+    db=MagicMock()
+    db.get=AsyncMock(return_value=object())
+    payload=DirectTestInput(email='a@example.com',subject='Hello',body='Message')
+    with pytest.raises(HTTPException) as exc:
+        await routes.direct_test(payload,db)
+    assert exc.value.status_code==409
+    smtp.assert_not_called()
+    db.get=AsyncMock(return_value=None)
+    await routes.direct_test(payload,db)
+    smtp.assert_called_once_with('a@example.com','Hello','Message',True,None)
+    db.add.assert_not_called()
+
+
+def test_unsaved_test_rejects_header_injection():
+    from app.modules.marketing.schemas import DirectTestInput
+    with pytest.raises(ValidationError):
+        DirectTestInput(email='a@example.com',subject='hello\r\nBcc: x@example.com',body='Message')

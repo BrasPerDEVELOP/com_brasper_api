@@ -70,6 +70,20 @@ async def _parse_user_update_form(
     return cmd, image
 
 
+@router.get("/metrics", response_model=dict)
+async def user_metrics(
+    role: Optional[UserRole] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _permissions=Depends(require_permission("users.view")),
+):
+    from app.modules.users.application.user_metrics import GetUserMetricsUseCase
+    from app.modules.users.infrastructure.user_metrics_repository import UserMetricsRepository
+
+    return await GetUserMetricsUseCase(UserMetricsRepository(db)).execute(
+        role=role.value if role else None
+    )
+
+
 @router.get("/email/{email}", response_model=UserReadDTO)
 async def get_user_by_email(
     email: str,
@@ -218,13 +232,24 @@ async def list_users(
     use_case: ListUserUseCase = Depends(list_users_uc),
     user_id: Optional[UUID] = Query(None, description="Filtro por ID de usuario"),
     role: Optional[str] = Query(None, description="Filtro por rol (user, sales, admin, client, etc.)"),
+    country: Optional[str] = Query(None, max_length=100, description="País registrado; sin-pais para país vacío"),
+    search: Optional[str] = Query(None, max_length=250, description="Buscar por nombre completo, correo o identificación"),
     _permissions=Depends(require_permission("users.view")),
 ):
-    """Lista usuarios. Filtros: user_id, role. Si user_id no existe → 404."""
-    users = await use_case.execute(user_id=user_id, role=role)
+    """Filtra en SQL por user_id, role, country y search."""
+    users = await use_case.execute(user_id=user_id, role=role, country=country, search=search)
     if user_id is not None and not users:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return users
+
+
+@router.get("/filter-options", response_model=dict)
+async def user_filter_options(
+    use_case: ListUserUseCase = Depends(list_users_uc),
+    role: Optional[str] = Query(None),
+    _permissions=Depends(require_permission("users.view")),
+):
+    return {"countries": await use_case.countries(role=role)}
 
 
 @router.get("/name-list", response_model=List[UserNameDTO])

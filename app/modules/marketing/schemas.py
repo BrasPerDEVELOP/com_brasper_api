@@ -1,3 +1,4 @@
+from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 
@@ -36,3 +37,23 @@ class CampaignInput(BaseModel):
 
 class TestInput(BaseModel):
     email: EmailStr
+
+
+class DispatchInput(CampaignInput):
+    request_id: UUID
+
+
+class DirectTestInput(PreviewInput):
+    email: EmailStr
+    subject: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=100000)
+
+    @field_validator("subject", "body")
+    @classmethod
+    def clean_message(cls, value):
+        return CampaignInput.clean_text(value)
+
+    @field_validator("subject")
+    @classmethod
+    def validate_headers(cls, value):
+        return CampaignInput.no_headers(value)

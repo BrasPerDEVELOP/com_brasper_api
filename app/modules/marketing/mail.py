@@ -1,14 +1,15 @@
 import smtplib
 import ssl
-import mimetypes
 from email.message import EmailMessage
+from email.utils import formatdate, formataddr, make_msgid
+from email.policy import SMTP
 from urllib.parse import urlencode
 
 import jwt
 from fastapi import HTTPException
 
 from app.core.settings import get_settings
-from app.modules.marketing.template_renderer import ASSET_DIR, TEMPLATE_KEY, template_assets, asset_cid, render_email
+from app.modules.marketing.template_renderer import TEMPLATE_KEY, render_email
 
 
 def check_config():
@@ -39,21 +40,19 @@ def build_message(email, subject, body, test=False, template_key=None):
     check_config()
     s = get_settings()
     url = unsubscribe_url(email)
-    message = EmailMessage()
-    message["From"] = s.SMTP_FROM_EMAIL
+    message = EmailMessage(policy=SMTP)
+    message["From"] = formataddr(("BrasPer Transferencias", s.SMTP_FROM_EMAIL))
+    message["Date"] = formatdate(localtime=False, usegmt=True)
+    message["Message-ID"] = make_msgid(domain=s.SMTP_FROM_EMAIL.rsplit("@", 1)[-1])
+    message["List-Unsubscribe"] = "<" + url + ">"
+    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     message["To"] = email
     message["Subject"] = ("[PRUEBA] " if test else "") + subject
     footer = "Cancelar inscrição: " if template_key == TEMPLATE_KEY else "Dejar de recibir correos: "
     cta = "Faça sua cotação" if template_key == TEMPLATE_KEY else "Haz tu cotización"
     plain = body + ("\n\n" + cta + ": https://www.brasper.com" if template_key else "")
     message.set_content(plain + "\n\n" + footer + url)
-    message.add_alternative(render_email(subject, body, url, template_key), subtype="html")
-    if template_key:
-        html_part = message.get_payload()[-1]
-        for name in template_assets(template_key):
-            maintype, subtype = mimetypes.guess_type(name)[0].split("/")
-            html_part.add_related((ASSET_DIR / name).read_bytes(), maintype=maintype, subtype=subtype,
-                                  cid="<" + asset_cid(name) + ">", disposition="inline", filename=name)
+    message.add_alternative(render_email(subject, body, url, template_key, asset_base=s.PUBLIC_URL), subtype="html")
     return message
 
 

@@ -79,7 +79,30 @@ def _parse_identifications_form(value: Optional[str]) -> Optional[list[UserIdent
     )
 
 
-class UserCreateCmd(BaseModel):
+class PhoneAreaFields(BaseModel):
+    """Zona asociada al número telefónico, no residencia ni nacionalidad."""
+
+    local_area_code: Optional[str] = Field(
+        None, min_length=1, max_length=6, pattern=r"^[0-9]+$",
+        description="Código de área local sin código de país; DDD de 2 dígitos en Brasil, por ejemplo 11",
+    )
+    local_area_name: Optional[str] = Field(
+        None, max_length=150,
+        description="Nombre de la zona telefónica; no confirma la ciudad de residencia",
+    )
+    country: Optional[str] = Field(
+        None, max_length=100, description="País asociado al teléfono, por ejemplo Brasil",
+    )
+
+    @field_validator("local_area_code", "local_area_name", "country", mode="before")
+    @classmethod
+    def normalize_phone_area(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+
+class UserCreateCmd(PhoneAreaFields):
     permissions_granted: Optional[list[str]] = None
     permissions_revoked: Optional[list[str]] = None
     """Campos para crear usuario. Todos opcionales."""
@@ -124,6 +147,9 @@ class UserCreateCmd(BaseModel):
         role: Optional[UserRole] = Form(None),
         phone: Optional[str] = Form(None, max_length=100),
         code_phone: Optional[PhoneCode] = Form(None),
+        local_area_code: Annotated[Optional[str], Form()] = None,
+        local_area_name: Annotated[Optional[str], Form()] = None,
+        country: Annotated[Optional[str], Form()] = None,
     ) -> tuple["UserCreateCmd", Optional[UploadFile]]:
         cmd = cls(
             names=names,
@@ -137,6 +163,9 @@ class UserCreateCmd(BaseModel):
             role=role,
             phone=phone,
             code_phone=code_phone,
+            local_area_code=local_area_code,
+            local_area_name=local_area_name,
+            country=country,
         )
         for key, raw in (("permissions_granted", permissions_granted), ("permissions_revoked", permissions_revoked)):
             if isinstance(raw, str):
@@ -151,7 +180,7 @@ class UserCreateCmd(BaseModel):
         return cmd, profile_image
 
 
-class UserUpdateCmd(BaseModel):
+class UserUpdateCmd(PhoneAreaFields):
     permissions_granted: Optional[list[str]] = None
     permissions_revoked: Optional[list[str]] = None
     id: UUID
@@ -190,6 +219,9 @@ class UserUpdateCmd(BaseModel):
         role: Optional[UserRole] = Form(None),
         phone: Optional[str] = Form(None, max_length=100),
         code_phone: Optional[PhoneCode] = Form(None),
+        local_area_code: Annotated[Optional[str], Form()] = None,
+        local_area_name: Annotated[Optional[str], Form()] = None,
+        country: Annotated[Optional[str], Form()] = None,
     ) -> tuple["UserUpdateCmd", Optional[UploadFile]]:
         values = dict(
             id=UUID(id),
@@ -202,6 +234,9 @@ class UserUpdateCmd(BaseModel):
             role=role,
             phone=phone,
             code_phone=code_phone,
+            local_area_code=local_area_code,
+            local_area_name=local_area_name,
+            country=country,
         )
         if identifications is not None:
             values["identifications"] = _parse_identifications_form(identifications)
@@ -219,7 +254,7 @@ class UserUpdateCmd(BaseModel):
         return cmd, profile_image
 
 
-class UpdateCurrentUserCmd(BaseModel):
+class UpdateCurrentUserCmd(PhoneAreaFields):
     """Campos actualizables para PUT /auth/me (usuario autenticado)."""
     model_config = ConfigDict(extra="forbid")
 
@@ -239,7 +274,7 @@ DEFAULT_DOCUMENT_TYPE = "dni"
 DEFAULT_CODE_PHONE = "pe"
 
 
-class UserReadDTO(BaseModel):
+class UserReadDTO(PhoneAreaFields):
     @computed_field
     @property
     def permissions_customized(self) -> bool:
@@ -282,7 +317,7 @@ class UserReadDTO(BaseModel):
         return self
 
 
-class UserReadGeneralDTO(BaseModel):
+class UserReadGeneralDTO(PhoneAreaFields):
     @computed_field
     @property
     def permissions_customized(self) -> bool:
