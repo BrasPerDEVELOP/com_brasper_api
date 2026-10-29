@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Optional
 import uuid
 
-from sqlalchemy import String, Boolean, BigInteger, ForeignKey, Index, Integer, text, JSON
+from sqlalchemy import String, Boolean, ForeignKey, Index, Integer, text, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,7 +78,7 @@ class User(ORMBaseModel):
     document_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # DocumentType enum value
     is_agent: Mapped[Optional[bool]] = mapped_column(Boolean, default=True, nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UserRole enum value
-    phone: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # hasta 15 dígitos
+    phone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # número o @usuario
     code_phone: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # PhoneCode enum value (ej. +51)
 
     identifications: Mapped[list["UserIdentification"]] = relationship(

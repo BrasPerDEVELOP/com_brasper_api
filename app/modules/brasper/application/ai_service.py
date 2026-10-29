@@ -34,7 +34,7 @@ class BrasperAIService:
     async def operation_status(self, user_id: UUID, *, code_phone: str, phone: int,
                                reference: str | None = None):
         user = (await self.session.scalars(self._active_clients().where(
-            User.id == user_id, User.code_phone == code_phone, User.phone == phone,
+            User.id == user_id, User.code_phone == code_phone, User.phone == str(phone),
         ).limit(1))).first()
         if user is None:
             return None
@@ -64,7 +64,7 @@ class BrasperAIService:
         must not silently reset an already-used first-transfer entitlement.
         """
         user = (await self.session.scalars(self._active_clients().where(
-            User.id == user_id, User.code_phone == code_phone, User.phone == phone,
+            User.id == user_id, User.code_phone == code_phone, User.phone == str(phone),
         ).limit(1))).first()
         if user is None:
             return None
@@ -102,7 +102,7 @@ class BrasperAIService:
                             full_name: str | None) -> AIClientLookupDTO:
         stmt = self._active_clients()
         if phone is not None:
-            stmt = stmt.where(User.phone == phone)
+            stmt = stmt.where(User.phone == str(phone))
             if code_phone:
                 stmt = stmt.where(User.code_phone == code_phone)
         elif full_name:
@@ -137,7 +137,7 @@ class BrasperAIService:
     async def _find_by_phone(self, cmd: AIClientUpsertCmd) -> User | None:
         stmt = self._active_clients().where(
             User.code_phone == cmd.code_phone.value,
-            User.phone == cmd.phone,
+            User.phone == str(cmd.phone),
         )
         return (await self.session.scalars(stmt.limit(1))).first()
 
@@ -166,7 +166,7 @@ class BrasperAIService:
         user.document_type = cmd.document_type.value
         user.document_number = cmd.document_number
         user.code_phone = cmd.code_phone.value
-        user.phone = cmd.phone
+        user.phone = str(cmd.phone)
         if cmd.email is not None:
             user.email = str(cmd.email)
 

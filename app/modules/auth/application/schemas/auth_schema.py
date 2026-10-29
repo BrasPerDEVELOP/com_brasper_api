@@ -24,6 +24,8 @@ class UserInfoDTO(BaseModel):
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     role: Optional[str] = None
+    phone: Optional[str] = None
+    code_phone: Optional[str] = None
     permissions_granted: list[str] = []
     permissions_revoked: list[str] = []
     permissions: list[str] = []

@@ -2,25 +2,29 @@ from datetime import datetime
 from fastapi import File, Form, UploadFile
 import json
 
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
+from pydantic import BaseModel, BeforeValidator, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
 from uuid import UUID
-from typing import Optional
+from typing import Annotated, Optional
 
 from app.modules.auth.application.schemas.auth_schema import AuthCreateCmd
 from app.modules.users.domain.enums import UserRole, DocumentType, PhoneCode
 from app.shared.media import to_media_url
 
-# Máximo 15 dígitos para teléfono
-phone_max_digits = 999_999_999_999_999
+
+def _normalize_phone(value):
+    """Conserva números y usuarios; admite enteros de clientes anteriores."""
+    if isinstance(value, str):
+        return value.strip() or None
+    if type(value) is int:
+        return str(value)
+    return value
 
 
-def _phone_empty_to_none(v):
-    """Convierte '' o None a None; permite int o str numérico."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, str) and v.strip() == "":
-        return None
-    return v
+PhoneContact = Annotated[
+    Optional[Annotated[str, Field(max_length=100)]],
+    BeforeValidator(_normalize_phone),
+    Field(description="Número de teléfono o usuario de WhatsApp con @"),
+]
 
 
 class UserIdentificationInput(BaseModel):
@@ -90,13 +94,8 @@ class UserCreateCmd(BaseModel):
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
     auth_id: Optional[UUID] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: PhoneContact = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
     @model_validator(mode="after")
     def validate_identifications(self):
@@ -123,7 +122,7 @@ class UserCreateCmd(BaseModel):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[int] = Form(None),
+        phone: Optional[str] = Form(None, max_length=100),
         code_phone: Optional[PhoneCode] = Form(None),
     ) -> tuple["UserCreateCmd", Optional[UploadFile]]:
         cmd = cls(
@@ -165,13 +164,8 @@ class UserUpdateCmd(BaseModel):
     identifications: Optional[list[UserIdentificationInput]] = None
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: PhoneContact = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
     @model_validator(mode="after")
     def validate_identifications(self):
@@ -194,7 +188,7 @@ class UserUpdateCmd(BaseModel):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[int] = Form(None),
+        phone: Optional[str] = Form(None, max_length=100),
         code_phone: Optional[PhoneCode] = Form(None),
     ) -> tuple["UserUpdateCmd", Optional[UploadFile]]:
         values = dict(
@@ -235,13 +229,8 @@ class UpdateCurrentUserCmd(BaseModel):
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     document_type: Optional[DocumentType] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: PhoneContact = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
 
 # Valores por defecto cuando el campo es null en BD
@@ -266,7 +255,7 @@ class UserReadDTO(BaseModel):
     identifications: list[UserIdentificationReadDTO] = Field(default_factory=list)
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = None
+    phone: PhoneContact = None
     code_phone: Optional[PhoneCode] = None
     created_at: datetime
     created_by: Optional[str] = None
@@ -310,7 +299,7 @@ class UserReadGeneralDTO(BaseModel):
     identifications: list[UserIdentificationReadDTO] = Field(default_factory=list)
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = None
+    phone: PhoneContact = None
     code_phone: Optional[PhoneCode] = None
     created_at: datetime
     created_by: Optional[str] = None

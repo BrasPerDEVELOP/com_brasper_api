@@ -1,5 +1,5 @@
 # app/modules/users/adapters/router/user_routes.py
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status, File
 from uuid import UUID
 from typing import Annotated, List, Optional
 
@@ -56,6 +56,18 @@ from app.modules.transactions.adapters.router.transactions_websocket import (
 )
 
 router = LegacyAliasRouter(prefix="/user", tags=["user"])
+
+
+async def _parse_user_update_form(
+    request: Request,
+    form_data: Annotated[tuple[UserUpdateCmd, Optional[UploadFile]], Depends(UserUpdateCmd.from_form)],
+) -> tuple[UserUpdateCmd, Optional[UploadFile]]:
+    cmd, image = form_data
+    # FastAPI treats an empty Form string as its None default. Keep an explicit
+    # clear distinct from omitting the contact in a partial update.
+    if "phone" not in cmd.model_fields_set and "phone" in await request.form():
+        cmd.phone = None
+    return cmd, image
 
 
 @router.get("/email/{email}", response_model=UserReadDTO)
@@ -119,7 +131,7 @@ async def create_user(
 
 @router.put("", response_model=UserReadDTO)
 async def update_user(
-    form_data: Annotated[tuple[UserUpdateCmd, Optional[UploadFile]], Depends(UserUpdateCmd.from_form)],
+    form_data: Annotated[tuple[UserUpdateCmd, Optional[UploadFile]], Depends(_parse_user_update_form)],
     use_case: UpdateUserUseCase = Depends(update_user_uc),
     get_use_case: GetUserByIdUseCase = Depends(get_user_by_id_uc),
     _permissions=Depends(require_permission("users.update")),
