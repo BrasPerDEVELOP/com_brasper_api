@@ -14,6 +14,8 @@ Orden de una emisión (ver documento "Integración Brasper · APISUNAT"):
 """
 from __future__ import annotations
 
+from app.shared.contact_emails import registered_emails, unique_emails
+
 import json
 import logging
 import asyncio
@@ -729,9 +731,12 @@ class GetInvoiceUseCase:
             return None
         events = await self.repo.list_events(invoice.id) if with_events else []
         dto = InvoiceDTO.from_entity(invoice, events=events)
-        if not dto.customer_email:
-            transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
-            dto.customer_email = _clean(getattr(getattr(transaction, "user", None), "email", None)) or None
+        transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
+        dto.customer_emails = registered_emails(getattr(transaction, "user", None))
+        if not dto.customer_emails and dto.customer_email:
+            dto.customer_emails = [dto.customer_email]
+        if not dto.customer_email and dto.customer_emails:
+            dto.customer_email = dto.customer_emails[0]
         return dto
 
     async def for_transaction(self, transaction_id: UUID) -> Optional[InvoiceDTO]:
@@ -740,7 +745,7 @@ class GetInvoiceUseCase:
         )
         if invoice is None:
             return None
-        return InvoiceDTO.from_entity(invoice, events=await self.repo.list_events(invoice.id))
+        return await self.execute(invoice.id)
 
 
 class ListInvoicesUseCase:
@@ -843,14 +848,22 @@ class RequestInvoiceEmailUseCase:
             raise ValueError("Solo puedes enviar el PDF cuando SUNAT acepte el comprobante")
         if invoice.environment != self.settings.APISUNAT_ENVIRONMENT.lower():
             raise ValueError("El comprobante pertenece a otro ambiente de APISUNAT")
-        recipient = _clean(cmd.customer_email) if cmd.customer_email is not None else _clean(invoice.customer_email)
-        if cmd.customer_email is None and not recipient:
+        if cmd.recipients is not None:
+            recipients = cmd.recipients
+        elif cmd.customer_email is not None:
+            recipients = [_clean(cmd.customer_email)]
+        else:
             transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
-            recipient = _clean(getattr(getattr(transaction, "user", None), "email", None))
-        ensure_invoice_email_ready(self.settings, recipient)
-        if not await self.repo.queue_invoice_email(invoice_id, recipient):
-            raise ValueError("El PDF ya fue enviado o tiene un envío en curso. Actualiza el detalle")
-        await self.repo.add_event(invoice_id, "email_requested", {"recipient": recipient, "actor": actor})
+            recipients = registered_emails(getattr(transaction, "user", None)) or [invoice.customer_email]
+        for recipient in recipients:
+            ensure_invoice_email_ready(self.settings, recipient)
+        delivered = {e.casefold() for e in (getattr(invoice, "email_delivered_to", None) or [])}
+        recipients = [e for e in unique_emails(recipients) if e.casefold() not in delivered]
+        if not recipients:
+            raise ValueError("El PDF ya fue enviado a todos los correos seleccionados")
+        if not await self.repo.queue_invoice_email(invoice_id, recipients):
+            raise ValueError("El PDF tiene un envío en curso. Actualiza el detalle")
+        await self.repo.add_event(invoice_id, "email_requested", {"recipients": recipients, "actor": actor})
         await self.repo.commit()
         await self.repo.refresh(invoice)
         return InvoiceDTO.from_entity(invoice)
@@ -871,29 +884,41 @@ class DeliverPendingInvoiceEmailsUseCase:
         for invoice in pending:
             if not await self.repo.claim_invoice_email(invoice.id):
                 continue
+            smtp_completed = False
             try:
                 pdf, filename = await GetInvoicePdfUseCase(
                     self.repo, self.client, self.settings, self.file_service
                 ).execute(invoice.id)
                 issuer = self.settings.billing_issuer(invoice.issuer_ruc)
                 issuer_name = issuer.display_name if issuer else invoice.issuer_ruc
-                await asyncio.to_thread(
-                    send_invoice_pdf, self.settings,
-                    recipient=invoice.customer_email,
-                    full_number=invoice.full_number,
-                    issuer_name=issuer_name,
-                    pdf=pdf,
-                    filename=filename,
-                )
+                completed = {e.casefold() for e in (getattr(invoice, "email_delivered_to", None) or [])}
+                recipients = getattr(invoice, "email_recipients", None) or [invoice.customer_email]
+                for recipient in unique_emails(recipients):
+                    if recipient.casefold() in completed:
+                        continue
+                    await asyncio.to_thread(
+                        send_invoice_pdf, self.settings,
+                        recipient=recipient,
+                        full_number=invoice.full_number,
+                        issuer_name=issuer_name,
+                        pdf=pdf,
+                        filename=filename,
+                    )
+                    smtp_completed = True
+                    await self.repo.record_email_delivery(invoice.id, recipient)
+                    smtp_completed = False
             except Exception:
                 # El error SMTP puede incluir datos privados; solo se registra un estado.
                 logger.warning("No se pudo entregar el PDF del comprobante %s", invoice.id)
+                if smtp_completed:
+                    # SMTP succeeded but recording failed: retain the sending claim.
+                    # An operator must reconcile this uncertain outcome before retrying.
+                    continue
                 await self.repo.complete_invoice_email(invoice.id, sent=False)
                 await self.repo.add_event(invoice.id, InvoiceEventType.email_failed.value)
                 await self.repo.commit()
             else:
                 await self.repo.complete_invoice_email(invoice.id, sent=True)
-                await self.repo.add_event(invoice.id, InvoiceEventType.email_sent.value)
                 await self.repo.commit()
                 delivered += 1
         return delivered

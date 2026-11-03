@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, model_validator, computed_field
 from uuid import UUID
+from app.shared.contact_emails import registered_emails
 from typing import Optional
 
 
@@ -21,6 +22,7 @@ class UserInfoDTO(BaseModel):
     names: Optional[str] = None
     lastnames: Optional[str] = None
     email: Optional[EmailStr] = None
+    emails: Optional[list[str]] = None
     local_area_code: Optional[str] = None
     local_area_name: Optional[str] = None
     country: Optional[str] = None
@@ -41,6 +43,7 @@ class UserInfoDTO(BaseModel):
 
     @model_validator(mode="after")
     def set_default_profile_image(self):
+        self.emails = registered_emails(self)
         if self.profile_image is None:
             object.__setattr__(self, "profile_image", DEFAULT_PROFILE_IMAGE)
         return self

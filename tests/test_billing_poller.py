@@ -63,10 +63,19 @@ def _wire(monkeypatch, lock_conn, calls):
             calls.append("poll")
             return 2
 
+    class FakeEmailDelivery:
+        def __init__(self, *a, **k):
+            pass
+
+        async def execute(self):
+            calls.append("email")
+            return 0
+
     import app.modules.billing.application.use_cases as uc
 
     monkeypatch.setattr(uc, "RecoverStaleReservedUseCase", FakeRecover)
     monkeypatch.setattr(uc, "PollPendingInvoicesUseCase", FakePending)
+    monkeypatch.setattr(uc, "DeliverPendingInvoiceEmailsUseCase", FakeEmailDelivery)
 
 
 @pytest.mark.asyncio
@@ -75,7 +84,7 @@ async def test_lock_y_unlock_en_la_misma_conexion(monkeypatch, billing_on):
     _wire(monkeypatch, lock_conn, calls)
 
     assert await InvoicePoller().tick() == 3
-    assert calls == ["recover", "poll"]
+    assert calls == ["recover", "poll", "email"]
     assert any("pg_try_advisory_lock" in s for s in lock_conn.statements)
     assert any("pg_advisory_unlock" in s for s in lock_conn.statements)
 

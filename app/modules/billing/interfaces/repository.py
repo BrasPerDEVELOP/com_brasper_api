@@ -73,7 +73,10 @@ class BillingRepositoryInterface(ABC):
     @abstractmethod
     async def claim_invoice_email(self, invoice_id: UUID) -> bool: ...
 
-    async def queue_invoice_email(self, invoice_id: UUID, recipient: str) -> bool:
+    async def queue_invoice_email(self, invoice_id: UUID, recipients: list[str]) -> bool:
+        raise NotImplementedError
+
+    async def record_email_delivery(self, invoice_id: UUID, recipient: str) -> None:
         raise NotImplementedError
 
     @abstractmethod

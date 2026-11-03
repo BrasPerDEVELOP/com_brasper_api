@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.shared.contact_emails import validate_emails
 
 from app.core.settings import get_settings
 from app.modules.billing.domain.enums import BillingDocumentType
@@ -44,6 +45,9 @@ class InvoiceDTO(BaseModel):
     customer_address: Optional[str] = None
     customer_email: Optional[str] = None
     item_description: Optional[str] = None
+    customer_emails: list[str] = Field(default_factory=list)
+    email_recipients: list[str] = Field(default_factory=list)
+    email_delivered_to: list[str] = Field(default_factory=list)
     email_requested: bool = False
     email_status: Optional[str] = None
     email_sent_at: Optional[datetime] = None
@@ -101,6 +105,8 @@ class InvoiceDTO(BaseModel):
             customer_address=entity.customer_address,
             customer_email=entity.customer_email,
             item_description=description,
+            email_recipients=getattr(entity, "email_recipients", None) or [],
+            email_delivered_to=getattr(entity, "email_delivered_to", None) or [],
             email_requested=bool(getattr(entity, "email_requested", False)),
             email_status=getattr(entity, "email_status", None),
             email_sent_at=getattr(entity, "email_sent_at", None),
@@ -134,6 +140,18 @@ class InvoiceListDTO(BaseModel):
 
 
 class SendInvoiceEmailCmd(BaseModel):
+    recipients: Optional[list[str]] = None
+
+    @field_validator("recipients", mode="before")
+    @classmethod
+    def validate_recipients(cls, value):
+        if value is None:
+            return None
+        result = validate_emails(value)
+        if not result:
+            raise ValueError("Selecciona al menos un correo")
+        return result
+
     customer_email: Optional[str] = Field(None, max_length=255)
 
 

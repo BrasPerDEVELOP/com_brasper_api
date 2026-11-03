@@ -1,6 +1,7 @@
 from datetime import datetime
 from fastapi import File, Form, UploadFile
 import json
+from app.shared.contact_emails import validate_emails, registered_emails
 
 from pydantic import BaseModel, BeforeValidator, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
 from uuid import UUID
@@ -113,7 +114,33 @@ class PhoneAreaFields(BaseModel):
         return value
 
 
-class UserCreateCmd(PhoneAreaFields):
+def _parse_emails_form(raw):
+    if raw is None or not isinstance(raw, str):
+        return None
+    from fastapi import HTTPException
+    try:
+        return validate_emails(json.loads(raw))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "Los correos deben ser una lista JSON de direcciones válidas (máximo 20)") from exc
+
+
+class ContactEmailFields(PhoneAreaFields):
+    email: Optional[EmailStr] = None
+    emails: Optional[list[str]] = None
+
+    @field_validator("emails", mode="before")
+    @classmethod
+    def validate_contact_emails(cls, value):
+        return validate_emails(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def sync_primary_email(self):
+        if self.emails is not None:
+            self.email = self.emails[0] if self.emails else None
+        return self
+
+
+class UserCreateCmd(ContactEmailFields):
     permissions_granted: Optional[list[str]] = None
     permissions_revoked: Optional[list[str]] = None
     """Campos para crear usuario. Todos opcionales."""
@@ -152,6 +179,7 @@ class UserCreateCmd(PhoneAreaFields):
         names: Optional[str] = Form(None),
         lastnames: Optional[str] = Form(None),
         email: Optional[EmailStr] = Form(None),
+        emails: Optional[str] = Form(None),
         password: Optional[str] = Form(None),
         profile_image: Optional[UploadFile] = File(None),
         document_number: Optional[str] = Form(None),
@@ -171,6 +199,7 @@ class UserCreateCmd(PhoneAreaFields):
             names=names,
             lastnames=lastnames,
             email=email,
+            emails=_parse_emails_form(emails),
             password=password,
             document_number=document_number,
             document_type=document_type,
@@ -196,7 +225,7 @@ class UserCreateCmd(PhoneAreaFields):
         return cmd, profile_image
 
 
-class UserUpdateCmd(PhoneAreaFields):
+class UserUpdateCmd(ContactEmailFields):
     permissions_granted: Optional[list[str]] = None
     permissions_revoked: Optional[list[str]] = None
     id: UUID
@@ -230,6 +259,7 @@ class UserUpdateCmd(PhoneAreaFields):
         names: Optional[str] = Form(None),
         lastnames: Optional[str] = Form(None),
         email: Optional[EmailStr] = Form(None),
+        emails: Optional[str] = Form(None),
         profile_image: Optional[UploadFile] = File(None),
         document_number: Optional[str] = Form(None),
         document_type: Optional[DocumentType] = Form(None),
@@ -249,6 +279,7 @@ class UserUpdateCmd(PhoneAreaFields):
             names=names,
             lastnames=lastnames,
             email=email,
+            emails=_parse_emails_form(emails),
             document_number=document_number,
             document_type=document_type,
             is_agent=is_agent,
@@ -301,6 +332,7 @@ DEFAULT_CODE_PHONE = "pe"
 
 
 class UserReadDTO(PhoneAreaFields):
+    emails: Optional[list[str]] = Field(default_factory=list)
     @computed_field
     @property
     def permissions_customized(self) -> bool:
@@ -334,6 +366,7 @@ class UserReadDTO(PhoneAreaFields):
 
     @model_validator(mode="after")
     def set_defaults_when_null(self):
+        self.emails = registered_emails(self)
         if self.profile_image is None:
             object.__setattr__(self, "profile_image", DEFAULT_PROFILE_IMAGE)
         if self.document_type is None:
@@ -344,6 +377,7 @@ class UserReadDTO(PhoneAreaFields):
 
 
 class UserReadGeneralDTO(PhoneAreaFields):
+    emails: Optional[list[str]] = Field(default_factory=list)
     @computed_field
     @property
     def permissions_customized(self) -> bool:
@@ -378,6 +412,7 @@ class UserReadGeneralDTO(PhoneAreaFields):
 
     @model_validator(mode="after")
     def set_defaults_when_null(self):
+        self.emails = registered_emails(self)
         if self.profile_image is None:
             object.__setattr__(self, "profile_image", DEFAULT_PROFILE_IMAGE)
         if self.document_type is None:

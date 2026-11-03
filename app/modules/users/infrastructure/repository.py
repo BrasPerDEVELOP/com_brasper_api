@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 from uuid import UUID
-from sqlalchemy import select, update, func, or_
+from sqlalchemy import select, update, func, or_, cast, Text
 import unicodedata
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,7 @@ class SQLAlchemyUserRepository(BaseAsyncRepository[User], UserRepositoryInterfac
             stmt = stmt.where(or_(
                 full_name.icontains(value, autoescape=True),
                 User.email.icontains(value, autoescape=True),
+                cast(User.emails, Text).icontains(value, autoescape=True),
                 User.document_number.icontains(value, autoescape=True),
                 User.identifications.any(
                     (UserIdentification.deleted.is_(False)) & or_(

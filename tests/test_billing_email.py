@@ -18,6 +18,7 @@ async def test_delivery_claims_accepted_invoice_once(monkeypatch):
     repo = SimpleNamespace(
         list_pending_emails=AsyncMock(return_value=[invoice]),
         claim_invoice_email=AsyncMock(side_effect=[True, False]),
+        record_email_delivery=AsyncMock(),
         complete_invoice_email=AsyncMock(), add_event=AsyncMock(), commit=AsyncMock(),
     )
     pdf = AsyncMock(return_value=(b"%PDF-1.7\n", "boleta.pdf"))
@@ -41,6 +42,7 @@ async def test_email_request_uses_default_or_edited_recipient(monkeypatch, expli
     invoice = SimpleNamespace(id=uuid4(), transaction_id=uuid4(), status='accepted',
                               environment='production', customer_email='cliente@example.com')
     repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice),
+                           get_transaction_for_billing=AsyncMock(return_value=None),
                            queue_invoice_email=AsyncMock(return_value=True),
                            add_event=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock())
     settings = SimpleNamespace(BILLING_ENABLED=True, APISUNAT_ENVIRONMENT='production',
@@ -49,7 +51,7 @@ async def test_email_request_uses_default_or_edited_recipient(monkeypatch, expli
     monkeypatch.setattr(use_cases.InvoiceDTO, 'from_entity', lambda entity: entity)
     await use_cases.RequestInvoiceEmailUseCase(repo, settings).execute(
         invoice.id, SendInvoiceEmailCmd(customer_email=explicit))
-    repo.queue_invoice_email.assert_awaited_once_with(invoice.id, expected)
+    repo.queue_invoice_email.assert_awaited_once_with(invoice.id, [expected])
     repo.commit.assert_awaited_once()
 
 

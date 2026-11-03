@@ -198,18 +198,25 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         await self.session.commit()
         return claimed
 
-    async def queue_invoice_email(self, invoice_id: UUID, recipient: str) -> bool:
+    async def queue_invoice_email(self, invoice_id: UUID, recipients: list[str]) -> bool:
         stmt = (
             update(Invoice)
             .where(
                 Invoice.id == invoice_id, Invoice.deleted.is_(False),
                 Invoice.status == "accepted",
-                or_(Invoice.email_status.is_(None), Invoice.email_status == "failed"),
+                or_(Invoice.email_status.is_(None), Invoice.email_status.in_(["failed", "sent"])),
             )
-            .values(customer_email=recipient, email_requested=True, email_status="pending", email_sent_at=None)
+            .values(email_recipients=recipients, email_requested=True, email_status="pending", email_sent_at=None)
             .returning(Invoice.id)
         )
         return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def record_email_delivery(self, invoice_id: UUID, recipient: str) -> None:
+        # Only the worker that claimed the invoice can reach this point.
+        invoice = await self.get_invoice(invoice_id)
+        invoice.email_delivered_to = [*(invoice.email_delivered_to or []), recipient]
+        await self.add_event(invoice_id, "email_sent", {"recipient": recipient})
+        await self.session.commit()
 
     async def complete_invoice_email(self, invoice_id: UUID, *, sent: bool) -> None:
         values = {"email_status": "sent" if sent else "failed"}

@@ -3,6 +3,7 @@
 from uuid import UUID
 from typing import Optional, List
 import logging
+from app.shared.contact_emails import unique_emails, registered_emails
 
 from fastapi import UploadFile
 from sqlalchemy.exc import IntegrityError
@@ -171,6 +172,7 @@ class CreateUserUseCase:
                 names=cmd.names,
                 lastnames=cmd.lastnames,
                 email=cmd.email,
+                emails=cmd.emails if cmd.emails is not None else ([str(cmd.email)] if cmd.email else []),
                 profile_image=image_path or cmd.profile_image,
                 document_number=cmd.document_number,
                 document_type=cmd.document_type.value if cmd.document_type else None,
@@ -228,8 +230,14 @@ class UpdateUserUseCase:
                 existing_user.names = cmd.names
             if "lastnames" in cmd.model_fields_set:
                 existing_user.lastnames = cmd.lastnames
-            if "email" in cmd.model_fields_set:
+            if cmd.emails is not None:
+                existing_user.emails = list(cmd.emails)
                 existing_user.email = cmd.email
+            elif "email" in cmd.model_fields_set:
+                previous = registered_emails(existing_user)
+                secondary = [e for e in previous if e.casefold() != str(existing_user.email or "").casefold()]
+                existing_user.emails = unique_emails([cmd.email, *secondary])
+                existing_user.email = existing_user.emails[0] if existing_user.emails else None
             if "profile_image" in cmd.model_fields_set:
                 existing_user.profile_image = cmd.profile_image
             if "document_number" in cmd.model_fields_set:

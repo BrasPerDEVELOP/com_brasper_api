@@ -72,6 +72,7 @@ class User(ORMBaseModel):
     lastnames: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     # Correo de contacto compartible; las credenciales mantienen su username único.
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    emails: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list, server_default=text("'[]'"))
     profile_image: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # Unicidad en índice parcial `uq_user_document_number_alive` (migración 063).
     document_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
