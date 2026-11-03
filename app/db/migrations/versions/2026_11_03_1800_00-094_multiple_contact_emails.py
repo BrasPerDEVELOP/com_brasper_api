@@ -1,14 +1,14 @@
 """Multiple contact emails and per-recipient PDF delivery history.
 
-Revision ID: 093
-Revises: 092
+Revision ID: 094
+Revises: 093
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "093"
-down_revision = "092"
+revision = "094"
+down_revision = "093"
 branch_labels = None
 depends_on = None
 
