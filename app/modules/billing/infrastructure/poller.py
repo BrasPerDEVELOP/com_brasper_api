@@ -72,6 +72,7 @@ class InvoicePoller:
             PollInvoiceUseCase,
             PollPendingInvoicesUseCase,
             RecoverStaleReservedUseCase,
+            DeliverPendingInvoiceEmailsUseCase,
         )
         from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
         from app.shared.services.file_service import file_service
@@ -92,7 +93,9 @@ class InvoicePoller:
                     repo = SQLAlchemyBillingRepository(session)
                     recovered = await RecoverStaleReservedUseCase(repo, client, settings).execute()
                     poll = PollInvoiceUseCase(repo, client, settings, file_service)
-                    return recovered + await PollPendingInvoicesUseCase(poll, repo).execute()
+                    changed = recovered + await PollPendingInvoicesUseCase(poll, repo).execute()
+                    await DeliverPendingInvoiceEmailsUseCase(repo, client, settings, file_service).execute()
+                    return changed
             finally:
                 await lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
                 await lock_conn.commit()

@@ -78,6 +78,9 @@ class Invoice(ORMBaseModel):
     customer_name: Mapped[str] = mapped_column(String(250), nullable=False)
     customer_address: Mapped[Optional[str]] = mapped_column(String(250), nullable=True)
     customer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    email_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    email_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # InvoiceStatus
     issue_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

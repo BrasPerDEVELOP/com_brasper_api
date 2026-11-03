@@ -121,6 +121,7 @@ async def preview_transaction_invoice(
     customer_doc_number: Optional[str] = Query(None, max_length=40),
     document_type: Optional[str] = Query(None, pattern=r"^(01|03)$"),
     issuer_ruc: Optional[str] = Query(None, pattern=r"^\d{11}$"),
+    send_customer_email: bool = Query(False),
 ):
     """Boleta o factura que saldría, con adquirente e importes. No reserva número ni llama a APISUNAT."""
     cmd = IssueInvoiceCmd(
@@ -131,6 +132,7 @@ async def preview_transaction_invoice(
         customer_doc_number=customer_doc_number,
         document_type=document_type,
         issuer_ruc=issuer_ruc,
+        send_customer_email=send_customer_email,
     )
     try:
         return await use_case.execute(transaction_id, cmd)

@@ -43,6 +43,9 @@ class InvoiceDTO(BaseModel):
     customer_name: str
     customer_address: Optional[str] = None
     customer_email: Optional[str] = None
+    email_requested: bool = False
+    email_status: Optional[str] = None
+    email_sent_at: Optional[datetime] = None
     status: str
     issue_date: datetime
     apisunat_document_id: Optional[str] = None
@@ -94,6 +97,9 @@ class InvoiceDTO(BaseModel):
             customer_name=entity.customer_name,
             customer_address=entity.customer_address,
             customer_email=entity.customer_email,
+            email_requested=bool(getattr(entity, "email_requested", False)),
+            email_status=getattr(entity, "email_status", None),
+            email_sent_at=getattr(entity, "email_sent_at", None),
             status=entity.status,
             issue_date=entity.issue_date,
             apisunat_document_id=entity.apisunat_document_id,
@@ -133,6 +139,7 @@ class IssueInvoiceCmd(BaseModel):
     customer_name: Optional[str] = Field(default=None, max_length=250)
     customer_address: Optional[str] = Field(default=None, max_length=250)
     customer_email: Optional[str] = Field(default=None, max_length=255)
+    send_customer_email: bool = False
     customer_doc_type: Optional[str] = Field(default=None, max_length=20)
     customer_doc_number: Optional[str] = Field(default=None, max_length=40)
     #: "01" factura o "03" boleta. Vacío = automático según el documento del cliente.

@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -174,6 +174,36 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
             .limit(limit)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def list_pending_emails(self, *, limit: int = 50) -> list[Invoice]:
+        stmt = (
+            select(Invoice)
+            .where(Invoice.deleted.is_(False), Invoice.status == "accepted", Invoice.email_status == "pending")
+            .order_by(Invoice.accepted_at.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def claim_invoice_email(self, invoice_id: UUID) -> bool:
+        # Commit antes del SMTP: si el proceso cae durante el envío, no se repite
+        # automáticamente un correo cuyo resultado ya no podemos conocer.
+        stmt = (
+            update(Invoice)
+            .where(Invoice.id == invoice_id, Invoice.deleted.is_(False),
+                   Invoice.status == "accepted", Invoice.email_status == "pending")
+            .values(email_status="sending")
+            .returning(Invoice.id)
+        )
+        claimed = (await self.session.execute(stmt)).scalar_one_or_none() is not None
+        await self.session.commit()
+        return claimed
+
+    async def complete_invoice_email(self, invoice_id: UUID, *, sent: bool) -> None:
+        values = {"email_status": "sent" if sent else "failed"}
+        if sent:
+            values["email_sent_at"] = datetime.now(timezone.utc)
+        await self.session.execute(update(Invoice).where(Invoice.id == invoice_id).values(**values))
+        await self.session.commit()
 
     async def latest_invoices_for_transactions(self, transaction_ids: Sequence[UUID]) -> list[Invoice]:
         if not transaction_ids:

@@ -52,13 +52,28 @@ APISUNAT_ENVIRONMENT=development     # production solo con ENVIRONMENT != develo
 APISUNAT_PERSONA_ID=<personaId de BRASPER 21>
 APISUNAT_PERSONA_TOKEN=<token de DESARROLLO de BRASPER 21>
 APISUNAT_TIMEOUT_SECONDS=30
-BILLING_SERIES_BOLETA=B001
-BILLING_SERIES_FACTURA=F001
+BILLING_SERIES_BOLETA=BB02
+BILLING_SERIES_FACTURA=FF02
 BILLING_POLL_INTERVAL_SECONDS=30
 BILLING_START_DATE=                  # YYYY-MM-DD: operaciones anteriores no se facturan
 ```
 
-Después: `alembic upgrade head` (migraciones 085, 086 y 087).
+Después: `alembic upgrade head` (incluida la migración 091 para correos).
+
+Las series nuevas empiezan en `BB02-00000001` y `FF02-00000001` por cada
+empresa emisora y ambiente. APISUNAT exige ocho dígitos para el correlativo;
+`BB02-0000000001` y `FF02-000000001` no son formatos válidos para su API.
+Antes de emitir, confirmar que no hay comprobantes previos en esas series.
+
+El operador puede solicitar el envío del PDF al correo del cliente en el diálogo
+de emisión. La API valida el correo y la configuración SMTP en la vista previa,
+reserva el número, y solo después de la aceptación de SUNAT descarga el PDF
+oficial de APISUNAT y lo adjunta por SMTP. El estado queda en `email_status`
+(`pending`, `sending`, `sent` o `failed`). El poller reclama cada envío una vez;
+si SMTP falla, queda `failed` para revisión y no reenvía automáticamente.
+Configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM_EMAIL` y `SMTP_USE_TLS=true` en el servidor. El PDF de APISUNAT
+puede diferir visualmente del ejemplo de KeyFacil.
 
 ### En el servidor (Docker)
 

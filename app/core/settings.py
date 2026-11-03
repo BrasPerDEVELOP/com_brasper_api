@@ -153,8 +153,8 @@ class Settings(BaseSettings):
     # development | production. Cada token de APISUNAT vale solo para un ambiente.
     APISUNAT_ENVIRONMENT: str = "development"
     APISUNAT_TIMEOUT_SECONDS: float = 30.0
-    BILLING_SERIES_BOLETA: str = "B001"
-    BILLING_SERIES_FACTURA: str = "F001"
+    BILLING_SERIES_BOLETA: str = "BB02"
+    BILLING_SERIES_FACTURA: str = "FF02"
     BILLING_ISSUER_RUC: str = "20608550454"
     BILLING_ISSUER_NAME: str = "BRASPER 21 S.A.C."
     BILLING_ISSUER_TRADE_NAME: str = "brasper transferencias"

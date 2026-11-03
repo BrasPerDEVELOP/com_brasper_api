@@ -2,7 +2,7 @@ from datetime import datetime
 from fastapi import File, Form, UploadFile
 import json
 
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
+from pydantic import BaseModel, BeforeValidator, EmailStr, ConfigDict, Field, model_validator, field_validator, field_serializer, computed_field
 from uuid import UUID
 from typing import Annotated, Optional
 
@@ -21,6 +21,21 @@ def _phone_empty_to_none(v):
     if isinstance(v, str) and v.strip() == "":
         return None
     return v
+
+
+def _read_phone_without_spaces(value):
+    """Lee teléfonos históricos numéricos o de texto sin alterar el registro."""
+    if isinstance(value, str):
+        compact = "".join(value.split())
+        if not compact:
+            return None
+        if compact.isascii() and compact.isdigit():
+            return int(compact)
+        return value.strip()
+    return value
+
+
+ReadPhone = Annotated[Optional[int | str], BeforeValidator(_read_phone_without_spaces)]
 
 
 class UserIdentificationInput(BaseModel):
@@ -301,7 +316,7 @@ class UserReadDTO(PhoneAreaFields):
     identifications: list[UserIdentificationReadDTO] = Field(default_factory=list)
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = None
+    phone: ReadPhone = None
     code_phone: Optional[PhoneCode] = None
     created_at: datetime
     created_by: Optional[str] = None
@@ -345,7 +360,7 @@ class UserReadGeneralDTO(PhoneAreaFields):
     identifications: list[UserIdentificationReadDTO] = Field(default_factory=list)
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = None
+    phone: ReadPhone = None
     code_phone: Optional[PhoneCode] = None
     created_at: datetime
     created_by: Optional[str] = None

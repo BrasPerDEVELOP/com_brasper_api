@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -52,6 +53,7 @@ from app.modules.billing.domain.enums import (
     SunatDocumentStatus,
 )
 from app.modules.billing.domain.models import Invoice
+from app.modules.billing.infrastructure.invoice_email import ensure_invoice_email_ready, send_invoice_pdf
 from app.modules.billing.interfaces.apisunat_client import (
     ApisunatClientInterface,
     ApisunatError,
@@ -207,7 +209,7 @@ async def send_invoice(
 ) -> Invoice:
     """Envía (o reenvía) un comprobante ya reservado y persiste el resultado."""
     invoice.attempts = int(invoice.attempts or 0) + 1
-    customer_email = invoice.customer_email if settings.BILLING_SEND_CUSTOMER_EMAIL else None
+    customer_email = invoice.customer_email if settings.BILLING_SEND_CUSTOMER_EMAIL and not getattr(invoice, "email_requested", False) else None
     try:
         result = await client.send_bill(
             file_name=invoice.file_name,
@@ -303,6 +305,8 @@ async def prepare_issue(
         raise ValueError("La empresa emisora elegida no está configurada")
 
     document_type, customer = resolve_customer(transaction, transaction.user, cmd)
+    if cmd and cmd.send_customer_email:
+        ensure_invoice_email_ready(settings, customer.email)
     return IssuePlan(
         transaction=transaction,
         issuer=issuer,
@@ -430,6 +434,8 @@ class IssueInvoiceUseCase:
             customer_name=customer.name,
             customer_address=customer.address,
             customer_email=customer.email,
+            email_requested=bool(cmd and cmd.send_customer_email),
+            email_status="pending" if cmd and cmd.send_customer_email else None,
             status=InvoiceStatus.reserved.value,
             reserved_at=issued_at,
             issue_date=issued_at,
@@ -794,6 +800,49 @@ class GetInvoicePdfUseCase:
             except Exception as exc:
                 logger.warning("No se pudo guardar el PDF de %s: %s", invoice.file_name, exc)
         return content, f"{invoice.file_name}.pdf"
+
+
+class DeliverPendingInvoiceEmailsUseCase:
+    """Adjunta el PDF oficial solo después de la aceptación; cada envío se reclama una vez."""
+
+    def __init__(self, repo: BillingRepositoryInterface, client, settings: Settings, file_service=None):
+        self.repo = repo
+        self.client = client
+        self.settings = settings
+        self.file_service = file_service
+
+    async def execute(self, *, limit: int = 50) -> int:
+        pending = await self.repo.list_pending_emails(limit=limit)
+        delivered = 0
+        for invoice in pending:
+            if not await self.repo.claim_invoice_email(invoice.id):
+                continue
+            try:
+                pdf, filename = await GetInvoicePdfUseCase(
+                    self.repo, self.client, self.settings, self.file_service
+                ).execute(invoice.id)
+                issuer = self.settings.billing_issuer(invoice.issuer_ruc)
+                issuer_name = issuer.display_name if issuer else invoice.issuer_ruc
+                await asyncio.to_thread(
+                    send_invoice_pdf, self.settings,
+                    recipient=invoice.customer_email,
+                    full_number=invoice.full_number,
+                    issuer_name=issuer_name,
+                    pdf=pdf,
+                    filename=filename,
+                )
+            except Exception:
+                # El error SMTP puede incluir datos privados; solo se registra un estado.
+                logger.warning("No se pudo entregar el PDF del comprobante %s", invoice.id)
+                await self.repo.complete_invoice_email(invoice.id, sent=False)
+                await self.repo.add_event(invoice.id, InvoiceEventType.email_failed.value)
+                await self.repo.commit()
+            else:
+                await self.repo.complete_invoice_email(invoice.id, sent=True)
+                await self.repo.add_event(invoice.id, InvoiceEventType.email_sent.value)
+                await self.repo.commit()
+                delivered += 1
+        return delivered
 
 
 class BillingStatusUseCase:

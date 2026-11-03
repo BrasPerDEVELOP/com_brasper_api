@@ -90,6 +90,8 @@ class InvoiceEventType(str, enum.Enum):
     rejected = "rejected"
     exception = "exception"
     pdf_stored = "pdf_stored"
+    email_sent = "email_sent"
+    email_failed = "email_failed"
     void_requested = "void_requested"
     voided = "voided"
     retry = "retry"
