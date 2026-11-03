@@ -72,9 +72,12 @@ class SQLAlchemyUserRepository(BaseAsyncRepository[User], UserRepositoryInterfac
         )
 
     async def get_by_email(self, email: str) -> Optional[User]:
-        stmt = select(User).where(User.email == email, User.deleted.is_(False))
+        stmt = select(User).where(User.email == email, User.deleted.is_(False)).limit(2)
         result = await self.session.execute(stmt)
-        return result.scalars().first()
+        users = result.scalars().all()
+        if len(users) > 1:
+            raise ValueError("El correo corresponde a varios usuarios; selecciona al usuario por su ID")
+        return users[0] if users else None
 
     async def get_by_auth_id(self, auth_id: UUID) -> Optional[User]:
         stmt = select(User).where(User.auth_id == auth_id, User.deleted.is_(False))

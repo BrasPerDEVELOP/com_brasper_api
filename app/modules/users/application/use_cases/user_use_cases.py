@@ -155,9 +155,6 @@ class CreateUserUseCase:
         try:
             auth_id = None
             if cmd.email:
-                existing_user = await self._uow.user_repository.get_by_email(cmd.email)
-                if existing_user:
-                    raise ValueError("Ya existe un usuario con este email")
                 auth_cmd = cmd.to_auth_cmd()
                 if auth_cmd and auth_cmd.password:
                     auth_result = await self._auth_service.execute(auth_cmd)

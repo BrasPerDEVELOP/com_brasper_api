@@ -163,7 +163,15 @@ class OAuthCallbackUseCase:
 
         # Usuario existente por email: vincular cuenta social y opcionalmente crear Auth
         if email:
-            existing_user = await self.uow.user_repository.get_by_email(email)
+            # El correo de contacto puede repetirse. Una credencial existente
+            # identifica la cuenta; sin ella, solo se admite un contacto inequívoco.
+            existing_credentials = await self.uow.auth_repository.get_by_username(email.lower())
+            if existing_credentials:
+                existing_user = await self.uow.user_repository.get_by_auth_id(existing_credentials.id)
+                if not existing_user:
+                    raise ValueError("La cuenta de acceso no tiene un usuario activo vinculado")
+            else:
+                existing_user = await self.uow.user_repository.get_by_email(email)
             if existing_user:
                 auth_id = existing_user.auth_id
                 if not auth_id:

@@ -1,10 +1,4 @@
-"""Reutilizar el correo/documento de un usuario eliminado.
-
-El borrado de usuarios es lógico. Con restricciones únicas incondicionales, la
-fila borrada seguía ocupando el índice y volver a registrar a la misma persona
-fallaba con 409 «Conflicto de datos». La migración 063 las convierte en índices
-únicos parciales sobre las filas vivas.
-"""
+"""Correo de contacto compartible (092) y documentos únicos entre filas vivas (063)."""
 import datetime
 import uuid
 
@@ -25,7 +19,7 @@ def _now(_ctx=None):
 
 @pytest_asyncio.fixture
 async def session():
-    """SQLite en memoria con los índices parciales que crea la migración 063."""
+    """SQLite en memoria con los índices de documentos y contacto vigentes."""
     tables = [User.__table__, UserIdentification.__table__]
     # El metadata es global al proceso: se guarda el estado original para
     # devolverlo al terminar y no contaminar al resto de la suite.
@@ -47,7 +41,7 @@ async def session():
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync: ORMBase.metadata.create_all(sync, tables=tables))
         for ddl in (
-            "CREATE UNIQUE INDEX uq_user_email_alive ON user (email) "
+            "CREATE INDEX ix_user_email_alive ON user (email) "
             "WHERE deleted = 0 AND email IS NOT NULL",
             "CREATE UNIQUE INDEX uq_user_document_number_alive ON user (document_number) "
             "WHERE deleted = 0 AND document_number IS NOT NULL",
@@ -76,10 +70,26 @@ def _user(email: str, document: str) -> User:
 
 @pytest.mark.asyncio
 class TestUniquesConBorradoLogico:
-    async def test_dos_usuarios_vivos_no_pueden_repetir_email(self, session):
+    async def test_dos_usuarios_vivos_pueden_compartir_email(self, session):
         session.add(_user("a@b.com", "111"))
         await session.flush()
         session.add(_user("a@b.com", "222"))
+        await session.flush()
+        users = (await session.execute(select(User))).scalars().all()
+        assert len(users) == 2 and users[0].id != users[1].id
+        with pytest.raises(ValueError, match="varios usuarios"):
+            await SQLAlchemyUserRepository(session).get_by_email("a@b.com")
+
+    async def test_editar_correo_a_uno_compartido(self, session):
+        first, second = _user("a@b.com", "111"), _user("c@b.com", "222")
+        session.add_all([first, second])
+        await session.flush()
+        second.email = first.email
+        await session.flush()
+        assert second.email == first.email
+
+    async def test_correo_compartido_no_libera_documento_duplicado(self, session):
+        session.add_all([_user("a@b.com", "111"), _user("a@b.com", "111")])
         with pytest.raises(IntegrityError):
             await session.flush()
 

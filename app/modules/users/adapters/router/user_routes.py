@@ -78,7 +78,10 @@ async def get_user_by_email(
     use_case: GetUserByEmailUseCase = Depends(get_user_by_email_uc),
     _permissions=Depends(require_permission("users.view")),
 ):
-    user = await use_case.execute(email)
+    try:
+        user = await use_case.execute(email)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user

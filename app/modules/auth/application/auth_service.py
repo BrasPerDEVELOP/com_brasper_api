@@ -68,6 +68,8 @@ class AuthService:
         if not credentials:
             if not user.email:
                 raise ValueError("User email is required to create credentials")
+            if await self._uow.auth_repository.get_by_username(user.email):
+                raise ValueError("Este correo ya tiene una cuenta de acceso. Usa otro correo para habilitar el acceso de este cliente")
             credentials = await self._uow.auth_repository.create(
                 Credentials(
                     username=user.email,
@@ -93,13 +95,17 @@ class AuthService:
         return True
 
     async def generate_password_reset(self, email: str) -> Optional[str]:
-        user = await self._uow.user_repository.get_by_email(email)
-        if not user:
+        credentials = await self._uow.auth_repository.get_by_username(email)
+        if not credentials:
             logger.info(f"Password reset requested for non-existent email: {email}")
             return None
 
+        user = await self._uow.user_repository.get_by_auth_id(credentials.id)
+        if not user:
+            return None
+
         recovery_code = self.security_utils.generate_recovery_code()
-        await self._uow.auth_repository.update_recovery_code(user.auth_id, recovery_code)
+        await self._uow.auth_repository.update_recovery_code(credentials.id, recovery_code)
         await self._uow.commit()
         logger.info(f"Password reset code generated for user: {user.id}")
         return recovery_code

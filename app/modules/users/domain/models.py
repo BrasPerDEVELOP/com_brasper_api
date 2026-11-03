@@ -51,9 +51,9 @@ class User(ORMBaseModel):
     __tablename__ = "user"
     __table_args__ = (
         Index(
-            "uq_user_email_alive",
+            "ix_user_email_alive",
             "email",
-            unique=True,
+            unique=False,
             postgresql_where=text("deleted = false AND email IS NOT NULL"),
         ),
         Index(
@@ -70,7 +70,7 @@ class User(ORMBaseModel):
     permissions_revoked: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list, server_default=text("'[]'"))
     names: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     lastnames: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    # Unicidad en índice parcial `uq_user_email_alive` (migración 063).
+    # Correo de contacto compartible; las credenciales mantienen su username único.
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     profile_image: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # Unicidad en índice parcial `uq_user_document_number_alive` (migración 063).
