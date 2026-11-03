@@ -775,7 +775,7 @@ class ListInvoicesUseCase:
 
 
 class GetInvoicePdfUseCase:
-    """PDF desde R2; si aún no está guardado lo pide a APISUNAT y lo almacena."""
+    """Conserva el PDF original en R2 y presenta las boletas con la plantilla Brasper."""
 
     def __init__(
         self,
@@ -789,6 +789,18 @@ class GetInvoicePdfUseCase:
         self.settings = settings
         self.file_service = file_service
 
+    async def _present(self, invoice: Invoice, source: bytes) -> bytes:
+        if invoice.document_type != '03' or invoice.status not in ('accepted', 'voided'):
+            return source
+        from app.modules.billing.infrastructure.branded_pdf import render_boleta
+        transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
+        user = getattr(transaction, 'user', None)
+        return await asyncio.to_thread(
+            render_boleta, invoice, source,
+            profile_document_type=getattr(user, 'document_type', None),
+            profile_document_number=getattr(user, 'document_number', None),
+        )
+
     async def execute(self, invoice_id: UUID) -> tuple[bytes, str]:
         invoice = await self.repo.get_invoice(invoice_id)
         if invoice is None:
@@ -796,7 +808,7 @@ class GetInvoicePdfUseCase:
         if invoice.pdf_key and self.file_service is not None:
             stored = await self.file_service.read_file(invoice.pdf_key)
             if stored:
-                return stored[0], f"{invoice.file_name}.pdf"
+                return await self._present(invoice, stored[0]), f"{invoice.file_name}.pdf"
         if not invoice.apisunat_document_id:
             raise ValueError("El comprobante aún no fue enviado a APISUNAT")
         content = await _client_for(self.client, invoice.issuer_ruc).get_pdf(
@@ -812,7 +824,7 @@ class GetInvoicePdfUseCase:
                 await self.repo.commit()
             except Exception as exc:
                 logger.warning("No se pudo guardar el PDF de %s: %s", invoice.file_name, exc)
-        return content, f"{invoice.file_name}.pdf"
+        return await self._present(invoice, content), f"{invoice.file_name}.pdf"
 
 
 class RequestInvoiceEmailUseCase:
