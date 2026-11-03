@@ -65,10 +65,18 @@ empresa emisora y ambiente. APISUNAT exige ocho dígitos para el correlativo;
 `BB02-0000000001` y `FF02-000000001` no son formatos válidos para su API.
 Antes de emitir, confirmar que no hay comprobantes previos en esas series.
 
-El operador puede solicitar el envío del PDF al correo del cliente en el diálogo
-de emisión. La API valida el correo y la configuración SMTP en la vista previa,
-reserva el número, y solo después de la aceptación de SUNAT descarga el PDF
-oficial de APISUNAT y lo adjunta por SMTP. El estado queda en `email_status`
+La descripción de la comisión incorpora `company_name` (razón social de la
+operación) desde el backend, tanto en la vista previa como en el documento UBL.
+Después de la aceptación de SUNAT, el detalle ofrece **Enviar PDF**, con el
+correo precargado y editable. `POST /billing/invoices/{id}/email` recibe
+`customer_email` (opcional: usa el guardado o el de la ficha del cliente), valida
+el destinatario, el ambiente y SMTP, y devuelve 202 con `email_status=pending`.
+Requiere `billing.issue`. El cambio afecta al destinatario del comprobante, no a
+la ficha del cliente. La reserva de envío es atómica: un envío pendiente, en
+curso o completado no se vuelve a poner en cola. Un envío fallido puede solicitarse
+de nuevo. El poller descarga el PDF oficial de APISUNAT y lo adjunta por SMTP.
+Ya no se pasa `customerEmail` a APISUNAT al emitir, para evitar envíos automáticos
+o duplicados. El estado queda en `email_status`
 (`pending`, `sending`, `sent` o `failed`). El poller reclama cada envío una vez;
 si SMTP falla, queda `failed` para revisión y no reenvía automáticamente.
 Configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,

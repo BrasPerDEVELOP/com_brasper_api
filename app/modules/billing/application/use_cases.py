@@ -31,6 +31,7 @@ from app.modules.billing.application.schemas import (
     InvoicePreviewDTO,
     InvoiceListDTO,
     IssueInvoiceCmd,
+    SendInvoiceEmailCmd,
     SeriesAlignmentDTO,
     SeriesStatusDTO,
 )
@@ -209,7 +210,9 @@ async def send_invoice(
 ) -> Invoice:
     """Envía (o reenvía) un comprobante ya reservado y persiste el resultado."""
     invoice.attempts = int(invoice.attempts or 0) + 1
-    customer_email = invoice.customer_email if settings.BILLING_SEND_CUSTOMER_EMAIL and not getattr(invoice, "email_requested", False) else None
+    # El correo se entrega por el backend tras la solicitud explícita del operador.
+    # APISUNAT no debe generar un segundo envío al emitir.
+    customer_email = None
     try:
         result = await client.send_bill(
             file_name=invoice.file_name,
@@ -262,6 +265,12 @@ class IssuePlan:
     currency: object
     currency_code: str
     series: str
+
+
+def invoice_item_description(settings: Settings, transaction) -> str:
+    description = settings.BILLING_ITEM_DESCRIPTION.format(code=transaction.code)
+    company = _clean(getattr(transaction, "company_name", None))
+    return f"{description}. Razón social: {company}" if company else description
 
 
 async def prepare_issue(
@@ -358,7 +367,7 @@ class PreviewInvoiceUseCase:
             customer_name=plan.customer.name,
             customer_address=plan.customer.address,
             customer_email=plan.customer.email,
-            item_description=self.settings.BILLING_ITEM_DESCRIPTION.format(code=plan.transaction.code),
+            item_description=invoice_item_description(self.settings, plan.transaction),
         )
 
 
@@ -412,7 +421,7 @@ class IssueInvoiceUseCase:
             issue_time=issue_time,
             currency=currency_code,
             amounts=amounts,
-            item_description=self.settings.BILLING_ITEM_DESCRIPTION.format(code=transaction.code),
+            item_description=invoice_item_description(self.settings, transaction),
         )
         body = build_document_body(draft, issuer_party(issuer), customer)
 
@@ -719,7 +728,11 @@ class GetInvoiceUseCase:
         if invoice is None:
             return None
         events = await self.repo.list_events(invoice.id) if with_events else []
-        return InvoiceDTO.from_entity(invoice, events=events)
+        dto = InvoiceDTO.from_entity(invoice, events=events)
+        if not dto.customer_email:
+            transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
+            dto.customer_email = _clean(getattr(getattr(transaction, "user", None), "email", None)) or None
+        return dto
 
     async def for_transaction(self, transaction_id: UUID) -> Optional[InvoiceDTO]:
         invoice = await self.repo.get_open_invoice(transaction_id) or await self.repo.get_latest_invoice(
@@ -800,6 +813,35 @@ class GetInvoicePdfUseCase:
             except Exception as exc:
                 logger.warning("No se pudo guardar el PDF de %s: %s", invoice.file_name, exc)
         return content, f"{invoice.file_name}.pdf"
+
+
+class RequestInvoiceEmailUseCase:
+    """El operador confirma un destinatario; el poller adjunta y entrega el PDF."""
+
+    def __init__(self, repo: BillingRepositoryInterface, settings: Settings):
+        self.repo = repo
+        self.settings = settings
+
+    async def execute(self, invoice_id: UUID, cmd: SendInvoiceEmailCmd, *, actor=None) -> InvoiceDTO:
+        _ensure_enabled(self.settings)
+        invoice = await self.repo.get_invoice(invoice_id)
+        if invoice is None:
+            raise LookupError("Comprobante no encontrado")
+        if invoice.status != InvoiceStatus.accepted.value:
+            raise ValueError("Solo puedes enviar el PDF cuando SUNAT acepte el comprobante")
+        if invoice.environment != self.settings.APISUNAT_ENVIRONMENT.lower():
+            raise ValueError("El comprobante pertenece a otro ambiente de APISUNAT")
+        recipient = _clean(cmd.customer_email) if cmd.customer_email is not None else _clean(invoice.customer_email)
+        if cmd.customer_email is None and not recipient:
+            transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
+            recipient = _clean(getattr(getattr(transaction, "user", None), "email", None))
+        ensure_invoice_email_ready(self.settings, recipient)
+        if not await self.repo.queue_invoice_email(invoice_id, recipient):
+            raise ValueError("El PDF ya fue enviado o tiene un envío en curso. Actualiza el detalle")
+        await self.repo.add_event(invoice_id, "email_requested", {"recipient": recipient, "actor": actor})
+        await self.repo.commit()
+        await self.repo.refresh(invoice)
+        return InvoiceDTO.from_entity(invoice)
 
 
 class DeliverPendingInvoiceEmailsUseCase:

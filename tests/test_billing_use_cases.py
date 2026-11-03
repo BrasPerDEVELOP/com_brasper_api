@@ -116,6 +116,20 @@ class FakeRepo(BillingRepositoryInterface):
     async def list_by_status(self, statuses: Sequence[str], *, limit=50):
         return [i for i in self.invoices if i.status in statuses][:limit]
 
+    async def list_pending_emails(self, *, limit=50):
+        return [i for i in self.invoices if i.status == 'accepted' and i.email_status == 'pending'][:limit]
+
+    async def claim_invoice_email(self, invoice_id):
+        invoice = await self.get_invoice(invoice_id)
+        if invoice is None or invoice.status != 'accepted' or invoice.email_status != 'pending':
+            return False
+        invoice.email_status = 'sending'
+        return True
+
+    async def complete_invoice_email(self, invoice_id, *, sent):
+        invoice = await self.get_invoice(invoice_id)
+        invoice.email_status = 'sent' if sent else 'failed'
+
     async def latest_invoices_for_transactions(self, transaction_ids):
         latest = {}
         for invoice in self.invoices:
@@ -268,6 +282,21 @@ def test_cpf_y_pasaporte_van_sin_documento_o_con_codigo_7():
 
 
 # --- Emisión ---------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_company_description_matches_preview_and_issued_pdf_source():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+    tx = _transaction()
+    tx.company_name = 'INGENITECH S.A.C.'
+    repo, client = FakeRepo(tx), FakeClient()
+    client.send_results = [PENDING]
+    settings = _settings()
+    preview = await PreviewInvoiceUseCase(repo, settings).execute(tx.id)
+    dto = await IssueInvoiceUseCase(repo, client, settings).execute(tx.id)
+    description = client.sent[0]['document_body']['cac:InvoiceLine'][0]['cac:Item']['cbc:Description']['_text']
+    assert 'INGENITECH S.A.C.' in description
+    assert preview.item_description == dto.item_description == description
+
+
 @pytest.mark.asyncio
 async def test_emite_boleta_reserva_numero_y_queda_enviada():
     tx = _transaction()

@@ -17,6 +17,7 @@ from app.modules.billing.application.use_cases import (
     PollInvoiceUseCase,
     PreviewInvoiceUseCase,
     RetryInvoiceUseCase,
+    RequestInvoiceEmailUseCase,
     VoidInvoiceUseCase,
 )
 from app.modules.billing.infrastructure.apisunat_client import ApisunatClientsFromSettings
@@ -66,6 +67,10 @@ def retry_invoice_uc(repo: RepoDep, client: ClientDep, settings: SettingsDep) ->
     return RetryInvoiceUseCase(repo, client, settings)
 
 
+def request_invoice_email_uc(repo: RepoDep, settings: SettingsDep) -> RequestInvoiceEmailUseCase:
+    return RequestInvoiceEmailUseCase(repo, settings)
+
+
 def void_invoice_uc(repo: RepoDep, client: ClientDep, settings: SettingsDep) -> VoidInvoiceUseCase:
     return VoidInvoiceUseCase(repo, client, settings)
 
@@ -107,6 +112,7 @@ def align_series_uc(repo: RepoDep, client: ClientDep, settings: SettingsDep) -> 
 
 
 IssueInvoiceUseCaseDep = Annotated[IssueInvoiceUseCase, Depends(issue_invoice_uc)]
+RequestInvoiceEmailUseCaseDep = Annotated[RequestInvoiceEmailUseCase, Depends(request_invoice_email_uc)]
 RetryInvoiceUseCaseDep = Annotated[RetryInvoiceUseCase, Depends(retry_invoice_uc)]
 VoidInvoiceUseCaseDep = Annotated[VoidInvoiceUseCase, Depends(void_invoice_uc)]
 PollInvoiceUseCaseDep = Annotated[PollInvoiceUseCase, Depends(poll_invoice_uc)]

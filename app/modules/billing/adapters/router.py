@@ -21,6 +21,7 @@ from app.modules.billing.adapters.dependencies import (
     PreviewInvoiceUseCaseDep,
     RepoDep,
     RetryInvoiceUseCaseDep,
+    RequestInvoiceEmailUseCaseDep,
     VoidInvoiceUseCaseDep,
     require_billing_enabled,
 )
@@ -30,6 +31,7 @@ from app.modules.billing.application.schemas import (
     InvoiceListDTO,
     InvoicePreviewDTO,
     IssueInvoiceCmd,
+    SendInvoiceEmailCmd,
     SeriesAlignmentDTO,
     VoidInvoiceCmd,
 )
@@ -229,6 +231,29 @@ async def retry_invoice(
     if audit_event:
         audit_event.entity_id = str(invoice_id)
         audit_event.new_values = {"result_invoice_id": str(dto.id), "status": dto.status}
+    return dto
+
+
+@router.post(
+    "/invoices/{invoice_id}/email",
+    response_model=InvoiceDTO,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("billing.issue")), Depends(require_billing_enabled)],
+)
+async def request_invoice_email(
+    invoice_id: UUID,
+    cmd: SendInvoiceEmailCmd,
+    use_case: RequestInvoiceEmailUseCaseDep,
+    actor=Depends(get_current_user),
+    audit_event=Depends(stage_mutation_audit("billing.invoices.email", "invoice")),
+):
+    try:
+        dto = await use_case.execute(invoice_id, cmd, actor=_actor_label(actor))
+    except Exception as exc:
+        _raise_for(exc)
+    if audit_event:
+        audit_event.entity_id = str(invoice_id)
+        audit_event.new_values = {"email_status": dto.email_status}
     return dto
 
 

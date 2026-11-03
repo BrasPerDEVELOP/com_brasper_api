@@ -43,6 +43,7 @@ class InvoiceDTO(BaseModel):
     customer_name: str
     customer_address: Optional[str] = None
     customer_email: Optional[str] = None
+    item_description: Optional[str] = None
     email_requested: bool = False
     email_status: Optional[str] = None
     email_sent_at: Optional[datetime] = None
@@ -75,6 +76,8 @@ class InvoiceDTO(BaseModel):
         currency = entity.currency.value if hasattr(entity.currency, "value") else str(entity.currency)
         issuer_ruc = getattr(entity, "issuer_ruc", None) or str(entity.file_name).split("-")[0]
         issuer = get_settings().billing_issuer(issuer_ruc)
+        lines = (getattr(entity, "document_body", None) or {}).get("cac:InvoiceLine") or []
+        description = lines[0].get("cac:Item", {}).get("cbc:Description", {}).get("_text") if lines else None
         return cls(
             id=entity.id,
             transaction_id=entity.transaction_id,
@@ -97,6 +100,7 @@ class InvoiceDTO(BaseModel):
             customer_name=entity.customer_name,
             customer_address=entity.customer_address,
             customer_email=entity.customer_email,
+            item_description=description,
             email_requested=bool(getattr(entity, "email_requested", False)),
             email_status=getattr(entity, "email_status", None),
             email_sent_at=getattr(entity, "email_sent_at", None),
@@ -127,6 +131,10 @@ class InvoiceListDTO(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class SendInvoiceEmailCmd(BaseModel):
+    customer_email: Optional[str] = Field(None, max_length=255)
 
 
 class IssueInvoiceCmd(BaseModel):
