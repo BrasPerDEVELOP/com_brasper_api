@@ -10,17 +10,21 @@ from app.modules.auth.application.schemas.auth_schema import AuthCreateCmd
 from app.modules.users.domain.enums import UserRole, DocumentType, PhoneCode
 from app.shared.media import to_media_url
 
-# Máximo 15 dígitos para teléfono
-phone_max_digits = 999_999_999_999_999
+
+def _normalize_phone(value):
+    """Conserva @usuarios y ceros iniciales; acepta enteros de clientes antiguos."""
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return value
 
 
-def _phone_empty_to_none(v):
-    """Convierte '' o None a None; permite int o str numérico."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, str) and v.strip() == "":
-        return None
-    return v
+UserPhone = Annotated[
+    Optional[str],
+    Field(max_length=100, description="Número telefónico o @usuario; hasta 100 caracteres"),
+    BeforeValidator(_normalize_phone),
+]
 
 
 def _read_phone_without_spaces(value):
@@ -30,6 +34,8 @@ def _read_phone_without_spaces(value):
         if not compact:
             return None
         if compact.isascii() and compact.isdigit():
+            if len(compact) > 1 and compact.startswith("0"):
+                return compact
             return int(compact)
         return value.strip()
     return value
@@ -128,13 +134,8 @@ class UserCreateCmd(PhoneAreaFields):
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
     auth_id: Optional[UUID] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: UserPhone = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
     @model_validator(mode="after")
     def validate_identifications(self):
@@ -161,7 +162,7 @@ class UserCreateCmd(PhoneAreaFields):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[int] = Form(None),
+        phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
         code_phone: Optional[PhoneCode] = Form(None),
         local_area_code: Annotated[Optional[str], Form()] = None,
         local_area_name: Annotated[Optional[str], Form()] = None,
@@ -209,13 +210,8 @@ class UserUpdateCmd(PhoneAreaFields):
     identifications: Optional[list[UserIdentificationInput]] = None
     is_agent: Optional[bool] = None
     role: Optional[UserRole] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: UserPhone = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
     @model_validator(mode="after")
     def validate_identifications(self):
@@ -238,7 +234,7 @@ class UserUpdateCmd(PhoneAreaFields):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[int] = Form(None),
+        phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
         code_phone: Optional[PhoneCode] = Form(None),
         local_area_code: Annotated[Optional[str], Form()] = None,
         local_area_name: Annotated[Optional[str], Form()] = None,
@@ -285,13 +281,8 @@ class UpdateCurrentUserCmd(PhoneAreaFields):
     profile_image: Optional[str] = None
     document_number: Optional[str] = None
     document_type: Optional[DocumentType] = None
-    phone: Optional[int] = Field(None, le=phone_max_digits, description="Hasta 15 dígitos")
+    phone: UserPhone = None
     code_phone: Optional[PhoneCode] = None
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def phone_empty_to_none(cls, v):
-        return _phone_empty_to_none(v)
 
 
 # Valores por defecto cuando el campo es null en BD
