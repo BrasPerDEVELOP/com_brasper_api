@@ -23,7 +23,23 @@ local_area_name=São Paulo — área DDD 11
 country=Brasil
 ```
 
-`phone` conserva su significado actual: número nacional, incluido el DDD.
+Desde la migración `093`, `phone` es texto opcional (máximo 100 caracteres):
+admite un número nacional, incluido el DDD, o un identificador como `@usuario`.
+Los formularios de `/user` y el JSON de `/auth/me` conservan el texto y los ceros
+iniciales; también se aceptan enteros JSON de clientes antiguos y se convierten
+a texto. Las respuestas conservan la compatibilidad numérica para teléfonos
+sin ceros iniciales; devuelven texto para identificadores y números con ceros
+iniciales, o `null` cuando no hay teléfono. La lectura conserva la limpieza de
+espacios de los números históricos sin modificar el registro guardado.
+`code_phone` sigue siendo un campo separado y no se concatena a los identificadores.
+Guardar un identificador no verifica su existencia en WhatsApp.
+
+Para habilitar los identificadores del dashboard, desplegar el API con esta
+versión y aplicar `python -m alembic upgrade head` antes de atender solicitudes.
+La migración convierte los números existentes a texto y conserva los nulos.
+El rollback a entero se rechaza si hay texto, ceros iniciales o valores fuera
+del rango bigint, para evitar pérdida de datos.
+
 `local_area_code` guarda el DDD por separado como texto para conservar ceros.
 No incluye `+55`. Los dos primeros dígitos del número nacional brasileño
 identifican el DDD; sus últimos dígitos no identifican la zona.
