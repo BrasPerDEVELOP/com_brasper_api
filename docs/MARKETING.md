@@ -29,9 +29,18 @@ Frontend: `pnpm run check` y compilación Vite. Las pruebas SMTP usan un cliente
 
 ## Plantilla BrasPer Brasil → Perú (pt-BR)
 
-Las nuevas campañas seleccionan por defecto `brasper_peru_pt_v1`, basado en el HTML y las doce imágenes entregadas. Se puede elegir «Mensaje sencillo». El asunto y el mensaje son editables; el mensaje aparece debajo del banner principal y siempre se escapa como texto. El diseño utiliza tablas, estilos en línea, enlaces HTTPS y ajustes para móvil. El cuerpo HTML pesa menos de 25 KB; las imágenes viajan como partes MIME `inline` referidas por CID, una sola copia por imagen. Se conserva una alternativa de texto.
+Las nuevas campañas seleccionan por defecto `brasper_peru_pt_v1`, basado en el HTML y las doce imágenes entregadas. Se puede elegir «Mensaje sencillo». El asunto y el mensaje son editables; el mensaje aparece debajo del banner principal y siempre se escapa como texto. El diseño utiliza tablas, estilos en línea, enlaces HTTPS y ajustes para móvil. El cuerpo HTML pesa menos de 25 KB; las imágenes se sirven por HTTPS desde el API, sin adjuntos. Se conserva una alternativa de texto.
 
-La migración 089 agrega `template_key` a campañas. Los registros anteriores mantienen `NULL` y conservan el formato original. Un diseño ya usado no debe modificarse: publicar otra versión con una nueva clave y mantener la anterior, para que las pruebas y los envíos pendientes usen la misma plantilla elegida al crear la campaña.
+La migración 089 agrega `template_key` a campañas. Los registros anteriores mantienen `NULL` y conservan el formato original. Las campañas guardan la clave, no una copia del HTML: los envíos pendientes con una clave actualizada usan su diseño vigente.
+
+Actualización solicitada del 2026-11-03: los dos diseños existentes usan los HTML
+Cyber Monday entregados (Brasil/portugués y Perú/español). Las 15 imágenes nuevas
+tienen el prefijo `cyber-2026-11-` dentro de `app/modules/marketing/assets` para
+evitar caché de los banners anteriores. Se conservan los archivos y las URLs
+antiguas para los correos ya enviados. No requiere migración ni actualización
+del dashboard; este consulta los textos y la vista previa al API. Recargar el
+formulario para obtener los nuevos textos iniciales. El asunto y el mensaje
+personalizados, el enlace firmado de baja y la alternativa de texto siguen activos.
 
 `GET /marketing/templates` devuelve los diseños y textos iniciales. `POST /marketing/preview` genera la vista previa con el mismo renderer del correo y requiere `marketing.view`; se registra como vista previa en auditoría. La vista previa usa imágenes HTTPS de un catálogo público de archivos fijos y se muestra en un iframe aislado. Los correos usan las mismas imágenes HTTPS públicas y una URL de baja firmada exclusiva para el destinatario; el enlace de la vista previa es un marcador sin efectos.
 

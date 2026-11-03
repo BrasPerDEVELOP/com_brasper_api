@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app.modules.marketing import mail, routes
 from app.modules.marketing.schemas import CampaignInput, PreviewInput
 from app.modules.marketing.template_renderer import (
-    ASSET_DIR, ASSET_NAMES, ASSET_PREFIX, DEFAULT_BODY, DEFAULT_SUBJECT, TEMPLATE_KEY,
+    ASSET_DIR, ASSET_NAMES, ASSET_PREFIX, ASSET_VERSION, ALL_ASSET_NAMES, DEFAULT_BODY, DEFAULT_SUBJECT, TEMPLATE_KEY,
     asset_cid, render_email,
 )
 
@@ -50,6 +50,8 @@ async def test_asset_endpoint_only_serves_named_images():
     result = await routes.template_asset('logo_brasper.png')
     assert result.path == ASSET_DIR / 'logo_brasper.png'
     assert 'immutable' in result.headers['cache-control']
+    current = await routes.template_asset(ASSET_VERSION + '-logo_brasper.png')
+    assert current.path.is_file()
 
 
 def test_template_images_are_public_but_campaigns_are_private():
@@ -58,7 +60,7 @@ def test_template_images_are_public_but_campaigns_are_private():
     middleware = TokenAuthMiddleware(None)
     def request(path):
         return Request({'type': 'http', 'method': 'GET', 'path': path, 'headers': []})
-    for name in ASSET_NAMES:
+    for name in ALL_ASSET_NAMES:
         assert middleware._is_public_path(request(ASSET_PREFIX + '/' + name))
     assert not middleware._is_public_path(request(ASSET_PREFIX + '/secret.png'))
     assert not middleware._is_public_path(request('/marketing/campaigns'))
@@ -105,7 +107,7 @@ def test_each_audience_uses_its_own_images_and_language(key, language, banner, m
     message = mail.build_message('recipient@example.com', item['default_subject'], item['default_body'], template_key=key)
     markup = message.get_body(preferencelist=('html',)).get_content()
     assert f'lang="{language}"' in markup
-    assert 'https://api.example.com' + ASSET_PREFIX + '/' + banner in markup
+    assert 'https://api.example.com' + ASSET_PREFIX + '/' + ASSET_VERSION + '-' + banner in markup
     images = [part for part in message.walk() if part.get_content_maintype() == 'image']
     assert not images
     assert set(re.findall(r'src="([^"]+)"', markup)) == {
@@ -114,3 +116,20 @@ def test_each_audience_uses_its_own_images_and_language(key, language, banner, m
         assert 'Haz tu cotización' in message.get_body(preferencelist=('plain',)).get_content()
         assert 'Cancelar inscrição' not in markup
     PreviewInput(template_key=key)
+
+
+@pytest.mark.parametrize('key', ['brasper_peru_pt_v1', 'brasper_brasil_es_v1'])
+def test_cyber_monday_templates_resolve_links_and_versioned_assets(key):
+    from app.modules.marketing.template_renderer import TEMPLATES, template_assets
+    item = TEMPLATES[key]
+    markup = render_email(item['default_subject'], item['default_body'],
+                          'https://api.example.com/marketing/unsubscribe?token=test',
+                          key, 'https://api.example.com')
+    assert 'Cyber Monday' in markup and '20% OFF' in markup
+    assert '{{' not in markup
+    assert 'href="https://api.example.com/marketing/unsubscribe?token=test"' in markup
+    assert item['default_body'].split('\n\n')[1] in markup
+    for name in template_assets(key):
+        assert name.startswith(ASSET_VERSION + '-')
+        assert (ASSET_DIR / name).is_file()
+        assert (ASSET_DIR / name.removeprefix(ASSET_VERSION + '-')).is_file()
