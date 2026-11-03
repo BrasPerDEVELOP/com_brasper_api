@@ -275,6 +275,15 @@ def invoice_item_description(settings: Settings, transaction) -> str:
     return f"{description}. Razón social: {company}" if company else description
 
 
+def ensure_billing_route_enabled(tax_rate) -> None:
+    """Temporary pause for outbound BRL billing; shared by preview, issue and retry."""
+    def code(value):
+        return str(getattr(value, "value", value) or "").strip().lower()
+
+    if code(getattr(tax_rate, "coin_a", None)) == "brl" and code(getattr(tax_rate, "coin_b", None)) in {"pen", "usd"}:
+        raise ValueError("La emisión está temporalmente deshabilitada para operaciones de reales a soles o dólares")
+
+
 async def prepare_issue(
     repo: BillingRepositoryInterface,
     settings: Settings,
@@ -287,6 +296,8 @@ async def prepare_issue(
         raise LookupError("Operación no encontrada")
     if transaction.status != TransactionStatus.completed:
         raise ValueError("Solo se emiten comprobantes de operaciones completadas")
+    tax_rate = await repo.get_tax_rate(transaction.tax_rate_id)
+    ensure_billing_route_enabled(tax_rate)
     start_date = settings.billing_start_date
     reference_date = transaction.payment_date or transaction.created_at
     if start_date and reference_date and reference_date.date() < start_date:
@@ -307,7 +318,6 @@ async def prepare_issue(
     if amounts is None:
         raise ValueError("La operación no tiene comisión cobrada: no hay nada que facturar")
 
-    tax_rate = await repo.get_tax_rate(transaction.tax_rate_id)
     currency = tax_rate.coin_a if tax_rate is not None else Currency.pen
     currency_code = currency.value if hasattr(currency, "value") else str(currency)
 
@@ -635,6 +645,11 @@ class RetryInvoiceUseCase:
             raise ValueError(f"Un comprobante en estado {invoice.status} no se puede reintentar")
         if invoice.environment != self.settings.APISUNAT_ENVIRONMENT.lower():
             raise ValueError("El comprobante pertenece a otro ambiente de APISUNAT")
+
+        transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
+        if transaction is None:
+            raise LookupError("Operación no encontrada")
+        ensure_billing_route_enabled(await self.repo.get_tax_rate(transaction.tax_rate_id))
 
         await self.repo.add_event(invoice.id, InvoiceEventType.retry.value, {"actor": actor, "from": invoice.status})
         if status is InvoiceStatus.rejected:
