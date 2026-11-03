@@ -146,10 +146,10 @@ class ApisunatHttpClient(ApisunatClientInterface):
             raise ApisunatError(f"APISUNAT respondió {response.status_code} en {path}: {data}")
         return data
 
-    async def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> httpx.Response:
+    async def _get(self, path: str, params: Optional[dict[str, Any]] = None, *, follow_redirects: bool = False) -> httpx.Response:
         try:
             async with self._client() as client:
-                response = await client.get(path, params=params)
+                response = await client.get(path, params=params, follow_redirects=follow_redirects)
         except httpx.HTTPError as exc:
             raise ApisunatError(f"Error de red en {path}: {exc}") from exc
         if response.status_code >= 500:
@@ -228,9 +228,13 @@ class ApisunatHttpClient(ApisunatClientInterface):
         return None
 
     async def get_pdf(self, document_id: str, *, pdf_format: str, file_name: str) -> bytes:
-        response = await self._get(f"/documents/{document_id}/getPDF/{pdf_format}/{file_name}.pdf")
+        response = await self._get(
+            f"/documents/{document_id}/getPDF/{pdf_format}/{file_name}.pdf", follow_redirects=True
+        )
         if response.status_code != 200:
             raise ApisunatError(f"getPDF respondió {response.status_code} para {document_id}")
+        if not response.content.startswith(b"%PDF-"):
+            raise ApisunatError("APISUNAT no entregó un archivo PDF válido")
         return response.content
 
 
