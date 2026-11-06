@@ -9,7 +9,7 @@ import jwt
 from fastapi import HTTPException
 
 from app.core.settings import get_settings
-from app.modules.marketing.template_renderer import TEMPLATE_KEY, render_email
+from app.modules.marketing.template_renderer import render_email, render_plain_email
 
 
 def check_config():
@@ -48,10 +48,7 @@ def build_message(email, subject, body, test=False, template_key=None):
     message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     message["To"] = email
     message["Subject"] = ("[PRUEBA] " if test else "") + subject
-    footer = "Cancelar inscrição: " if template_key == TEMPLATE_KEY else "Dejar de recibir correos: "
-    cta = "Faça sua cotação" if template_key == TEMPLATE_KEY else "Haz tu cotización"
-    plain = body + ("\n\n" + cta + ": https://www.brasper.com" if template_key else "")
-    message.set_content(plain + "\n\n" + footer + url)
+    message.set_content(render_plain_email(subject, body, url, template_key))
     message.add_alternative(render_email(subject, body, url, template_key, asset_base=s.PUBLIC_URL), subtype="html")
     return message
 

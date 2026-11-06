@@ -1,0 +1,28 @@
+{{ subject }}
+Conheça nossas soluções para enviar dinheiro, pagar serviços e trocar soles, reais ou dólares.
+
+Olá! 👋
+Suas operações entre Peru e Brasil em um só lugar
+{{ message_text }}
+
+Veja como podemos ajudar você
+Remessas: Envie dinheiro entre Peru e Brasil para apoiar sua família, estudar, viajar ou cuidar das necessidades do seu negócio.
+Pagamento de serviços: Consulte como pagar boletos bancários, aluguéis, compras, folhas de pagamento e outras obrigações nos dois países.
+Câmbio de moedas: Peça uma cotação para trocar soles, reais ou dólares e confira as condições da operação.
+
+Ao seu lado em cada operação
+Agilidade: Processos ágeis e uma experiência simples.
+Segurança: Confira os dados, as condições e o valor final antes de confirmar.
+Atendimento personalizado: Orientação em português e espanhol.
+
+FAÇA SUA COTAÇÃO
+https://wa.me/5511973728766?text=Ol%C3%A1%21%20Quero%20informa%C3%A7%C3%B5es%20e%20uma%20cota%C3%A7%C3%A3o%20sobre%20os%20servi%C3%A7os%20da%20Brasper%3A%20remessas%2C%20pagamento%20de%20servi%C3%A7os%20ou%20c%C3%A2mbio%20de%20moedas.
+https://brasper.com/br
+
+Soluções para pessoas e negócios
+Para você e sua família: Transferências para seus planos, sua casa e as pessoas de quem você gosta.
+Para seu negócio: Apoio para pagamentos, recebimentos e operações de câmbio entre Peru e Brasil.
+
+Antes de realizar uma operação, confira a taxa de câmbio, as tarifas aplicáveis, os prazos e o valor final a receber.
+Você recebe esta mensagem porque autorizou o envio de comunicações da Brasper.
+Cancelar inscrição: {{ unsubscribe_url }}
