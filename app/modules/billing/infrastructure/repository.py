@@ -13,7 +13,10 @@ from sqlalchemy.orm import selectinload
 from app.modules.billing.domain.enums import OPEN_INVOICE_STATUSES
 from app.modules.billing.domain.models import BillingSeries, Invoice, InvoiceEvent
 from app.modules.billing.interfaces.repository import BillingRepositoryInterface
-from app.modules.coin.domain.models import TaxRate
+from app.modules.coin.domain.models import TaxRate, Commission
+from app.modules.coin.infrastructure.repository import SQLAlchemyCommissionAccountingSettingsRepository
+from app.modules.transactions.infrastructure.repository import SQLAlchemyTransactionRepository
+from app.modules.billing.domain.amounts import accounting_final_sale
 from app.modules.transactions.domain.models import Transaction
 
 
@@ -29,6 +32,23 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
             .where(Transaction.id == transaction_id, Transaction.deleted.is_(False))
         )
         return (await self.session.execute(stmt)).unique().scalar_one_or_none()
+
+    async def get_final_sale_for_billing(self, transaction):
+        rule = await SQLAlchemyCommissionAccountingSettingsRepository(self.session).get_current()
+        percentages = await SQLAlchemyTransactionRepository(self.session).accounting_percentages([transaction.id])
+        commission = (await self.session.execute(
+            select(Commission).where(
+                Commission.id == transaction.commission_id,
+                Commission.deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        return accounting_final_sale(
+            transaction.origin_amount,
+            commission.percentage if commission is not None else None,
+            percentages.get(transaction.id),
+            amount_threshold=rule.amount_threshold if rule is not None else 100,
+            fixed_commission=rule.fixed_commission if rule is not None else 3,
+        )
 
     async def get_tax_rate(self, tax_rate_id: UUID) -> Optional[TaxRate]:
         stmt = select(TaxRate).where(TaxRate.id == tax_rate_id)

@@ -1,10 +1,9 @@
 """Importes del comprobante: Decimal, ROUND_HALF_UP y las dos lecturas del IGV."""
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
 
-from app.modules.billing.domain.amounts import billable_amount, compute_invoice_amounts, money
+from app.modules.billing.domain.amounts import accounting_final_sale, compute_invoice_amounts, money
 
 
 def test_igv_incluido_en_la_comision():
@@ -44,7 +43,20 @@ def test_la_base_suma_siempre_al_total():
         assert amounts.taxable + amounts.igv == amounts.total == total
 
 
-def test_billable_amount_usa_la_comision_efectiva():
-    tx = SimpleNamespace(commission_result=12.3456)
-    assert billable_amount(tx) == Decimal("12.35")
-    assert billable_amount(SimpleNamespace(commission_result=None)) is None
+@pytest.mark.parametrize("amount,percentage,discount,fixed,expected", [
+    (200, 8, 40, 5, "9.60"),
+    (3300, 3.5, 60, 5, "46.20"),
+    (30, None, 75, 5, "5.00"),
+    (2000, 3, 55, 5, "27.00"),
+    (41, None, None, 5, "5.00"),
+    (200, 8, None, 5, "9.60"),
+    (100, 8, 40, 5, "4.80"),
+    (200, 8, 100, 5, "0.00"),
+])
+def test_venta_final_matches_accounting(amount, percentage, discount, fixed, expected):
+    assert accounting_final_sale(amount, percentage, discount, fixed_commission=fixed) == Decimal(expected)
+
+
+def test_missing_accounting_data_does_not_fall_back_to_base_commission():
+    assert accounting_final_sale(200, None, 40) is None
+    assert accounting_final_sale(None, 8, 40) is None

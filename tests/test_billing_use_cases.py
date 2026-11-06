@@ -47,6 +47,7 @@ def _transaction(status=TransactionStatus.completed, commission_result=40.0, use
         id=uuid4(),
         status=status,
         commission_result=commission_result,
+        final_sale=commission_result,
         payment_date=datetime(2026, 10, 3, 15, 0, tzinfo=timezone.utc),
         created_at=datetime(2026, 10, 3, 14, 0, tzinfo=timezone.utc),
         tax_rate_id=uuid4(),
@@ -67,6 +68,9 @@ class FakeRepo(BillingRepositoryInterface):
 
     async def get_transaction_for_billing(self, transaction_id):
         return self.transaction if self.transaction.id == transaction_id else None
+
+    async def get_final_sale_for_billing(self, transaction):
+        return transaction.final_sale
 
     async def get_tax_rate(self, tax_rate_id):
         return self.tax_rate
@@ -872,3 +876,32 @@ def test_invoice_dto_muestra_el_nombre_de_la_empresa(monkeypatch):
     invoice.id = uuid4()
     dto = schemas.InvoiceDTO.from_entity(invoice)
     assert (dto.issuer_ruc, dto.issuer_name) == ("20611936428", "INGENITECH S.A.C.")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_commission,final_sale", [(6.99, 5), (59.86, 27)])
+async def test_preview_and_issue_use_final_sale_not_base_commission(base_commission, final_sale):
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+    tx = _transaction(commission_result=base_commission)
+    tx.final_sale = Decimal(str(final_sale))
+    repo, client = FakeRepo(tx), FakeClient()
+    client.send_results = [PENDING]
+    settings = _settings()
+    settings.BILLING_COMMISSION_INCLUDES_IGV = False  # Venta final is already gross.
+    preview = await PreviewInvoiceUseCase(repo, settings).execute(tx.id)
+    dto = await IssueInvoiceUseCase(repo, client, settings).execute(tx.id)
+    assert preview.total_amount == dto.total_amount == final_sale
+    assert float(repo.invoices[0].total_amount) == final_sale
+    body = client.sent[0]["document_body"]
+    assert Decimal(body["cac:LegalMonetaryTotal"]["cbc:PayableAmount"]["_text"]) == Decimal(str(final_sale))
+
+
+@pytest.mark.asyncio
+async def test_missing_final_sale_blocks_issue_before_reserving_or_sending():
+    tx = _transaction(commission_result=59.86)
+    tx.final_sale = None
+    repo, client = FakeRepo(tx), FakeClient()
+    with pytest.raises(ValueError, match="venta final"):
+        await IssueInvoiceUseCase(repo, client, _settings()).execute(tx.id)
+    assert not repo.series
+    assert not client.sent
