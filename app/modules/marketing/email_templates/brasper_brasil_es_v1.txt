@@ -1,0 +1,28 @@
+{{ subject }}
+Conoce nuestras soluciones para transferir dinero, pagar servicios y cambiar soles, reales o dólares.
+
+¡Hola! 👋
+Tus operaciones entre Perú y Brasil, en un solo lugar
+{{ message_text }}
+
+Conoce cómo podemos ayudarte
+Remesas: Envía dinero entre Perú y Brasil para apoyar a tu familia, estudiar, viajar o atender necesidades de tu negocio.
+Pago de servicios: Consulta cómo pagar boletos bancarios, alquileres, compras, nóminas y otras obligaciones en ambos países.
+Cambio de divisas: Solicita una cotización para cambiar soles, reales o dólares y revisa las condiciones de la operación.
+
+A tu lado en cada operación
+Rapidez: Procesos ágiles y una experiencia sencilla.
+Seguridad: Revisa los datos, las condiciones y el monto final antes de confirmar.
+Atención personalizada: Te orientamos en español y portugués.
+
+COTIZA TU OPERACIÓN
+https://wa.me/51966991933?text=Hola%2C%20quiero%20informaci%C3%B3n%20y%20una%20cotizaci%C3%B3n%20sobre%20los%20servicios%20de%20Brasper%3A%20remesas%2C%20pago%20de%20servicios%20o%20cambio%20de%20divisas.
+https://brasper.com/
+
+Soluciones para personas y negocios
+Para ti y tu familia: Transferencias para tus planes, tu hogar y las personas que más quieres.
+Para tu negocio: Apoyo para pagos, cobros y necesidades de cambio de divisas entre Perú y Brasil.
+
+Antes de realizar una operación, revisa el tipo de cambio, las comisiones aplicables, los plazos y el monto final a recibir.
+Recibes este correo porque autorizaste recibir comunicaciones de Brasper.
+Cancelar suscripción: {{ unsubscribe_url }}

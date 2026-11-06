@@ -50,6 +50,21 @@ Dos públicos: Brasil (portugués, brasper_peru_pt_v1) y Perú (español, braspe
 
 
 ## Entregabilidad
+
+Actualización del 2026-11-06: las dos claves existentes usan el mailing de
+servicios del paquete `Brasper_Mailing_Servicios_ES_PT_ACTUALIZADO.zip`, con
+remesas, pago de servicios y cambio de divisas. Sustituye la promoción Cyber
+Monday en los diseños y textos iniciales. Se conservan el mensaje editable,
+los preheaders proporcionados y el enlace firmado de baja. La alternativa de
+texto incluye los servicios y los mismos destinos que el HTML: WhatsApp
+`51966991933` y `https://brasper.com/` para español; `5511973728766` y
+`https://brasper.com/br` para portugués.
+
+Las 13 imágenes nuevas llevan el prefijo `servicios-2026-11-06-`. Las imágenes
+anteriores, incluidas las de Cyber Monday, conservan sus URLs. No se requiere
+migración ni actualización del dashboard. Recargar Marketing para obtener los
+nuevos textos iniciales; los mensajes personalizados existentes se conservan.
+
 El remitente incluye nombre, Date, Message-ID y cabeceras de baja HTTPS con un clic (POST firmado en /marketing/unsubscribe). El proveedor SMTP debe firmar también las cabeceras List-Unsubscribe y List-Unsubscribe-Post con DKIM para cumplir RFC 8058.
 La cuenta SMTP no configura el DNS: verificar SPF, DKIM y DMARC con el original recibido. Gmail puede bloquear imágenes en mensajes sospechosos; no se puede garantizar la bandeja principal desde la aplicación. Las imágenes se cargan mediante HTTPS desde la API pública, sin adjuntos ni referencias CID. Gmail puede bloquearlas si clasifica el correo como sospechoso.
 

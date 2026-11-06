@@ -94,8 +94,8 @@ def test_branded_message_uses_https_images_without_attachments_and_keeps_text_al
 
 
 @pytest.mark.parametrize("key,language,banner", [
-    ("brasper_peru_pt_v1", "pt-BR", "banner_superior_portugues.jpg"),
-    ("brasper_brasil_es_v1", "es-PE", "banner_superior_espanol.jpg"),
+    ("brasper_peru_pt_v1", "pt-BR", "pt_header.jpg"),
+    ("brasper_brasil_es_v1", "es-PE", "es_header.jpg"),
 ])
 def test_each_audience_uses_its_own_images_and_language(key, language, banner, monkeypatch):
     from app.modules.marketing.template_renderer import TEMPLATES, template_assets
@@ -113,23 +113,45 @@ def test_each_audience_uses_its_own_images_and_language(key, language, banner, m
     assert set(re.findall(r'src="([^"]+)"', markup)) == {
         'https://api.example.com' + ASSET_PREFIX + '/' + name for name in template_assets(key)}
     if language == 'es-PE':
-        assert 'Haz tu cotización' in message.get_body(preferencelist=('plain',)).get_content()
+        assert 'COTIZA TU OPERACIÓN' in message.get_body(preferencelist=('plain',)).get_content()
         assert 'Cancelar inscrição' not in markup
     PreviewInput(template_key=key)
 
 
 @pytest.mark.parametrize('key', ['brasper_peru_pt_v1', 'brasper_brasil_es_v1'])
-def test_cyber_monday_templates_resolve_links_and_versioned_assets(key):
+def test_service_templates_resolve_links_and_versioned_assets(key):
     from app.modules.marketing.template_renderer import TEMPLATES, template_assets
     item = TEMPLATES[key]
     markup = render_email(item['default_subject'], item['default_body'],
                           'https://api.example.com/marketing/unsubscribe?token=test',
                           key, 'https://api.example.com')
-    assert 'Cyber Monday' in markup and '20% OFF' in markup
+    assert 'Cyber Monday' not in markup and '20% OFF' not in markup
+    assert ('Pagamento de serviços' if key == TEMPLATE_KEY else 'Pago de servicios') in markup
     assert '{{' not in markup
     assert 'href="https://api.example.com/marketing/unsubscribe?token=test"' in markup
     assert item['default_body'].split('\n\n')[1] in markup
     for name in template_assets(key):
         assert name.startswith(ASSET_VERSION + '-')
         assert (ASSET_DIR / name).is_file()
-        assert (ASSET_DIR / name.removeprefix(ASSET_VERSION + '-')).is_file()
+    from app.modules.marketing.template_renderer import CYBER_ASSET_NAMES
+    assert all((ASSET_DIR / name).is_file() for name in CYBER_ASSET_NAMES)
+
+
+@pytest.mark.parametrize('key,phone,site', [
+    ('brasper_peru_pt_v1', '5511973728766', 'https://brasper.com/br'),
+    ('brasper_brasil_es_v1', '51966991933', 'https://brasper.com/'),
+])
+def test_service_plain_text_matches_language_links_and_custom_message(key, phone, site):
+    from app.modules.marketing.template_renderer import render_plain_email
+    body = 'Mensaje personalizado\n{{ subject }}'
+    plain = render_plain_email('Asunto editado', body, 'https://example.com/baja', key)
+    markup = render_email('Asunto editado', body, 'https://example.com/baja', key)
+    assert plain.startswith('Asunto editado\n')
+    assert body in plain
+    for text in (plain, markup):
+        assert 'https://wa.me/' + phone in text
+        assert site in text
+        assert 'https://example.com/baja' in text
+        assert '20% OFF' not in text and 'Cyber Monday' not in text
+        assert '{{UNSUBSCRIBE_URL}}' not in text
+    assert 'Remessas:' in plain if key == TEMPLATE_KEY else 'Remesas:' in plain
