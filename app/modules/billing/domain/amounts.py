@@ -1,14 +1,7 @@
 # app/modules/billing/domain/amounts.py
 """Importes del comprobante, siempre con ``Decimal`` y ``ROUND_HALF_UP``.
 
-Solo se factura la comisión cobrada al cliente. ``Transaction.commission_result``
-ya es la comisión efectiva (descontado el cupón o el ajuste de la calculadora
-especial), así que es el importe total del comprobante.
-
-Dos lecturas posibles de ese importe, que decide ``BILLING_COMMISSION_INCLUDES_IGV``:
-
-- incluye IGV (por defecto): base = total / (1 + IGV), IGV = total − base.
-- no lo incluye: base = total, IGV = base × tasa, total = base + IGV.
+El importe facturable es Venta final de Contabilidad, con impuesto incluido.
 """
 from __future__ import annotations
 
@@ -67,9 +60,36 @@ def compute_invoice_amounts(
     return InvoiceAmounts(taxable=taxable, igv=igv, total=total, igv_rate=rate)
 
 
-def billable_amount(transaction) -> Optional[Decimal]:
-    """Comisión efectivamente cobrada en la operación (lo que entra al comprobante)."""
-    value = getattr(transaction, "commission_result", None)
-    if value is None:
+def accounting_final_sale(origin_amount, sales_percentage, discount_percentage=None,
+                          *, amount_threshold=100, fixed_commission=3) -> Optional[Decimal]:
+    """Venta final de la hoja: comisión del cliente × (1 − descuento variable).
+
+    Replica la columna de Contabilidad, sin reutilizar commission_result.
+    La comisión del cliente se redondea antes de aplicar el descuento.
+    """
+    if origin_amount is None:
         return None
-    return money(value)
+    amount = to_decimal(origin_amount)
+    if not amount.is_finite() or amount <= 0:
+        return None
+    threshold = to_decimal(amount_threshold)
+    fixed = to_decimal(fixed_commission)
+    if not threshold.is_finite() or threshold <= 0 or not fixed.is_finite() or fixed < 0:
+        raise ValueError("Configuración de comisión contable inválida")
+    if amount < threshold:
+        return money(fixed)
+    if sales_percentage is None:
+        return None
+    percentage = to_decimal(sales_percentage)
+    if not percentage.is_finite() or percentage < 0:
+        return None
+    if discount_percentage is None:
+        discount_percentage = next((p for limit, p in (
+            (300, 40), (1000, 45), (2000, 50), (3000, 55),
+            (5000, 60), (7000, 65), (10000, 70)
+        ) if amount < limit), 75)
+    discount = to_decimal(discount_percentage)
+    if not discount.is_finite() or not 0 <= discount <= 100:
+        raise ValueError("Descuento variable contable inválido")
+    commission = money(amount * percentage / 100)
+    return money(commission * (1 - discount / 100))

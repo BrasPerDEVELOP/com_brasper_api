@@ -45,7 +45,7 @@ from app.modules.billing.application.ubl_builder import (
     build_file_name,
     issue_moment,
 )
-from app.modules.billing.domain.amounts import InvoiceAmounts, billable_amount, compute_invoice_amounts
+from app.modules.billing.domain.amounts import InvoiceAmounts, compute_invoice_amounts
 from app.modules.billing.domain.enums import (
     SUNAT_IDENTITY_BY_DOCUMENT_TYPE,
     SUNAT_IDENTITY_RUC,
@@ -311,12 +311,12 @@ async def prepare_issue(
             f"en estado {existing.status}"
         )
     amounts = compute_invoice_amounts(
-        billable_amount(transaction),
-        igv_included=settings.BILLING_COMMISSION_INCLUDES_IGV,
+        await repo.get_final_sale_for_billing(transaction),
+        igv_included=True,
         igv_rate=Decimal(str(settings.BILLING_IGV_RATE)),
     )
     if amounts is None:
-        raise ValueError("La operación no tiene comisión cobrada: no hay nada que facturar")
+        raise ValueError("La operación no tiene una venta final positiva calculable: revisa la configuración de comisión contable")
 
     currency = tax_rate.coin_a if tax_rate is not None else Currency.pen
     currency_code = currency.value if hasattr(currency, "value") else str(currency)
@@ -969,7 +969,7 @@ class BillingStatusUseCase:
             ],
             series_boleta=s.BILLING_SERIES_BOLETA,
             series_factura=s.BILLING_SERIES_FACTURA,
-            commission_includes_igv=s.BILLING_COMMISSION_INCLUDES_IGV,
+            commission_includes_igv=True,
             igv_rate=s.BILLING_IGV_RATE,
             start_date=s.BILLING_START_DATE or None,
             series=[

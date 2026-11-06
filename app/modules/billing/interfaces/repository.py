@@ -18,6 +18,11 @@ class BillingRepositoryInterface(ABC):
         ...
 
     @abstractmethod
+    async def get_final_sale_for_billing(self, transaction):
+        """Venta final calculada con los catálogos vigentes de Contabilidad."""
+        ...
+
+    @abstractmethod
     async def get_tax_rate(self, tax_rate_id: UUID):
         ...
 
