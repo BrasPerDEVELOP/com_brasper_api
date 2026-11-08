@@ -71,7 +71,7 @@ class OmieBillingService:
             raise ValueError("La emisión con Omie está deshabilitada")
         tx = (await self.db.execute(select(Transaction).options(
             selectinload(Transaction.user).selectinload(User.identifications)
-        ).where(Transaction.id == tx_id, Transaction.deleted.is_(False)))).scalar_one_or_none()
+        ).where(Transaction.id == tx_id, Transaction.deleted.is_(False)).execution_options(populate_existing=True))).scalar_one_or_none()
         if tx is None:
             raise LookupError("Operación no encontrada")
         if tx.status != TransactionStatus.completed:
