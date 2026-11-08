@@ -51,6 +51,14 @@ def _registrable_domain(host: Optional[str]) -> Optional[str]:
 
 
 class Settings(BaseSettings):
+    # Omie NFS-e. Se habilita tras validar la configuración de la empresa.
+    OMIE_ENABLED: bool = False
+    OMIE_APP_KEY: str = ""
+    OMIE_APP_SECRET: str = ""
+    OMIE_SERVICE_ID: int = 0
+    OMIE_ACCOUNT_ID: int = 0
+    OMIE_ISSUER_CNPJ: str = ""
+
     # PostgreSQL
     POSTGRES_DB: str
     POSTGRES_USER: str

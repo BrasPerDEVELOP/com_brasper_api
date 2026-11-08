@@ -17,6 +17,7 @@ from app.modules.auth.domain.models import AuthModel
 from app.modules.users.domain.models import User
 from app.modules.coin.domain.models import TaxRate, TaxRateTrial, Commission
 from app.modules.transactions.domain.models import Transaction
+from app.modules.omie.domain.models import OmieInvoice
 from app.modules.blog.domain.models import Blog
 
 # Obtiene la configuración de la base de datos

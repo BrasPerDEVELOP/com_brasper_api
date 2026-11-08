@@ -301,6 +301,8 @@ app.include_router(finance_router)
 from app.modules.billing.adapters.router import router as billing_router
 
 app.include_router(billing_router)
+from app.modules.omie.adapters.router import router as omie_router
+app.include_router(omie_router)
 
 @app.get("/")
 async def root():
