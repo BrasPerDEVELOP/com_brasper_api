@@ -815,10 +815,25 @@ class GetInvoicePdfUseCase:
         from app.modules.billing.infrastructure.branded_pdf import render_boleta
         transaction = await self.repo.get_transaction_for_billing(invoice.transaction_id)
         user = getattr(transaction, 'user', None)
+        operation_detail = None
+        if transaction is not None:
+            tax_rate = await self.repo.get_tax_rate(transaction.tax_rate_id)
+            currencies = {'pen': ('S/', 'soles'), 'usd': ('US$', 'dólares'), 'brl': ('R$', 'reales')}
+            origin = getattr(tax_rate, 'coin_a', None)
+            destination = getattr(tax_rate, 'coin_b', None)
+            origin = currencies.get(str(getattr(origin, 'value', origin)).lower())
+            destination = currencies.get(str(getattr(destination, 'value', destination)).lower())
+            if origin and destination and transaction.origin_amount is not None and transaction.destination_amount is not None:
+                operation_detail = (
+                    f'Comisión por el envío de {origin[0]} {transaction.origin_amount:,.2f} {origin[1]} '
+                    f'para recibir {destination[0]} {transaction.destination_amount:,.2f} {destination[1]}. '
+                    f'Operación {transaction.code}.'
+                )
         return await asyncio.to_thread(
             render_boleta, invoice, source,
             profile_document_type=getattr(user, 'document_type', None),
             profile_document_number=getattr(user, 'document_number', None),
+            operation_detail=operation_detail,
         )
 
     async def execute(self, invoice_id: UUID) -> tuple[bytes, str]:

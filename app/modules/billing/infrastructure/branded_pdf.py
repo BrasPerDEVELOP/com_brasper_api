@@ -51,7 +51,8 @@ def _verification(source: bytes, full_number: str):
     return qr[0], hashes[0]
 
 
-def render_boleta(invoice, source: bytes, *, profile_document_type=None, profile_document_number=None) -> bytes:
+def render_boleta(invoice, source: bytes, *, profile_document_type=None, profile_document_number=None,
+                  operation_detail=None) -> bytes:
     """Datos tributarios del snapshot UBL; ficha actual solo como referencia explícita."""
     qr, digest = _verification(source, invoice.full_number)
     body = invoice.document_body or {}
@@ -125,6 +126,8 @@ def render_boleta(invoice, source: bytes, *, profile_document_type=None, profile
     items = table(rows, [60, width - 225, 85, 80])
     items.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),INDIGO),('LINEBELOW',(0,-1),(-1,-1),.7,CYAN)]))
     story += [items, Spacer(1, 15)]
+    if operation_detail:
+        story += [p('Detalle de la operación:', 'small'), p(operation_detail), Spacer(1, 10)]
     totals = table([
         [p('Operación gravada'), p(f'{symbol} {invoice.taxable_amount:,.2f}', 'right')],
         [p(f'IGV {float(invoice.igv_rate) * 100:g}%'), p(f'{symbol} {invoice.igv_amount:,.2f}', 'right')],

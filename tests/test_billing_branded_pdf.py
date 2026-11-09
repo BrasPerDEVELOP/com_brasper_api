@@ -97,3 +97,24 @@ async def test_download_renders_cached_original_without_replacing_it():
     assert filename == record.file_name + '.pdf'
     storage.save_raw.assert_not_awaited()
     client.get_pdf.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('coin,amount,expected', [('brl', '998', 'R$ 998.00 reales'),
+                                                ('usd', '190', 'US$ 190.00 dólares')])
+async def test_download_includes_transfer_detail_without_changing_fiscal_total(coin, amount, expected):
+    record = invoice()
+    transaction = SimpleNamespace(tax_rate_id=uuid4(), user=None, code='PxB-001832',
+                                  origin_amount=Decimal('725'), destination_amount=Decimal(amount))
+    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=record),
+                           get_transaction_for_billing=AsyncMock(return_value=transaction),
+                           get_tax_rate=AsyncMock(return_value=SimpleNamespace(coin_a='pen', coin_b=coin)))
+    storage = SimpleNamespace(read_file=AsyncMock(return_value=(source_pdf(), 'application/pdf')))
+    result, _ = await GetInvoicePdfUseCase(repo, None, None, storage).execute(record.id)
+    reader = PdfReader(BytesIO(result))
+    assert len(reader.pages) == 1
+    text = ' '.join(reader.pages[0].extract_text().split())
+    for detail in ('Detalle de la operación:', 'S/ 725.00 soles', expected, 'PxB-001832',
+                   '59.86', '50.73', '9.13', 'Razón social: INGENITECH S.A.C.'):
+        assert detail in text
+    assert _verification(result, record.full_number) == _verification(source_pdf(), record.full_number)
