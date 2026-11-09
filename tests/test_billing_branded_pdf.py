@@ -114,7 +114,9 @@ async def test_download_includes_transfer_detail_without_changing_fiscal_total(c
     reader = PdfReader(BytesIO(result))
     assert len(reader.pages) == 1
     text = ' '.join(reader.pages[0].extract_text().split())
-    for detail in ('Detalle de la operación:', 'S/ 725.00 soles', expected, 'PxB-001832',
-                   '59.86', '50.73', '9.13', 'Razón social: INGENITECH S.A.C.'):
+    for detail in ('S/ 725.00 soles', expected, 'PxB-001832', '59.86', '50.73', '9.13'):
         assert detail in text
+    assert 'Razón social:' not in text
+    assert 'Detalle de la operación:' not in text
+    assert text.index(expected) < text.index('Operación gravada')
     assert _verification(result, record.full_number) == _verification(source_pdf(), record.full_number)

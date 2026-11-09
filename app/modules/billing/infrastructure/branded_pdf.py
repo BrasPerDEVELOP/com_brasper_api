@@ -115,7 +115,7 @@ def render_boleta(invoice, source: bytes, *, profile_document_type=None, profile
     lines = body.get('cac:InvoiceLine') or []
     rows = [[p('CANT.', 'white'), p('DESCRIPCIÓN', 'white'), p('P. UNITARIO', 'white'), p('IMPORTE', 'white')]]
     for line in lines:
-        description = _text(line.get('cac:Item', {}).get('cbc:Description'))
+        description = operation_detail or _text(line.get('cac:Item', {}).get('cbc:Description'))
         qty = _text(line.get('cbc:InvoicedQuantity')) or '1'
         # La boleta de comisión tiene una línea: total incluye IGV, igual al PDF original.
         if len(lines) != 1:
@@ -126,8 +126,6 @@ def render_boleta(invoice, source: bytes, *, profile_document_type=None, profile
     items = table(rows, [60, width - 225, 85, 80])
     items.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),INDIGO),('LINEBELOW',(0,-1),(-1,-1),.7,CYAN)]))
     story += [items, Spacer(1, 15)]
-    if operation_detail:
-        story += [p('Detalle de la operación:', 'small'), p(operation_detail), Spacer(1, 10)]
     totals = table([
         [p('Operación gravada'), p(f'{symbol} {invoice.taxable_amount:,.2f}', 'right')],
         [p(f'IGV {float(invoice.igv_rate) * 100:g}%'), p(f'{symbol} {invoice.igv_amount:,.2f}', 'right')],
