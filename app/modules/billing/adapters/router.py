@@ -41,6 +41,24 @@ from app.modules.billing.interfaces.apisunat_client import ApisunatError
 router = LegacyAliasRouter(prefix="/billing", tags=["billing"])
 
 
+@router.get('/invoices/export-month', dependencies=[Depends(require_permission('billing.view'))])
+async def export_invoices_month(
+    repo: RepoDep,
+    pdf_use_case: GetInvoicePdfUseCaseDep,
+    month: str = Query(..., pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),
+    issuer_ruc: Optional[str] = Query(None, pattern=r'^\d{11}$'),
+):
+    from app.modules.billing.application.monthly_export import export_month
+    year, month_number = map(int, month.split('-'))
+    try:
+        content = await export_month(repo, pdf_use_case, year, month_number, issuer_ruc)
+    except (ValueError, LookupError) as exc:
+        _raise_for(exc)
+    return Response(content=content, media_type='application/zip', headers={
+        'Content-Disposition': f'attachment; filename="comprobantes-sunat-{month}.zip"'
+    })
+
+
 def _actor_label(actor: dict) -> Optional[str]:
     return str(actor.get("email") or actor.get("user_id") or "") or None
 
@@ -82,7 +100,12 @@ async def list_invoices(
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
 ):
+    if page is not None or page_size is not None:
+        limit = page_size or 10
+        skip = ((page or 1) - 1) * limit
     return await use_case.execute(
         status=status_filter,
         document_type=document_type,

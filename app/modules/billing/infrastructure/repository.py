@@ -179,7 +179,7 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         stmt = (
             select(Invoice)
             .where(*conditions)
-            .order_by(Invoice.issue_date.desc(), Invoice.created_at.desc())
+            .order_by(Invoice.issue_date.desc(), Invoice.created_at.desc(), Invoice.id.desc())
             .offset(skip)
             .limit(limit)
         )

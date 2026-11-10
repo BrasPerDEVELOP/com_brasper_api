@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field
 from app.shared.contact_emails import validate_emails
 
 from app.core.settings import get_settings
@@ -137,6 +137,21 @@ class InvoiceListDTO(BaseModel):
     total: int
     skip: int
     limit: int
+
+    @computed_field
+    @property
+    def page(self) -> int:
+        return self.skip // self.limit + 1
+
+    @computed_field
+    @property
+    def page_size(self) -> int:
+        return self.limit
+
+    @computed_field
+    @property
+    def total_pages(self) -> int:
+        return max(1, (self.total + self.limit - 1) // self.limit)
 
 
 class SendInvoiceEmailCmd(BaseModel):
