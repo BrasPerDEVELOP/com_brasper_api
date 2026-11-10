@@ -5,6 +5,8 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from app.core.settings import get_settings
+from app.modules.billing.adapters.dependencies import build_apisunat_client
 
 from app.core.routing import LegacyAliasRouter
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
@@ -39,6 +41,49 @@ from app.modules.billing.application.use_cases import BillingDisabledError
 from app.modules.billing.interfaces.apisunat_client import ApisunatError
 
 router = LegacyAliasRouter(prefix="/billing", tags=["billing"])
+
+
+@router.get('/credit-notes', dependencies=[Depends(require_permission('billing.view'))])
+async def list_credit_notes(issuer_ruc: Optional[str] = Query(None, pattern=r'^\d{11}$')):
+    settings = get_settings()
+    issuers = [issuer.ruc for issuer in settings.billing_issuers]
+    if issuer_ruc and issuer_ruc not in issuers:
+        raise HTTPException(status_code=422, detail='Empresa emisora no configurada')
+    provider = build_apisunat_client(settings)
+    notes = []
+    for ruc in ([issuer_ruc] if issuer_ruc else issuers):
+        try:
+            for item in await provider.for_issuer(ruc).list_credit_notes():
+                notes.append({
+                    'id': str(item.get('id') or item.get('_id') or item.get('documentId') or ''),
+                    'file_name': item.get('fileName'), 'issuer_ruc': ruc,
+                    'status': item.get('status'), 'issue_time': item.get('issueTime'),
+                    'xml_url': item.get('xml'), 'cdr_url': item.get('cdr'),
+                    'production': item.get('production'),
+                })
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail='No se pudieron consultar las notas de crédito de APISUNAT') from exc
+    return sorted(notes, key=lambda note: note['issue_time'] or 0, reverse=True)
+
+
+@router.get('/credit-notes/{issuer_ruc}/{document_id}/pdf', dependencies=[Depends(require_permission('billing.view'))])
+async def get_credit_note_pdf(issuer_ruc: str, document_id: str):
+    settings = get_settings()
+    if issuer_ruc not in [issuer.ruc for issuer in settings.billing_issuers] or not document_id.isalnum():
+        raise HTTPException(status_code=422, detail='Nota de crédito inválida')
+    client = build_apisunat_client(settings).for_issuer(issuer_ruc)
+    try:
+        info = await client.get_by_id(document_id)
+        if not info.file_name or not info.file_name.startswith(f'{issuer_ruc}-07-'):
+            raise HTTPException(status_code=404, detail='Nota de crédito no encontrada')
+        content = await client.get_pdf(document_id, pdf_format='A4', file_name=info.file_name)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail='No se pudo descargar el PDF de APISUNAT') from exc
+    return Response(content=content, media_type='application/pdf', headers={
+        'Content-Disposition': f'attachment; filename="{info.file_name}.pdf"'
+    })
 
 
 @router.get('/invoices/export-month', dependencies=[Depends(require_permission('billing.view'))])

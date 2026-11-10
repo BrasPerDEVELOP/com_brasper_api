@@ -194,6 +194,16 @@ class ApisunatHttpClient(ApisunatClientInterface):
             raw=data,
         )
 
+    async def list_credit_notes(self, *, limit: int = 100, skip: int = 0) -> list[dict[str, Any]]:
+        response = await self._get('/documents/getAll', params={
+            **self._credentials(), 'type': '07', 'limit': limit, 'skip': skip, 'order': 'DESC',
+        })
+        data = response.json() if response.content else []
+        if response.status_code >= 400 or not isinstance(data, (list, dict)):
+            raise ApisunatError('No se pudieron consultar las notas de crédito de APISUNAT')
+        items = data if isinstance(data, list) else data.get('documents') or data.get('data') or []
+        return [item for item in _as_list(items) if isinstance(item, dict) and item.get('type') == '07']
+
     async def last_document(self, *, document_type: str, series: str) -> dict[str, Any]:
         body = {**self._credentials(), "type": document_type, "serie": series}
         return await self._post("/personas/lastDocument", body, idempotent=True)
