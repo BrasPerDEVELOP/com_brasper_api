@@ -355,7 +355,7 @@ class Coupon(ORMBaseModel):
     __tablename__ = "coupons"
     __table_args__ = {"schema": "transaction"}
 
-    code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     discount_percentage: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False)
     origin_currency: Mapped[Optional[Currency]] = mapped_column(CurrencyEnumType, nullable=True, index=True)
