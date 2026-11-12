@@ -539,6 +539,33 @@ async def test_normal_transaction_ignores_client_tax_rate_override():
 
 
 @pytest.mark.asyncio
+async def test_server_rejects_transaction_below_first_enabled_commission_minimum():
+    commission = MagicMock(
+        id=uuid4(), percentage=5, coin_a=Currency.pen, coin_b=Currency.brl,
+        min_amount=100, max_amount=300,
+    )
+    commission_repo = AsyncMock()
+    commission_repo.get = AsyncMock(return_value=commission)
+    commission_repo.list = AsyncMock(return_value=[commission])
+    session = AsyncMock()
+    use_case = CreateTransactionUseCase(
+        repo=AsyncMock(), tax_rate_repo=AsyncMock(), user_repo=AsyncMock(),
+        bank_account_repo=AsyncMock(), bank_repo=AsyncMock(),
+        commission_repo=commission_repo, session=session,
+    )
+    cmd = TransactionCreateCmd(
+        bank_account_destination=uuid4(), user_id=uuid4(), tax_rate_id=uuid4(),
+        commission_id=commission.id, origin_amount=50, destination_amount=47.5,
+    )
+    tax_rate = MagicMock(coin_a=Currency.pen, coin_b=Currency.brl, tax=1.5)
+
+    with pytest.raises(ValueError, match="mínimo.*100"):
+        await use_case._apply_server_financials(cmd, tax_rate, {})
+
+    commission_repo.get.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_amount_above_configured_maximum_uses_highest_commission_bracket():
     highest_id = uuid4()
     highest_commission = MagicMock(

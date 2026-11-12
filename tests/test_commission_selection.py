@@ -11,9 +11,11 @@ def row(lower, upper, percent):
     return SimpleNamespace(id=uuid4(), min_amount=lower, max_amount=upper, percentage=percent)
 
 
-def test_outer_brackets_preserve_registration_policy_and_gaps_fail():
+def test_minimum_and_internal_gaps_are_rejected_but_maximum_uses_highest_bracket():
     low, high = row(100, 1000, 3), row(1100, 10000, 2)
-    assert select_commission(50, [high, low]) is low
+    with pytest.raises(ValueError, match="mínimo.*100"):
+        select_commission(50, [high, low])
+    assert select_commission(100, [high, low]) is low
     assert select_commission(25000, [high, low]) is high
     assert select_commission(1000, [high, low]) is low
     with pytest.raises(ValueError): select_commission(1050, [high, low])
@@ -21,12 +23,16 @@ def test_outer_brackets_preserve_registration_policy_and_gaps_fail():
     with pytest.raises(ValueError): select_commission(100, [row(float("nan"), 1000, 3)])
 
 
-def test_quote_and_inverse_use_same_outer_brackets():
+def test_quote_and_inverse_reject_amounts_below_minimum():
     commissions = [row(100, 1000, 3), row(1100, 10000, 2)]
     history = SimpleNamespace(completed_transfers=0, pending_transfers=0)
     def compute(amount):
         return calculate(amount, 1.5, commissions, [], {}, history, Currency.pen, Currency.brl, datetime.now(timezone.utc))
-    for amount in [50, 25000]:
+    with pytest.raises(ValueError, match="mínimo.*100"):
+        compute(50)
+    with pytest.raises(ValueError, match="No hay una cotización"):
+        inverse_quote(10, 1.5, commissions, [], compute)
+    for amount in [100, 25000]:
         quote = compute(amount)
         assert quote["commission_rate"] == select_commission(amount, commissions).percentage
         inverse = inverse_quote(quote["amount_receive"], 1.5, commissions, [], compute)
