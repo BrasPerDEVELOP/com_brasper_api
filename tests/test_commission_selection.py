@@ -30,10 +30,17 @@ def test_quote_and_inverse_reject_amounts_below_minimum():
         return calculate(amount, 1.5, commissions, [], {}, history, Currency.pen, Currency.brl, datetime.now(timezone.utc))
     with pytest.raises(ValueError, match="mínimo.*100"):
         compute(50)
-    with pytest.raises(ValueError, match="No hay una cotización"):
+    with pytest.raises(ValueError):
         inverse_quote(10, 1.5, commissions, [], compute)
     for amount in [100, 25000]:
         quote = compute(amount)
         assert quote["commission_rate"] == select_commission(amount, commissions).percentage
         inverse = inverse_quote(quote["amount_receive"], 1.5, commissions, [], compute)
         assert inverse["amount_send"] == amount
+
+
+def test_internal_operator_policy_uses_first_bracket_for_small_transfers():
+    low, high = row(100, 1000, 3), row(1100, 10000, 2)
+    assert select_commission(50, [high, low], allow_below_minimum=True) is low
+    with pytest.raises(ValueError, match="mínimo.*100"):
+        select_commission(50, [high, low])

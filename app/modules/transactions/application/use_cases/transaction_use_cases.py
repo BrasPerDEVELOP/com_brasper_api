@@ -683,6 +683,7 @@ class CreateTransactionUseCase:
         session: Optional[AsyncSession] = None,
         settings_repo: Optional[CommissionAccountingSettingsRepositoryInterface] = None,
         commission_accounting_repo: Optional[CommissionAccountingRepositoryInterface] = None,
+        allow_below_minimum: bool = False,
     ):
         self.repo = repo
         self._tax_rate_repo = tax_rate_repo
@@ -693,6 +694,7 @@ class CreateTransactionUseCase:
         self._session = session
         self._settings_repo = settings_repo
         self._commission_accounting_repo = commission_accounting_repo
+        self._allow_below_minimum = allow_below_minimum
 
     async def _apply_accounting_amounts(self, tax_rate, entity_data: dict) -> None:
         """Vincula tramo contable + settings y persiste importes por transacción."""
@@ -787,7 +789,11 @@ class CreateTransactionUseCase:
             if isinstance(pair_commissions, PaginatedResult)
             else pair_commissions
         )
-        commission = select_commission(amount, list(brackets or []))
+        # Internal operators may register small transfers using the first
+        # enabled bracket. Public quotes and customer registrations stay strict.
+        commission = select_commission(
+            amount, list(brackets or []), allow_below_minimum=self._allow_below_minimum
+        )
         entity_data["commission_id"] = commission.id
         percentage = float(commission.percentage)
         if not isfinite(percentage) or not 0 <= percentage <= 100:

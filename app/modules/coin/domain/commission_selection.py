@@ -16,7 +16,7 @@ def normalize_amount(value) -> float:
     return float(amount)
 
 
-def select_commission(amount, rows):
+def select_commission(amount, rows, *, allow_below_minimum=False):
     if not isfinite(float(amount)) or amount <= 0:
         raise ValueError("El monto debe ser positivo y finito")
     ordered = sorted(rows, key=lambda row: (
@@ -27,6 +27,8 @@ def select_commission(amount, rows):
         raise ValueError("No existe una comisión configurada para el par de monedas")
     first_minimum = ordered[0].min_amount
     if first_minimum is not None and amount < float(first_minimum):
+        if allow_below_minimum:
+            return ordered[0]
         raise ValueError(f"El monto mínimo para este par es {float(first_minimum):g}")
     for row in ordered:
         lower = float(row.min_amount) if row.min_amount is not None else float("-inf")

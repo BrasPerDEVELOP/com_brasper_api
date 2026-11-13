@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
+from app.modules.auth.infrastructure.dependencies import get_current_user_permissions
 from app.modules.coin.adapters.dependencies.coin_dependencies import (
     get_commission_repository,
     get_commission_accounting_repository,
@@ -135,6 +136,7 @@ def create_transaction_uc(
         Depends(get_commission_accounting_repository),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    permissions: Annotated[list[str], Depends(get_current_user_permissions)],
 ) -> CreateTransactionUseCase:
     return CreateTransactionUseCase(
         repo=repo,
@@ -146,6 +148,7 @@ def create_transaction_uc(
         session=db,
         settings_repo=settings_repo,
         commission_accounting_repo=commission_accounting_repo,
+        allow_below_minimum="transactions.create" in permissions,
     )
 
 
