@@ -23,6 +23,15 @@ def digits(value):
     return re.sub(r"\D", "", str(value or ""))
 
 
+def format_brazilian_document(value):
+    document = digits(value)
+    if len(document) == 11:
+        return f"{document[:3]}.{document[3:6]}.{document[6:9]}-{document[9:]}"
+    if len(document) == 14:
+        return f"{document[:2]}.{document[2:5]}.{document[5:8]}/{document[8:12]}-{document[12:]}"
+    raise ValueError("El cliente necesita un CPF o CNPJ válido en Brasper")
+
+
 def omie_route(rate):
     def code(value):
         return str(getattr(value, "value", value)).lower()
@@ -38,6 +47,34 @@ def customer_document(user):
         if (kind == "cpf" and len(doc) == 11) or (kind == "cnpj" and len(doc) == 14):
             return doc
     raise ValueError("Registra el CPF o CNPJ del cliente antes de emitir con Omie")
+
+
+class OmieCustomerMissing(ValueError):
+    """The fiscal customer has no matching record in this Omie application."""
+
+
+async def find_omie_customer(client, document):
+    try:
+        result = await client.call("ListarClientes", {
+            "pagina": 1, "registros_por_pagina": 50,
+            "clientesFiltro": {"cnpj_cpf": document},
+        })
+    except OmieError as exc:
+        message = unicodedata.normalize("NFKD", str(exc)).encode("ascii", "ignore").decode().lower()
+        if "existem registros para a pagina" not in message and "nenhum registro" not in message:
+            raise
+        result = {"clientes_cadastro": []}
+
+    matches = [customer for customer in result.get("clientes_cadastro", [])
+               if digits(customer.get("cnpj_cpf")) == document]
+    if not matches:
+        raise OmieCustomerMissing("El CPF/CNPJ figura en Brasper, pero no hay un cliente con ese documento en Omie")
+    active = [customer for customer in matches if customer.get("inativo") != "S"]
+    if not active:
+        raise ValueError("El cliente con ese CPF/CNPJ está inactivo en Omie. Actívalo allí antes de emitir")
+    if len(active) != 1:
+        raise ValueError("Hay más de un cliente activo con ese CPF/CNPJ en Omie. Corrige los registros antes de emitir")
+    return active[0]
 
 
 def build_order(tx_id, code, customer_id, service_id, account_id, category, total):
@@ -106,14 +143,16 @@ class OmieBillingService:
         if not header.get("cCodCateg"):
             raise ValueError("Falta la categoría del servicio en Omie")
         try:
-            clients = await self.client.call("ListarClientes", {"pagina": 1, "registros_por_pagina": 50,
-                "clientesFiltro": {"cnpj_cpf": document}})
-        except OmieError as exc:
-            raise ValueError("No se pudo localizar el cliente en Omie. Verifica su CPF/CNPJ y su registro en Omie") from exc
-        clients = [c for c in clients.get("clientes_cadastro", []) if digits(c.get("cnpj_cpf")) == document and c.get("inativo") != "S"]
-        if len(clients) != 1:
-            raise ValueError("Registra o corrige el cliente en Omie con este CPF/CNPJ antes de emitir")
-        customer = clients[0]
+            customer = await find_omie_customer(self.client, document)
+        except OmieCustomerMissing:
+            name = " ".join(part for part in (tx.user.names, tx.user.lastnames) if part).strip()
+            if not name:
+                raise ValueError("Completa el nombre del cliente en Brasper antes de registrarlo en Omie") from None
+            return {"can_issue": False, "customer_registration_required": True, "record": None,
+                    "total": str(total), "currency": "BRL", "customer": name,
+                    "document": document, "email": tx.user.email or "",
+                    "issuer": companies[0]["razao_social"], "service": header.get("cDescricao", ""),
+                    "account": accounts[0].get("descricao", "")}
         if customer.get("bloquear_faturamento") == "S":
             raise ValueError("El cliente tiene la facturación bloqueada en Omie")
         order = build_order(tx.id, tx.code, customer["codigo_cliente_omie"], self.settings.OMIE_SERVICE_ID,
@@ -123,8 +162,46 @@ class OmieBillingService:
                 "issuer": companies[0]["razao_social"], "service": header.get("cDescricao", ""),
                 "account": accounts[0].get("descricao", ""), "_order": order}
 
+    async def register_customer(self, tx_id, details):
+        preview = await self.preview(tx_id)
+        if not preview.get("customer_registration_required"):
+            raise ValueError("El cliente ya existe en Omie o esta operación no permite registrarlo")
+        name = details.legal_name
+        document = preview["document"]
+        payload = {
+            "codigo_cliente_integracao": f"brasper-customer-{document}",
+            "razao_social": name,
+            "nome_fantasia": name,
+            "cnpj_cpf": format_brazilian_document(document),
+            "email": details.email,
+            "endereco": details.street,
+            "endereco_numero": details.number,
+            "bairro": details.district,
+            "cidade": details.city,
+            "estado": details.state,
+        }
+        if details.postal_code:
+            payload["cep"] = details.postal_code
+        if details.phone_area_code and details.phone_number:
+            payload.update(telefone1_ddd=details.phone_area_code,
+                           telefone1_numero=details.phone_number)
+        try:
+            created = await self.client.call("IncluirCliente", payload)
+        except OmieUncertainResult:
+            # A lost response may still mean the customer was created. Never resend here.
+            try:
+                customer = await find_omie_customer(self.client, document)
+            except OmieCustomerMissing:
+                raise OmieUncertainResult("Omie no confirmó el registro. Consulta nuevamente antes de intentar registrarlo") from None
+            return {"customer_id": customer["codigo_cliente_omie"], "document": document}
+        if not created.get("codigo_cliente_omie"):
+            raise OmieUncertainResult("Omie no confirmó el código del cliente. Consulta nuevamente antes de intentar registrarlo")
+        return {"customer_id": created["codigo_cliente_omie"], "document": document}
+
     async def issue(self, tx_id, expected_total, expected_document):
         preview = await self.preview(tx_id)
+        if preview.get("customer_registration_required"):
+            raise ValueError("Registra primero al cliente en Omie antes de emitir")
         if not preview["can_issue"]:
             raise ValueError("Ya existe un intento para esta operación. Consulta su estado en Omie")
         if Decimal(preview["total"]) != expected_total or preview["document"] != expected_document:

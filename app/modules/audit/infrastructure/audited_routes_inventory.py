@@ -91,9 +91,11 @@ AUDITED_MUTATION_ROUTES = {
     ("DELETE", "/finance/expenses/{expense_id}"),
     # Billing: comprobantes electrónicos vía APISUNAT (prefijo /billing)
     ("POST", "/billing/transactions/{transaction_id}/issue"),
+    ("POST", "/omie/transactions/{transaction_id}/customer"),
     ("POST", "/omie/transactions/{transaction_id}/issue"),
     ("POST", "/omie/transactions/{transaction_id}/refresh"),
     ("POST", "/billing/invoices/{invoice_id}/retry"),
+    ("POST", "/billing/invoices/{invoice_id}/email"),
     ("POST", "/billing/invoices/{invoice_id}/refresh"),
     ("POST", "/billing/invoices/{invoice_id}/void"),
     ("POST", "/billing/series/align"),

@@ -18,6 +18,7 @@ class OmieClient:
         "ListarEmpresas": "geral/empresas/",
         "ListarContasCorrentes": "geral/contacorrente/",
         "ListarClientes": "geral/clientes/",
+        "IncluirCliente": "geral/clientes/",
         "ConsultarCadastroServico": "servicos/servico/",
         "ListarCadastroServico": "servicos/servico/",
         "ConsultarOS": "servicos/os/",

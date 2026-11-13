@@ -12,9 +12,12 @@ Ante fallos inciertos, consultar la orden por código de integración antes de c
 intervención; la interfaz permite consultar, pero no duplicar la solicitud.
 Las notas se consultan por OS y se validan emisor e importe. PDF oficial de Omie.
 
-El cliente debe estar registrado en Omie: no crear personas fiscales con direcciones
-inventadas ni sobrescribir sus fichas desde la integración. Los fallos de validación
-se corrigen en Omie; completar allí la OS existente y consultar estado en Brasper.
+Si falta el cliente en Omie, Contabilidad ofrece un registro explícito con el CPF/CNPJ
+de Brasper y nombre, correo y dirección reales confirmados por el operador. La API
+usa IncluirCliente con un código de integración estable y vuelve a consultar antes
+de permitir la emisión. No inventa direcciones ni modifica fichas existentes.
+Los fallos de validación de la OS se corrigen en Omie; completar allí la OS
+existente y consultar estado en Brasper.
 La numeración NFS-e pertenece a Omie y es independiente de BB02/FF02.
 Credenciales únicamente en variables de entorno del backend, sin endpoints públicos.
 Pruebas de red con transportes simulados; producción se valida solo con consultas.

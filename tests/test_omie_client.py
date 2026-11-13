@@ -20,6 +20,20 @@ async def test_envelope_and_method_endpoint():
 
 
 @pytest.mark.asyncio
+async def test_customer_registration_uses_omie_clients_endpoint():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"codigo_cliente_omie": 42, "codigo_status": "0"})
+    client = OmieClient("test-key", "test-secret", transport=httpx.MockTransport(handler))
+    result = await client.call("IncluirCliente", {"cnpj_cpf": "123.456.789-01"})
+    assert result["codigo_cliente_omie"] == 42
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://app.omie.com.br/api/v1/geral/clientes/"
+    assert json.loads(requests[0].content)["call"] == "IncluirCliente"
+
+
+@pytest.mark.asyncio
 async def test_timeout_never_retries_issuance():
     calls = []
     def handler(request):

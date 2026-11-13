@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import UUID
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.routing import LegacyAliasRouter
 from app.core.settings import get_settings
@@ -17,6 +17,27 @@ router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
 class IssueRequest(BaseModel):
     expected_total: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
     expected_document: str = Field(pattern=r"^\d{11}(\d{3})?$")
+
+
+class RegisterCustomerRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    legal_name: str = Field(min_length=1, max_length=60)
+    email: EmailStr
+    street: str = Field(min_length=1, max_length=60)
+    number: str = Field(min_length=1, max_length=60)
+    district: str = Field(min_length=1, max_length=60)
+    city: str = Field(min_length=1, max_length=40)
+    state: str = Field(pattern=r"^[A-Z]{2}$")
+    postal_code: str | None = Field(default=None, pattern=r"^\d{5}-?\d{3}$")
+    phone_area_code: str | None = Field(default=None, pattern=r"^\d{2,5}$")
+    phone_number: str | None = Field(default=None, min_length=6, max_length=15)
+
+    @model_validator(mode="after")
+    def phone_fields_together(self):
+        if bool(self.phone_area_code) != bool(self.phone_number):
+            raise ValueError("Indica el DDD y el teléfono juntos")
+        return self
 
 
 def service(db: AsyncSession = Depends(get_db)):
@@ -43,6 +64,11 @@ async def result(operation):
 @router.get("/transactions/{transaction_id}/preview", dependencies=[Depends(require_permission("billing.view"))])
 async def preview(transaction_id: UUID, svc=Depends(service)):
     return await result(svc.preview(transaction_id))
+
+
+@router.post("/transactions/{transaction_id}/customer", dependencies=[Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.customers.register", "transaction"))])
+async def register_customer(transaction_id: UUID, body: RegisterCustomerRequest, svc=Depends(service)):
+    return await result(svc.register_customer(transaction_id, body))
 
 
 @router.post("/transactions/{transaction_id}/issue", dependencies=[Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.invoices.issue", "transaction"))])
