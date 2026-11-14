@@ -1,6 +1,7 @@
 """Omie JSON API. Credentials remain in the backend; mutations are never retried."""
 from __future__ import annotations
 
+import re
 import httpx
 
 
@@ -10,6 +11,14 @@ class OmieError(RuntimeError):
 
 class OmieUncertainResult(OmieError):
     """A request may have reached Omie: reconcile before sending it again."""
+
+
+class OmieRateLimited(OmieError):
+    """Omie rejected a repeated request and specified a short cooldown."""
+
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+        super().__init__(f"Omie pidió esperar {retry_after} segundos antes de volver a consultar")
 
 
 class OmieClient:
@@ -61,8 +70,12 @@ class OmieClient:
             raise OmieError("El acceso API de Omie requiere activar el complemento contratado")
         if response.status_code >= 500 and not body.get("faultstring"):
             raise OmieUncertainResult("Omie no confirmó el resultado; consulta el estado antes de reintentar")
-        if body.get("faultstring") or not response.is_success:
-            raise OmieError(self._redact(str(body.get("faultstring") or "Omie rechazó la solicitud")))
+        fault = self._redact(str(body.get("faultstring") or ""))
+        if "REDUNDANT" in fault.upper() or "consumo redundante" in fault.lower():
+            match = re.search(r"aguarde\s+(\d+)\s+segundos", fault, re.IGNORECASE)
+            raise OmieRateLimited(max(1, min(int(match.group(1)) if match else 40, 300)))
+        if fault or not response.is_success:
+            raise OmieError(fault or "Omie rechazó la solicitud")
         code = body.get("cCodStatus", body.get("codigo_status"))
         if code is not None and str(code) != "0":
             raise OmieError(self._redact(str(body.get("cDescStatus") or body.get("descricao_status") or "Error de Omie")))

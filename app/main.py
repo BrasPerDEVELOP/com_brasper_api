@@ -183,6 +183,7 @@ app.add_middleware(
         "Origin",
         "X-Requested-With",
     ],
+    expose_headers=["Retry-After"],
 )
 
 # Archivos estáticos (imágenes, etc.)

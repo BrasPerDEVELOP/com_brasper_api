@@ -2,8 +2,10 @@ import json
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
-from app.modules.omie.infrastructure.client import OmieClient, OmieError, OmieUncertainResult
+from app.modules.omie.adapters.router import result
+from app.modules.omie.infrastructure.client import OmieClient, OmieError, OmieRateLimited, OmieUncertainResult
 
 
 @pytest.mark.asyncio
@@ -54,6 +56,30 @@ async def test_errors_do_not_expose_credentials():
         await client.call("ListarEmpresas", {})
     assert "test-key" not in str(error.value)
     assert "test-secret" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_redundant_request_exposes_cooldown_without_retrying():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(400, json={"faultstring":
+            "ERROR: Consumo redundante detectado. Aguarde 33 segundos para tentar novamente (REDUNDANT)."})
+    client = OmieClient("key", "secret", transport=httpx.MockTransport(handler))
+    with pytest.raises(OmieRateLimited) as error:
+        await client.call("ListarNFSEs", {"nCodigoOS": 123})
+    assert error.value.retry_after == 33
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_redundant_request_returns_retry_after_to_frontend():
+    async def operation():
+        raise OmieRateLimited(33)
+    with pytest.raises(HTTPException) as error:
+        await result(operation())
+    assert error.value.status_code == 429
+    assert error.value.headers == {"Retry-After": "33"}
 
 
 @pytest.mark.asyncio

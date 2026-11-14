@@ -9,7 +9,7 @@ from app.db.base import get_db
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
 from app.modules.omie.application.service import OmieBillingService
-from app.modules.omie.infrastructure.client import OmieError
+from app.modules.omie.infrastructure.client import OmieError, OmieRateLimited
 
 router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
 
@@ -57,6 +57,8 @@ async def result(operation):
         raise HTTPException(404, str(exc)) from None
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+    except OmieRateLimited as exc:
+        raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after)}) from None
     except OmieError as exc:
         raise HTTPException(502, str(exc)) from None
 

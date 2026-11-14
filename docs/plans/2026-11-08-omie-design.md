@@ -11,6 +11,8 @@ Orden: IncluirOS, ValidarOS, FaturarOS. No se reintentan escrituras automáticam
 Ante fallos inciertos, consultar la orden por código de integración antes de cualquier
 intervención; la interfaz permite consultar, pero no duplicar la solicitud.
 Las notas se consultan por OS y se validan emisor e importe. PDF oficial de Omie.
+Si Omie responde REDUNDANT, la API devuelve 429 y Retry-After; la interfaz espera
+antes de permitir otra consulta. El intento existente se reconcilia sin crear otra OS.
 
 Si falta el cliente en Omie, Contabilidad ofrece un registro explícito con el CPF/CNPJ
 de Brasper y nombre, correo y dirección reales confirmados por el operador. La API
