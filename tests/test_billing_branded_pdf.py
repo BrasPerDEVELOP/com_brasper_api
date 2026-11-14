@@ -100,6 +100,22 @@ async def test_download_renders_cached_original_without_replacing_it():
 
 
 @pytest.mark.asyncio
+async def test_download_uses_exact_issued_description_instead_of_recalculating_it():
+    record = invoice()
+    record.item_description = 'Envío S/ 41.00 para recibir R$ 50.00.\nDetalle agregado por el operador.'
+    transaction = SimpleNamespace(tax_rate_id=uuid4(), user=None, code='PxB-001832',
+                                  origin_amount=Decimal('41'), destination_amount=Decimal('50'))
+    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=record),
+                           get_transaction_for_billing=AsyncMock(return_value=transaction),
+                           get_tax_rate=AsyncMock(return_value=SimpleNamespace(coin_a='pen', coin_b='brl')))
+    storage = SimpleNamespace(read_file=AsyncMock(return_value=(source_pdf(), 'application/pdf')))
+    result, _ = await GetInvoicePdfUseCase(repo, None, None, storage).execute(record.id)
+    text = PdfReader(BytesIO(result)).pages[0].extract_text()
+    assert 'Detalle agregado por el operador.' in text
+    assert 'PxB-001832' not in text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('coin,amount,expected', [('brl', '998', 'R$ 998.00 reales'),
                                                 ('usd', '190', 'US$ 190.00 dólares')])
 async def test_download_includes_transfer_detail_without_changing_fiscal_total(coin, amount, expected):

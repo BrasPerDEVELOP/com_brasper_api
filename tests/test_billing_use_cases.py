@@ -302,6 +302,31 @@ async def test_company_description_matches_preview_and_issued_pdf_source():
 
 
 @pytest.mark.asyncio
+async def test_pen_brl_description_can_be_edited_before_sunat_issue():
+    from app.modules.billing.application.use_cases import PreviewInvoiceUseCase
+
+    tx = _transaction(code='PxB-0000001832')
+    tx.origin_amount = Decimal('41.00')
+    tx.destination_amount = Decimal('50.00')
+    repo, client = FakeRepo(tx), FakeClient()
+    repo.tax_rate.coin_b = Currency.brl
+    settings = _settings()
+    preview = await PreviewInvoiceUseCase(repo, settings).execute(tx.id)
+    assert 'S/ 41.00' in preview.item_description
+    assert 'R$ 50.00' in preview.item_description
+    assert 'PxB-0000001832' in preview.item_description
+
+    edited = preview.item_description + '\nDestinatario: María Pérez.'
+    client.send_results = [PENDING]
+    dto = await IssueInvoiceUseCase(repo, client, settings).execute(
+        tx.id, IssueInvoiceCmd(item_description=edited))
+    invoice = await repo.get_invoice(dto.id)
+    assert invoice.item_description == edited
+    assert dto.item_description == edited
+    assert client.sent[0]['document_body']['cac:InvoiceLine'][0]['cac:Item']['cbc:Description']['_text'] == edited
+
+
+@pytest.mark.asyncio
 async def test_emite_boleta_reserva_numero_y_queda_enviada():
     tx = _transaction()
     repo, client = FakeRepo(tx), FakeClient()

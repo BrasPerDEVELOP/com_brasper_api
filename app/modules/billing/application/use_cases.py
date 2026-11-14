@@ -267,9 +267,18 @@ class IssuePlan:
     currency: object
     currency_code: str
     series: str
+    item_description: str
 
 
-def invoice_item_description(settings: Settings, transaction) -> str:
+def invoice_item_description(settings: Settings, transaction, tax_rate=None) -> str:
+    origin = str(getattr(getattr(tax_rate, 'coin_a', None), 'value', getattr(tax_rate, 'coin_a', ''))).lower()
+    destination = str(getattr(getattr(tax_rate, 'coin_b', None), 'value', getattr(tax_rate, 'coin_b', ''))).lower()
+    if origin == 'pen' and destination == 'brl' and transaction.origin_amount is not None and transaction.destination_amount is not None:
+        return (
+            f'Comisión por el envío de S/ {transaction.origin_amount:,.2f} soles '
+            f'para recibir R$ {transaction.destination_amount:,.2f} reales. '
+            f'Operación {transaction.code}.'
+        )
     description = settings.BILLING_ITEM_DESCRIPTION.format(code=transaction.code)
     company = _clean(getattr(transaction, "company_name", None))
     return f"{description}. Razón social: {company}" if company else description
@@ -328,6 +337,10 @@ async def prepare_issue(
     document_type, customer = resolve_customer(transaction, transaction.user, cmd)
     if cmd and cmd.send_customer_email:
         ensure_invoice_email_ready(settings, customer.email)
+    default_description = invoice_item_description(settings, transaction, tax_rate)
+    item_description = cmd.item_description.strip() if cmd and cmd.item_description is not None else default_description
+    if not item_description:
+        raise ValueError('La descripción del comprobante no puede estar vacía')
     return IssuePlan(
         transaction=transaction,
         issuer=issuer,
@@ -337,6 +350,7 @@ async def prepare_issue(
         currency=currency,
         currency_code=currency_code,
         series=_series_for(settings, document_type),
+        item_description=item_description,
     )
 
 
@@ -379,7 +393,7 @@ class PreviewInvoiceUseCase:
             customer_name=plan.customer.name,
             customer_address=plan.customer.address,
             customer_email=plan.customer.email,
-            item_description=invoice_item_description(self.settings, plan.transaction),
+            item_description=plan.item_description,
         )
 
 
@@ -433,7 +447,7 @@ class IssueInvoiceUseCase:
             issue_time=issue_time,
             currency=currency_code,
             amounts=amounts,
-            item_description=invoice_item_description(self.settings, transaction),
+            item_description=plan.item_description,
         )
         body = build_document_body(draft, issuer_party(issuer), customer)
 
@@ -455,6 +469,7 @@ class IssueInvoiceUseCase:
             customer_name=customer.name,
             customer_address=customer.address,
             customer_email=customer.email,
+            item_description=plan.item_description,
             email_requested=bool(cmd and cmd.send_customer_email),
             email_status="pending" if cmd and cmd.send_customer_email else None,
             status=InvoiceStatus.reserved.value,
@@ -833,7 +848,7 @@ class GetInvoicePdfUseCase:
             render_boleta, invoice, source,
             profile_document_type=getattr(user, 'document_type', None),
             profile_document_number=getattr(user, 'document_number', None),
-            operation_detail=operation_detail,
+            operation_detail=getattr(invoice, 'item_description', None) or operation_detail,
         )
 
     async def execute(self, invoice_id: UUID) -> tuple[bytes, str]:

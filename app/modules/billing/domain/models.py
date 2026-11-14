@@ -92,6 +92,8 @@ class Invoice(ORMBaseModel):
     cdr_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pdf_key: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     document_body: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Texto presentado y enviado a SUNAT. NULL conserva el PDF legado de comprobantes anteriores.
+    item_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     faults: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     notes: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

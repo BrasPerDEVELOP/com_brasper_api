@@ -183,6 +183,7 @@ class IssueInvoiceCmd(BaseModel):
     send_customer_email: bool = False
     customer_doc_type: Optional[str] = Field(default=None, max_length=20)
     customer_doc_number: Optional[str] = Field(default=None, max_length=40)
+    item_description: Optional[str] = Field(default=None, min_length=1, max_length=1000)
     #: "01" factura o "03" boleta. Vacío = automático según el documento del cliente.
     document_type: Optional[Literal["01", "03"]] = None
     #: RUC de la empresa emisora. Vacío = la empresa por defecto.
