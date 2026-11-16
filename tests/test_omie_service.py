@@ -219,3 +219,28 @@ async def test_refresh_rejects_wrong_total():
     with pytest.raises(ValueError,match="total"):
         await svc.refresh(uuid4())
     assert db.commits==0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,expect_date", [("F", True), ("N", False)])
+async def test_refresh_fills_billing_date_only_after_confirmed_emission(status, expect_date):
+    db = Db()
+    tx_id = uuid4()
+    db.row = SimpleNamespace(os_id=123, total=Decimal("9.60"),
+                             snapshot={"document": "12345678901"}, error=None)
+    note = {"OrdemServico": {"nCodigoOS": 123},
+            "Emissao": {"cDataEmissao": "14/11/2026"},
+            "Cabecalho": {"cCNPJEmissor": "50754016000168", "nValorNFSe": 9.60,
+                          "cAmbienteNFSe": "P", "cCPFDestinatario": "12345678901",
+                          "cStatusNFSe": status, "nNumeroNFSe": "16298", "nCodNF": 456}}
+    svc = OmieBillingService(db, SimpleNamespace(OMIE_ISSUER_CNPJ="50754016000168"),
+                             SimpleNamespace(call=AsyncMock(return_value={"nfseEncontradas": [note]})))
+    svc.billing.set_transaction_billing_date = AsyncMock()
+    result = await svc.refresh(tx_id)
+    if expect_date:
+        assert result["issued_at"].startswith("2026-11-14")
+        svc.billing.set_transaction_billing_date.assert_awaited_once()
+    else:
+        assert result["issued_at"] is None
+        svc.billing.set_transaction_billing_date.assert_not_awaited()
+    assert db.commits == 1

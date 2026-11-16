@@ -94,7 +94,8 @@ def public_record(row):
     if row is None:
         return None
     return {"status": row.status, "total": str(row.total), "os_id": row.os_id,
-            "nfse_number": row.nfse_number, "error": row.error}
+            "nfse_number": row.nfse_number, "error": row.error,
+            "issued_at": (row.snapshot or {}).get("issued_at")}
 
 
 class OmieBillingService:
@@ -267,6 +268,15 @@ class OmieBillingService:
             row.nfse_id, row.nfse_number = header.get("nCodNF"), str(header.get("nNumeroNFSe") or "")
             row.status = {"F": "issued", "C": "cancelled"}.get(header.get("cStatusNFSe"), "pending")
             row.error = None
+            if row.status in ("issued", "cancelled"):
+                emission = notes[0].get("Emissao") or {}
+                raw_date = emission.get("cDataEmissao")
+                if raw_date:
+                    raw_time = emission.get("cHoraEmissao") or "12:00:00"
+                    issued_at = datetime.strptime(f"{raw_date} {raw_time}", "%d/%m/%Y %H:%M:%S").replace(
+                        tzinfo=ZoneInfo("America/Sao_Paulo"))
+                    row.snapshot = {**row.snapshot, "issued_at": issued_at.isoformat()}
+                    await self.billing.set_transaction_billing_date(tx_id, issued_at)
         await self.db.commit()
         return public_record(row)
 

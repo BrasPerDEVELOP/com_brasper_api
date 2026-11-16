@@ -33,3 +33,21 @@ async def test_omie_invoice_list_reads_saved_notes_with_backend_pagination():
     assert "status = 'issued'" in count_sql
     assert "2026-11-01" in count_sql
     assert "LIMIT 10 OFFSET 10" in rows_sql
+
+
+@pytest.mark.asyncio
+async def test_records_batch_reads_only_requested_transactions_without_omie():
+    from app.modules.omie.application.list_invoices import records_for_transactions
+    tx_id = uuid4()
+    row = SimpleNamespace(transaction_id=tx_id, status="issued", total=Decimal("13.31"),
+                          os_id=123, nfse_number="16298", error=None,
+                          snapshot={"issued_at": "2026-11-14T12:00:00-03:00"})
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: [row]))))
+    result = await records_for_transactions(db, [tx_id])
+    assert result[str(tx_id)]["status"] == "issued"
+    assert result[str(tx_id)]["issued_at"] == row.snapshot["issued_at"]
+    sql = str(db.execute.call_args.args[0].compile(compile_kwargs={"literal_binds": True}))
+    assert tx_id.hex in sql and " IN " in sql
+    db.execute.assert_awaited_once()
+

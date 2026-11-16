@@ -16,6 +16,7 @@ def invoice_list_item(invoice: OmieInvoice, transaction_code: str) -> dict:
         "total": str(invoice.total),
         "currency": "BRL",
         "os_id": invoice.os_id,
+        "issued_at": snapshot.get("issued_at"),
         "nfse_number": invoice.nfse_number,
         "customer": snapshot.get("customer", ""),
         "document": snapshot.get("document", ""),
@@ -47,3 +48,11 @@ async def list_invoices(db, *, page: int, page_size: int, status: str | None,
     return {"items": [invoice_list_item(invoice, code) for invoice, code in rows],
             "total": total, "page": page, "page_size": page_size,
             "total_pages": max(1, (total + page_size - 1) // page_size)}
+
+
+async def records_for_transactions(db, transaction_ids):
+    rows = (await db.execute(select(OmieInvoice).where(
+        OmieInvoice.transaction_id.in_(transaction_ids)
+    ))).scalars().all()
+    from app.modules.omie.application.service import public_record
+    return {str(row.transaction_id): public_record(row) for row in rows}

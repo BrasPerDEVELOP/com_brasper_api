@@ -11,7 +11,7 @@ from app.db.base import get_db
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
 from app.modules.omie.application.service import OmieBillingService
-from app.modules.omie.application.list_invoices import list_invoices
+from app.modules.omie.application.list_invoices import list_invoices, records_for_transactions
 from app.modules.omie.infrastructure.client import OmieError, OmieRateLimited
 
 router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
@@ -107,3 +107,11 @@ async def refresh(transaction_id: UUID, svc=Depends(service)):
 @router.get("/transactions/{transaction_id}/pdf", dependencies=[Depends(require_permission("billing.view"))])
 async def pdf(transaction_id: UUID, svc=Depends(service)):
     return await result(svc.pdf(transaction_id))
+
+
+@router.get("/transaction-records", dependencies=[Depends(require_permission("billing.view"))])
+async def transaction_records(
+    transaction_ids: list[UUID] = Query(..., min_length=1, max_length=100),
+    db: AsyncSession = Depends(get_db),
+):
+    return await records_for_transactions(db, transaction_ids)

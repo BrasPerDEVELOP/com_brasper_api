@@ -1096,6 +1096,13 @@ class UpdateTransactionUseCase:
             return None
         if owner_id is not None and entity.user_id != owner_id:
             raise ValueError("La operación cambió de cliente mientras se editaba; recarga y reintenta")
+        if cmd.model_fields_set == {"id", "billing_date"}:
+            # Accounting dates do not change the client, checklist or financial values.
+            entity.billing_date = cmd.billing_date
+            await self.repo.update(entity)
+            await self.repo.commit()
+            await self.repo.refresh(entity, load_noload_relations=["user", "destinations", "tags"])
+            return TransactionReadDTO.model_validate(entity)
         previous_status = entity.status
 
         fields_set = cmd.model_fields_set
