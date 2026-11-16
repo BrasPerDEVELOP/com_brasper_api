@@ -1,6 +1,8 @@
+from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.routing import LegacyAliasRouter
@@ -9,6 +11,7 @@ from app.db.base import get_db
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
 from app.modules.omie.application.service import OmieBillingService
+from app.modules.omie.application.list_invoices import list_invoices
 from app.modules.omie.infrastructure.client import OmieError, OmieRateLimited
 
 router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
@@ -66,6 +69,24 @@ async def result(operation):
 @router.get("/transactions/{transaction_id}/preview", dependencies=[Depends(require_permission("billing.view"))])
 async def preview(transaction_id: UUID, svc=Depends(service)):
     return await result(svc.preview(transaction_id))
+
+
+OmieStatus = Literal["creating", "validating", "billing", "pending", "issued", "cancelled", "review_required"]
+
+
+@router.get("/invoices", dependencies=[Depends(require_permission("billing.view"))])
+async def invoices(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    status: OmieStatus | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "La fecha inicial debe ser anterior o igual a la final")
+    return await list_invoices(db, page=page, page_size=page_size, status=status,
+                               date_from=date_from, date_to=date_to)
 
 
 @router.post("/transactions/{transaction_id}/customer", dependencies=[Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.customers.register", "transaction"))])
