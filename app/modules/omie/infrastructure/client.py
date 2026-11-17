@@ -78,5 +78,5 @@ class OmieClient:
             raise OmieError(fault or "Omie rechazó la solicitud")
         code = body.get("cCodStatus", body.get("codigo_status"))
         if code is not None and str(code) != "0":
-            raise OmieError(self._redact(str(body.get("cDescStatus") or body.get("descricao_status") or "Error de Omie")))
+            raise OmieError(self._redact(str(body.get("cDescStatus") or body.get("cDesStatus") or body.get("descricao_status") or "Error de Omie")))
         return body

@@ -76,9 +76,10 @@ class InvoicePoller:
         )
         from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
         from app.shared.services.file_service import file_service
+        from app.modules.omie.application.email_delivery import OmieEmailService
 
         settings = get_settings()
-        if not settings.BILLING_ENABLED:
+        if not settings.BILLING_ENABLED and not settings.OMIE_ENABLED:
             return 0
         async with engine.connect() as lock_conn:
             locked = (
@@ -88,14 +89,23 @@ class InvoicePoller:
             if not locked:
                 return 0
             try:
-                client = build_apisunat_client(settings)
-                async with AsyncSessionLocal() as session:
-                    repo = SQLAlchemyBillingRepository(session)
-                    recovered = await RecoverStaleReservedUseCase(repo, client, settings).execute()
-                    poll = PollInvoiceUseCase(repo, client, settings, file_service)
-                    changed = recovered + await PollPendingInvoicesUseCase(poll, repo).execute()
-                    await DeliverPendingInvoiceEmailsUseCase(repo, client, settings, file_service).execute()
-                    return changed
+                changed = 0
+                if settings.OMIE_ENABLED:
+                    # Separate sessions keep an SMTP failure isolated from SUNAT.
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            await OmieEmailService(session, settings).deliver_pending()
+                    except Exception:
+                        logger.warning("No se pudo procesar la cola de correos de Omie")
+                if settings.BILLING_ENABLED:
+                    client = build_apisunat_client(settings)
+                    async with AsyncSessionLocal() as session:
+                        repo = SQLAlchemyBillingRepository(session)
+                        recovered = await RecoverStaleReservedUseCase(repo, client, settings).execute()
+                        poll = PollInvoiceUseCase(repo, client, settings, file_service)
+                        changed = recovered + await PollPendingInvoicesUseCase(poll, repo).execute()
+                        await DeliverPendingInvoiceEmailsUseCase(repo, client, settings, file_service).execute()
+                return changed
             finally:
                 await lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": BILLING_POLL_LOCK_KEY})
                 await lock_conn.commit()

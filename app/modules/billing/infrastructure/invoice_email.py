@@ -28,7 +28,7 @@ def send_invoice_pdf(settings: Settings, *, recipient: str, full_number: str,
                      issuer_name: str, pdf: bytes, filename: str) -> None:
     ensure_invoice_email_ready(settings, recipient)
     if not pdf.startswith(b"%PDF-"):
-        raise ValueError("APISUNAT no entregó un PDF válido")
+        raise ValueError("El proveedor no entregó un PDF válido")
     message = EmailMessage()
     message["From"] = formataddr((issuer_name, settings.SMTP_FROM_EMAIL))
     message["To"] = recipient

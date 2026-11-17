@@ -3,7 +3,6 @@ import re
 import unicodedata
 from datetime import datetime
 from decimal import Decimal
-from urllib.parse import urlparse
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -14,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
 from app.modules.omie.domain.models import OmieInvoice
 from app.modules.omie.infrastructure.client import OmieClient, OmieError, OmieUncertainResult
+from app.modules.omie.infrastructure.pdf import validate_pdf_url
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.transactions.domain.models import Transaction
 from app.modules.users.domain.models import User
@@ -288,7 +288,5 @@ class OmieBillingService:
         if str(docs.get("cNumNFSe", "")).lstrip("0") != str(row.nfse_number).lstrip("0"):
             raise ValueError("El PDF devuelto por Omie no corresponde a la nota")
         url = docs.get("cPdfNFSe", "")
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname not in ("click.omie.com", "app.omie.com.br"):
-            raise ValueError("Omie no devolvió un enlace de PDF válido")
+        validate_pdf_url(url)
         return {"url": url}

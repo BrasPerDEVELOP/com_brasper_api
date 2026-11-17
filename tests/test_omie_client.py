@@ -59,6 +59,15 @@ async def test_errors_do_not_expose_credentials():
 
 
 @pytest.mark.asyncio
+async def test_document_error_uses_osdocs_description_without_exposing_credentials():
+    client = OmieClient("test-key", "test-secret", transport=httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"cCodStatus": "1011", "cDesStatus": "Nenhum registro test-secret"})))
+    with pytest.raises(OmieError, match="Nenhum registro") as error:
+        await client.call("ObterNFSe", {"nIdNf": 42})
+    assert "test-secret" not in str(error.value)
+
+
+@pytest.mark.asyncio
 async def test_redundant_request_exposes_cooldown_without_retrying():
     requests = []
     def handler(request):

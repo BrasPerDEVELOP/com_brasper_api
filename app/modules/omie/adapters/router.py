@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 from fastapi import Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.routing import LegacyAliasRouter
 from app.core.settings import get_settings
@@ -11,6 +11,8 @@ from app.db.base import get_db
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
 from app.modules.omie.application.service import OmieBillingService
+from app.modules.omie.application.email_delivery import OmieEmailService
+from app.shared.contact_emails import validate_emails
 from app.modules.omie.application.list_invoices import list_invoices, records_for_transactions
 from app.modules.omie.infrastructure.client import OmieError, OmieRateLimited
 
@@ -20,6 +22,21 @@ router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
 class IssueRequest(BaseModel):
     expected_total: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
     expected_document: str = Field(pattern=r"^\d{11}(\d{3})?$")
+
+
+class OmieEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    recipients: list[str] | None = None
+
+    @field_validator("recipients", mode="before")
+    @classmethod
+    def check_recipients(cls, value):
+        if value is None:
+            return None
+        result = validate_emails(value)
+        if not result:
+            raise ValueError("Selecciona al menos un correo")
+        return result
 
 
 class RegisterCustomerRequest(BaseModel):
@@ -107,6 +124,18 @@ async def refresh(transaction_id: UUID, svc=Depends(service)):
 @router.get("/transactions/{transaction_id}/pdf", dependencies=[Depends(require_permission("billing.view"))])
 async def pdf(transaction_id: UUID, svc=Depends(service)):
     return await result(svc.pdf(transaction_id))
+
+
+@router.get("/transactions/{transaction_id}/email", dependencies=[Depends(require_permission("billing.view"))])
+async def email_details(transaction_id: UUID, svc=Depends(service)):
+    return await result(OmieEmailService(svc.db, svc.settings, billing=svc).details(transaction_id))
+
+
+@router.post("/transactions/{transaction_id}/email", status_code=202, dependencies=[
+    Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.invoices.email", "transaction")),
+])
+async def request_email(transaction_id: UUID, body: OmieEmailRequest, svc=Depends(service)):
+    return await result(OmieEmailService(svc.db, svc.settings, billing=svc).request(transaction_id, body.recipients))
 
 
 @router.get("/transaction-records", dependencies=[Depends(require_permission("billing.view"))])
