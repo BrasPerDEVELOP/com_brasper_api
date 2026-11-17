@@ -952,9 +952,13 @@ class DeliverPendingInvoiceEmailsUseCase:
                     smtp_completed = True
                     await self.repo.record_email_delivery(invoice.id, recipient)
                     smtp_completed = False
-            except Exception:
-                # El error SMTP puede incluir datos privados; solo se registra un estado.
-                logger.warning("No se pudo entregar el PDF del comprobante %s", invoice.id)
+            except Exception as exc:
+                # Do not log SMTP responses: they can contain credentials, recipient
+                # addresses or account recovery links. Keep the exception class/code.
+                logger.warning(
+                    "No se pudo entregar el PDF del comprobante %s (%s, smtp_code=%s)",
+                    invoice.id, type(exc).__name__, getattr(exc, "smtp_code", None),
+                )
                 if smtp_completed:
                     # SMTP succeeded but recording failed: retain the sending claim.
                     # An operator must reconcile this uncertain outcome before retrying.

@@ -23,6 +23,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.modules.billing.application.ubl_order import ordered_document_body
+
 from app.modules.billing.interfaces.apisunat_client import (
     ApisunatClientInterface,
     ApisunatClientProvider,
@@ -168,7 +170,7 @@ class ApisunatHttpClient(ApisunatClientInterface):
         body: dict[str, Any] = {
             **self._credentials(),
             "fileName": file_name,
-            "documentBody": document_body,
+            "documentBody": ordered_document_body(document_body),
         }
         if customer_email:
             body["customerEmail"] = customer_email

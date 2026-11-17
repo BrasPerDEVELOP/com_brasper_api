@@ -1,7 +1,9 @@
 """Plantilla JSON UBL para APISUNAT y leyenda del importe en letras."""
 from datetime import date, time
 from decimal import Decimal
+import json
 
+import httpx
 import pytest
 
 from app.modules.billing.application.ubl_builder import (
@@ -15,6 +17,8 @@ from app.modules.billing.application.ubl_builder import (
 )
 from app.modules.billing.domain.amounts import compute_invoice_amounts
 from app.modules.billing.domain.enums import BillingDocumentType
+from app.modules.billing.application.ubl_order import ordered_document_body
+from app.modules.billing.infrastructure.apisunat_client import ApisunatHttpClient
 
 ISSUER = IssuerParty(
     ruc="20608550454",
@@ -26,6 +30,52 @@ ISSUER = IssuerParty(
     province="LIMA",
     department="LIMA",
 )
+
+
+def _jsonb_round_trip(value):
+    if isinstance(value, list):
+        return [_jsonb_round_trip(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _jsonb_round_trip(value[key]) for key in sorted(value, key=lambda k: (len(k.encode()), k))}
+    return value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('doc_type,series', [
+    (BillingDocumentType.boleta, 'BB02'), (BillingDocumentType.factura, 'FF02'),
+])
+async def test_retry_serializes_jsonb_snapshot_in_ubl_order(doc_type, series):
+    original = build_document_body(
+        _draft(doc_type, series), ISSUER,
+        CustomerParty(doc_type='6', doc_number='20123456789', name='CLIENTE', address='LIMA'),
+    )
+    stored = _jsonb_round_trip(original)
+    snapshot = json.dumps(stored)
+    assert snapshot != json.dumps(original)
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content)['documentBody'])
+        return httpx.Response(200, json={'status': 'PENDIENTE', 'documentId': 'doc'})
+
+    client = ApisunatHttpClient(base_url='https://example.test', persona_id='p', persona_token='t',
+                               transport=httpx.MockTransport(handler))
+    await client.send_bill(file_name='test', document_body=stored)
+    # Compare serialized order at every level, including tax/party/line arrays.
+    assert json.dumps(requests[0]) == json.dumps(original)
+    assert json.dumps(stored) == snapshot
+    assert requests[0] == stored
+
+
+def test_ordering_preserves_extra_metadata_and_list_order():
+    body = {'cac:InvoiceLine': [
+        {'cbc:ID': {'_text': '2'}, 'extension': {'original': True}},
+        {'cbc:ID': {'_text': '1'}},
+    ], 'metadata': {'value': None}}
+    ordered = ordered_document_body(body)
+    assert ordered == body
+    assert ordered['cac:InvoiceLine'][0]['cbc:ID']['_text'] == '2'
+    assert ordered_document_body(ordered) == ordered
 
 
 def _draft(document_type, series, total="40.00", currency="PEN"):
