@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -151,6 +152,7 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
     async def list_invoices(
         self,
         *,
+        search: Optional[str] = None,
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,
@@ -161,6 +163,21 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         limit: int = 50,
     ) -> tuple[list[Invoice], int]:
         conditions = [Invoice.deleted.is_(False)]
+        term = (search or '').strip()
+        if term:
+            matches = [
+                Invoice.file_name.icontains(term, autoescape=True),
+                Invoice.customer_name.icontains(term, autoescape=True),
+                Invoice.customer_doc_number.icontains(term, autoescape=True),
+            ]
+            code = re.fullmatch(r'([A-Za-z0-9]{4})\s*-\s*([0-9]{1,8})', term)
+            if code:
+                matches.append(and_(
+                    Invoice.series == code[1].upper(), Invoice.number == int(code[2]),
+                ))
+            elif re.fullmatch(r'[0-9]{1,8}', term):
+                matches.append(Invoice.number == int(term))
+            conditions.append(or_(*matches))
         if status:
             conditions.append(Invoice.status == status)
         if document_type:
@@ -179,7 +196,7 @@ class SQLAlchemyBillingRepository(BillingRepositoryInterface):
         stmt = (
             select(Invoice)
             .where(*conditions)
-            .order_by(Invoice.issue_date.desc(), Invoice.created_at.desc(), Invoice.id.desc())
+            .order_by(Invoice.series.desc(), Invoice.number.desc(), Invoice.issuer_ruc.asc(), Invoice.id.desc())
             .offset(skip)
             .limit(limit)
         )

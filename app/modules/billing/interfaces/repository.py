@@ -59,6 +59,7 @@ class BillingRepositoryInterface(ABC):
     async def list_invoices(
         self,
         *,
+        search: Optional[str] = None,
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,

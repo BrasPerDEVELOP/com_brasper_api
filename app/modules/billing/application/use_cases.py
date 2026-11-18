@@ -785,6 +785,7 @@ class ListInvoicesUseCase:
     async def execute(
         self,
         *,
+        search: Optional[str] = None,
         status: Optional[str] = None,
         document_type: Optional[str] = None,
         transaction_id: Optional[UUID] = None,
@@ -795,6 +796,7 @@ class ListInvoicesUseCase:
         limit: int = 50,
     ) -> InvoiceListDTO:
         items, total = await self.repo.list_invoices(
+            search=search,
             status=status,
             document_type=document_type,
             transaction_id=transaction_id,

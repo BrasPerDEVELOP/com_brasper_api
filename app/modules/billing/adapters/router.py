@@ -137,6 +137,7 @@ async def billing_status(use_case: BillingStatusUseCaseDep):
 )
 async def list_invoices(
     use_case: ListInvoicesUseCaseDep,
+    search: Optional[str] = Query(None, max_length=120),
     status_filter: Optional[str] = Query(None, alias="status"),
     document_type: Optional[str] = Query(None, pattern=r"^(01|03|07)$"),
     transaction_id: Optional[UUID] = Query(None),
@@ -153,6 +154,7 @@ async def list_invoices(
         skip = ((page or 1) - 1) * limit
     return await use_case.execute(
         status=status_filter,
+        search=search.strip() if search else None,
         document_type=document_type,
         transaction_id=transaction_id,
         issuer_ruc=issuer_ruc,
