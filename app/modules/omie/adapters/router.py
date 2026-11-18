@@ -20,6 +20,7 @@ router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
 
 
 class IssueRequest(BaseModel):
+    expected_description: str | None = Field(default=None, max_length=2000)
     expected_total: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
     expected_document: str = Field(pattern=r"^\d{11}(\d{3})?$")
 
@@ -113,7 +114,7 @@ async def register_customer(transaction_id: UUID, body: RegisterCustomerRequest,
 
 @router.post("/transactions/{transaction_id}/issue", dependencies=[Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.invoices.issue", "transaction"))])
 async def issue(transaction_id: UUID, body: IssueRequest, svc=Depends(service)):
-    return await result(svc.issue(transaction_id, body.expected_total, body.expected_document))
+    return await result(svc.issue(transaction_id, body.expected_total, body.expected_document, body.expected_description))
 
 
 @router.post("/transactions/{transaction_id}/refresh", dependencies=[Depends(require_permission("billing.view")), Depends(stage_mutation_audit("omie.invoices.refresh", "transaction"))])

@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from app.modules.omie.domain.models import OmieInvoice
 from app.modules.transactions.domain.models import Transaction
+from app.modules.omie.application.description import saved_description
 
 
 def invoice_list_item(invoice: OmieInvoice, transaction_code: str) -> dict:
@@ -22,6 +23,7 @@ def invoice_list_item(invoice: OmieInvoice, transaction_code: str) -> dict:
         "document": snapshot.get("document", ""),
         "issuer": snapshot.get("issuer", ""),
         "service": snapshot.get("service", ""),
+        "description": saved_description(snapshot),
         "error": invoice.error,
         "created_at": invoice.created_at.isoformat(),
     }

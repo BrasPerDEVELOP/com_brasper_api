@@ -68,6 +68,7 @@ async def test_customer_lookup_requires_matching_active_document():
 @pytest.mark.asyncio
 async def test_preview_offers_registration_when_customer_is_missing():
     tx = SimpleNamespace(id=uuid4(), code="BxP-123", status=TransactionStatus.completed,
+                         origin_amount=Decimal('200.00'), destination_amount=Decimal('115.00'),
                          tax_rate_id=uuid4(), user=SimpleNamespace(names="CLIENTE", lastnames="REAL",
                          email=None, document_type="cpf", document_number="12345678901", identifications=[]))
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: tx)),
@@ -146,9 +147,9 @@ async def test_register_customer_reconciles_uncertain_response_without_second_wr
 
 def test_order_uses_gross_final_sale_and_omie_service_not_peruvian_igv():
     tx=uuid4()
-    order=build_order(tx,"BxP-123",1,2,3,"1.01.02",Decimal("9.60"))
+    order=build_order(tx,"BxP-123",1,2,3,"1.01.02",Decimal("9.60"), "Remessa internacional\nValor enviado: BRL 200,00\nValor a receber: PEN 115,00")
     assert order["Cabecalho"]["cCodIntOS"]==f"brasper-{tx}"
-    assert order["ServicosPrestados"]==[{"nCodServico":2,"nQtde":1,"nValUnit":9.6,"cDadosAdicItem":"Remessa internacional - operacao BxP-123"}]
+    assert order["ServicosPrestados"]==[{"nCodServico":2,"nQtde":1,"nValUnit":9.6,"cDadosAdicItem":"Remessa internacional - operacao BxP-123", "cDescServ": "Remessa internacional\nValor enviado: BRL 200,00\nValor a receber: PEN 115,00"}]
     assert order["InformacoesAdicionais"]["nCodCC"]==3
     assert order["Email"]["cEnvLink"]=="N"
 

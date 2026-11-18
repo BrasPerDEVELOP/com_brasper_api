@@ -17,6 +17,7 @@ from app.modules.omie.infrastructure.pdf import validate_pdf_url
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.transactions.domain.models import Transaction
 from app.modules.users.domain.models import User
+from app.modules.omie.application.description import service_description, saved_description
 
 
 def digits(value):
@@ -77,7 +78,7 @@ async def find_omie_customer(client, document):
     return active[0]
 
 
-def build_order(tx_id, code, customer_id, service_id, account_id, category, total):
+def build_order(tx_id, code, customer_id, service_id, account_id, category, total, description):
     return {
         "Cabecalho": {"cCodIntOS": f"brasper-{tx_id}", "cCodParc": "999", "cEtapa": "10",
                       "dDtPrevisao": datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y"),
@@ -86,6 +87,7 @@ def build_order(tx_id, code, customer_id, service_id, account_id, category, tota
         "InformacoesAdicionais": {"cCidPrestServ": "SAO PAULO (SP)", "cCodCateg": category,
                                   "nCodCC": account_id, "cDadosAdicNF": f"Operacao Brasper {code}"},
         "ServicosPrestados": [{"nCodServico": service_id, "nQtde": 1, "nValUnit": float(total),
+                               "cDescServ": description,
                                "cDadosAdicItem": f"Remessa internacional - operacao {code}"}],
     }
 
@@ -124,7 +126,8 @@ class OmieBillingService:
             return {"can_issue": False, "record": public_record(row), "total": str(row.total),
                     "currency": "BRL", "customer": row.snapshot.get("customer", ""),
                     "document": row.snapshot.get("document", ""), "issuer": row.snapshot.get("issuer", ""),
-                    "service": row.snapshot.get("service", ""), "account": row.snapshot.get("account", "")}
+                    "service": row.snapshot.get("service", ""), "account": row.snapshot.get("account", ""),
+                    "description": saved_description(row.snapshot)}
         total = await self.billing.get_final_sale_for_billing(tx)
         if total is None or total <= 0:
             raise ValueError("La operación no tiene una venta final positiva calculable")
@@ -143,6 +146,7 @@ class OmieBillingService:
         header = srv.get("cabecalho", {})
         if not header.get("cCodCateg"):
             raise ValueError("Falta la categoría del servicio en Omie")
+        description = service_description(tx, rate, header.get("cDescricao", ""))
         try:
             customer = await find_omie_customer(self.client, document)
         except OmieCustomerMissing:
@@ -153,15 +157,15 @@ class OmieBillingService:
                     "total": str(total), "currency": "BRL", "customer": name,
                     "document": document, "email": tx.user.email or "",
                     "issuer": companies[0]["razao_social"], "service": header.get("cDescricao", ""),
-                    "account": accounts[0].get("descricao", "")}
+                    "account": accounts[0].get("descricao", ""), "description": description}
         if customer.get("bloquear_faturamento") == "S":
             raise ValueError("El cliente tiene la facturación bloqueada en Omie")
         order = build_order(tx.id, tx.code, customer["codigo_cliente_omie"], self.settings.OMIE_SERVICE_ID,
-                            self.settings.OMIE_ACCOUNT_ID, header["cCodCateg"], total)
+                            self.settings.OMIE_ACCOUNT_ID, header["cCodCateg"], total, description)
         return {"can_issue": True, "record": None, "total": str(total), "currency": "BRL",
                 "customer": customer["razao_social"], "document": document,
                 "issuer": companies[0]["razao_social"], "service": header.get("cDescricao", ""),
-                "account": accounts[0].get("descricao", ""), "_order": order}
+                "account": accounts[0].get("descricao", ""), "description": description, "_order": order}
 
     async def register_customer(self, tx_id, details):
         preview = await self.preview(tx_id)
@@ -199,7 +203,7 @@ class OmieBillingService:
             raise OmieUncertainResult("Omie no confirmó el código del cliente. Consulta nuevamente antes de intentar registrarlo")
         return {"customer_id": created["codigo_cliente_omie"], "document": document}
 
-    async def issue(self, tx_id, expected_total, expected_document):
+    async def issue(self, tx_id, expected_total, expected_document, expected_description=None):
         preview = await self.preview(tx_id)
         if preview.get("customer_registration_required"):
             raise ValueError("Registra primero al cliente en Omie antes de emitir")
@@ -207,6 +211,8 @@ class OmieBillingService:
             raise ValueError("Ya existe un intento para esta operación. Consulta su estado en Omie")
         if Decimal(preview["total"]) != expected_total or preview["document"] != expected_document:
             raise ValueError("Los datos cambiaron. Abre nuevamente la vista previa antes de emitir")
+        if expected_description is not None and expected_description != preview.get("description"):
+            raise ValueError("El detalle de la operación cambió. Abre nuevamente la vista previa antes de emitir")
         order = preview.pop("_order")
         row = OmieInvoice(transaction_id=tx_id, status="creating", total=expected_total,
                           snapshot={**preview, "order": order})
