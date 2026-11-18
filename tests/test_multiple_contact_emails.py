@@ -112,3 +112,22 @@ async def test_retry_only_unsent_recipients_after_partial_smtp_failure(monkeypat
     assert await worker.execute() == 1
     assert attempts == ['first@example.com', 'second@example.com', 'second@example.com']
     repo.complete_invoice_email.assert_awaited_with(invoice.id, sent=True)
+
+
+@pytest.mark.asyncio
+async def test_explicit_extra_recipient_never_adds_unselected_customer(monkeypatch):
+    invoice = SimpleNamespace(id=uuid4(), transaction_id=uuid4(), status='accepted',
+        environment='production', customer_email='customer@example.com', email_delivered_to=[])
+    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice),
+        get_transaction_for_billing=AsyncMock(), queue_invoice_email=AsyncMock(return_value=True),
+        add_event=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock())
+    monkeypatch.setattr(billing.InvoiceDTO, 'from_entity', lambda row: row)
+    uc = billing.RequestInvoiceEmailUseCase(repo, smtp_settings())
+    await uc.execute(invoice.id, SendInvoiceEmailCmd(recipients=['extra@example.com']))
+    repo.queue_invoice_email.assert_awaited_once_with(invoice.id, ['extra@example.com'])
+    repo.get_transaction_for_billing.assert_not_awaited()
+    assert invoice.customer_email == 'customer@example.com'
+    repo.queue_invoice_email.reset_mock()
+    with pytest.raises(ValueError):
+        await uc.execute(invoice.id, SendInvoiceEmailCmd(recipients=[]))
+    repo.queue_invoice_email.assert_not_awaited()
