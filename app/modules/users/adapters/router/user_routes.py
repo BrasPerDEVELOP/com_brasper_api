@@ -14,6 +14,7 @@ from app.modules.auth.infrastructure.dependencies import (
     require_permission,
 )
 from app.modules.users.application.permission_overrides import validate_user_access_change
+from app.modules.users.application.schemas.document_lookup import DocumentLookupRequest, DocumentLookupResult
 from app.db.base import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.users.application.schemas.user_schema import (
@@ -56,6 +57,32 @@ from app.modules.transactions.adapters.router.transactions_websocket import (
 )
 
 router = LegacyAliasRouter(prefix="/user", tags=["user"])
+
+
+async def authorize_document_lookup(
+    current_user: dict = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Paid personal-data lookups must never inherit anonymous registration access.
+    if not current_user.get("user_id"):
+        raise HTTPException(401, "Inicia sesión para consultar documentos")
+    permissions = await _load_permissions(current_user, db)
+    if not {"users.create", "users.update"}.intersection(permissions):
+        raise HTTPException(403, "Necesitas permiso para crear o editar usuarios")
+
+
+@router.post("/document-lookup", response_model=DocumentLookupResult)
+async def document_lookup(
+    request: DocumentLookupRequest,
+    _authorized=Depends(authorize_document_lookup),
+):
+    from app.core.settings import get_settings
+    from app.modules.users.infrastructure.document_lookup import lookup_document, DocumentLookupError
+
+    try:
+        return await lookup_document(request, get_settings())
+    except DocumentLookupError as exc:
+        raise HTTPException(exc.status, exc.message) from None
 
 
 @router.get("/metrics", response_model=dict)

@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     OMIE_ACCOUNT_ID: int = 0
     OMIE_ISSUER_CNPJ: str = ""
 
+    # Consultas de documentos: credenciales exclusivas del servidor.
+    APIPERU_TOKEN: str = Field(default="", repr=False)
+    APIPERU_BASE_URL: str = "https://apiperu.dev/api"
+    CPFCNPJ_TOKEN: str = Field(default="", repr=False)
+    CPFCNPJ_BASE_URL: str = "https://api.cpfcnpj.com.br"
+
     # PostgreSQL
     POSTGRES_DB: str
     POSTGRES_USER: str
