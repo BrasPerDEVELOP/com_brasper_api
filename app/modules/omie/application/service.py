@@ -11,13 +11,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.modules.billing.infrastructure.repository import SQLAlchemyBillingRepository
+from app.modules.billing.domain.eligibility import ensure_billing_date_allows_issue
 from app.modules.omie.domain.models import OmieInvoice
 from app.modules.omie.infrastructure.client import OmieClient, OmieError, OmieUncertainResult
 from app.modules.omie.infrastructure.pdf import validate_pdf_url
 from app.modules.transactions.domain.enums import TransactionStatus
 from app.modules.transactions.domain.models import Transaction
 from app.modules.users.domain.models import User
-from app.modules.omie.application.description import service_description, saved_description
+from app.modules.omie.application.description import service_description, saved_description, validate_custom_description
 
 
 def digits(value):
@@ -128,6 +129,7 @@ class OmieBillingService:
                     "document": row.snapshot.get("document", ""), "issuer": row.snapshot.get("issuer", ""),
                     "service": row.snapshot.get("service", ""), "account": row.snapshot.get("account", ""),
                     "description": saved_description(row.snapshot)}
+        ensure_billing_date_allows_issue(tx)
         total = await self.billing.get_final_sale_for_billing(tx)
         if total is None or total <= 0:
             raise ValueError("La operación no tiene una venta final positiva calculable")
@@ -203,7 +205,8 @@ class OmieBillingService:
             raise OmieUncertainResult("Omie no confirmó el código del cliente. Consulta nuevamente antes de intentar registrarlo")
         return {"customer_id": created["codigo_cliente_omie"], "document": document}
 
-    async def issue(self, tx_id, expected_total, expected_document, expected_description=None):
+    async def issue(self, tx_id, expected_total, expected_document, expected_description=None, item_description=None):
+        item_description = validate_custom_description(item_description)
         preview = await self.preview(tx_id)
         if preview.get("customer_registration_required"):
             raise ValueError("Registra primero al cliente en Omie antes de emitir")
@@ -214,6 +217,9 @@ class OmieBillingService:
         if expected_description is not None and expected_description != preview.get("description"):
             raise ValueError("El detalle de la operación cambió. Abre nuevamente la vista previa antes de emitir")
         order = preview.pop("_order")
+        if item_description is not None:
+            preview["description"] = item_description
+            order["ServicosPrestados"][0]["cDescServ"] = item_description
         row = OmieInvoice(transaction_id=tx_id, status="creating", total=expected_total,
                           snapshot={**preview, "order": order})
         self.db.add(row)

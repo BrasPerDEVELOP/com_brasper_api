@@ -2,6 +2,15 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
+def validate_custom_description(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value or len(value) > 2000:
+        raise ValueError("La descripción debe contener entre 1 y 2000 caracteres")
+    return value
+
+
 def service_description(transaction, rate, service_name: str) -> str:
     def money(value):
         try:

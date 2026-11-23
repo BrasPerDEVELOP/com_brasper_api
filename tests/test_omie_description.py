@@ -33,32 +33,51 @@ def test_history_only_uses_saved_description_and_does_not_invent_old_note_text()
 
 
 @pytest.mark.asyncio
-async def test_changed_description_blocks_emission_before_any_write():
+@pytest.mark.parametrize('custom', [None, 'Texto editado'])
+async def test_changed_description_blocks_emission_before_any_write(custom):
     db = SimpleNamespace(add=lambda row: pytest.fail('Should not reserve'), commit=AsyncMock())
     client = SimpleNamespace(call=AsyncMock())
     service = OmieBillingService(db, SimpleNamespace(), client)
     service.preview = AsyncMock(return_value={'can_issue': True, 'total': '13.31', 'document': '12345678901', 'description': 'new amounts'})
     with pytest.raises(ValueError, match='detalle'):
-        await service.issue(uuid4(), Decimal('13.31'), '12345678901', 'old amounts')
+        await service.issue(uuid4(), Decimal('13.31'), '12345678901', 'old amounts', custom)
     client.call.assert_not_awaited()
     db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_reserved_snapshot_and_incluir_os_keep_the_exact_preview_description():
+@pytest.mark.parametrize('custom', [None, '  Remessa personalizada\nBeneficiário: TESTE  '])
+async def test_reserved_snapshot_and_incluir_os_keep_the_exact_preview_description(custom):
     text = 'Remessa internacional\nOperação Brasper: BxP-1\nValor enviado: BRL 200,00\nValor a receber: PEN 115,00'
     tx_id = uuid4()
     order = build_order(tx_id, 'BxP-1', 1, 2, 3, '1.01.02', Decimal('9.60'), text)
     stored = []
+    expected = custom.strip() if custom is not None else text
     db = SimpleNamespace(add=stored.append, commit=AsyncMock())
     async def call(method, payload):
         assert db.commit.await_count >= 1
         if method == 'IncluirOS':
-            assert payload['ServicosPrestados'][0]['cDescServ'] == text
-            assert stored[0].snapshot['description'] == text
+            assert payload['ServicosPrestados'][0]['cDescServ'] == expected
+            assert payload['ServicosPrestados'][0]['nValUnit'] == 9.60
+            assert stored[0].snapshot['description'] == expected
         return {'nCodOS': 42, 'cCodStatus': '0'}
     service = OmieBillingService(db, SimpleNamespace(), SimpleNamespace(call=call))
     service.preview = AsyncMock(return_value={'can_issue': True, 'total': '9.60', 'document': '12345678901', 'description': text, '_order': order})
-    result = await service.issue(tx_id, Decimal('9.60'), '12345678901', text)
+    result = await service.issue(tx_id, Decimal('9.60'), '12345678901', text, custom)
     assert result['status'] == 'pending'
-    assert saved_description(stored[0].snapshot) == text
+    assert saved_description(stored[0].snapshot) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('custom', ['', ' \n ', 'x' * 2001])
+async def test_invalid_custom_description_rejected_before_preview_or_writes(custom):
+    from app.modules.omie.adapters.router import IssueRequest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        IssueRequest(expected_total='9.60', expected_document='12345678901', item_description=custom)
+    service = OmieBillingService(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+    service.preview = AsyncMock()
+    with pytest.raises(ValueError):
+        await service.issue(uuid4(), Decimal('9.60'), '12345678901', 'original', custom)
+    service.preview.assert_not_awaited()

@@ -26,6 +26,7 @@ from typing import Optional
 from uuid import UUID
 
 from app.core.settings import BillingIssuer, Settings
+from app.modules.billing.domain.eligibility import ensure_billing_date_allows_issue
 from app.modules.billing.application.schemas import (
     BillingIssuerDTO,
     BillingStatusDTO,
@@ -318,6 +319,10 @@ async def prepare_issue(
         raise ValueError(
             f"La operación ya tiene el comprobante {existing.series}-{existing.number:08d} "
             f"en estado {existing.status}"
+        )
+    if getattr(transaction, "billing_date", None) is not None:
+        ensure_billing_date_allows_issue(
+            transaction, has_invoice=await repo.get_latest_invoice(transaction.id) is not None
         )
     amounts = compute_invoice_amounts(
         await repo.get_final_sale_for_billing(transaction),

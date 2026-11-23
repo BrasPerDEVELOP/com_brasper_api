@@ -11,6 +11,7 @@ from app.db.base import get_db
 from app.modules.auth.infrastructure.dependencies import require_permission
 from app.modules.audit.infrastructure.stage_mutation_audit import stage_mutation_audit
 from app.modules.omie.application.service import OmieBillingService
+from app.modules.omie.application.description import validate_custom_description
 from app.modules.omie.application.email_delivery import OmieEmailService
 from app.shared.contact_emails import validate_emails
 from app.modules.omie.application.list_invoices import list_invoices, records_for_transactions
@@ -20,9 +21,15 @@ router = LegacyAliasRouter(prefix="/omie", tags=["omie"])
 
 
 class IssueRequest(BaseModel):
+    item_description: str | None = Field(default=None, max_length=2000)
     expected_description: str | None = Field(default=None, max_length=2000)
     expected_total: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
     expected_document: str = Field(pattern=r"^\d{11}(\d{3})?$")
+
+    @field_validator("item_description")
+    @classmethod
+    def check_description(cls, value):
+        return validate_custom_description(value)
 
 
 class OmieEmailRequest(BaseModel):
@@ -114,7 +121,7 @@ async def register_customer(transaction_id: UUID, body: RegisterCustomerRequest,
 
 @router.post("/transactions/{transaction_id}/issue", dependencies=[Depends(require_permission("billing.issue")), Depends(stage_mutation_audit("omie.invoices.issue", "transaction"))])
 async def issue(transaction_id: UUID, body: IssueRequest, svc=Depends(service)):
-    return await result(svc.issue(transaction_id, body.expected_total, body.expected_document, body.expected_description))
+    return await result(svc.issue(transaction_id, body.expected_total, body.expected_document, body.expected_description, body.item_description))
 
 
 @router.post("/transactions/{transaction_id}/refresh", dependencies=[Depends(require_permission("billing.view")), Depends(stage_mutation_audit("omie.invoices.refresh", "transaction"))])
