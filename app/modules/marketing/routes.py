@@ -19,8 +19,25 @@ from app.modules.marketing.template_renderer import (
 )
 from app.modules.users.domain.models import User
 from app.core.settings import get_settings
+from app.modules.billing.infrastructure.recipient_validation import (
+    check_invoice_recipients, record_invalid_mailbox, MailboxNotFound, RecipientValidationError,
+)
 
 router = LegacyAliasRouter(prefix="/marketing", tags=["Marketing"])
+
+
+async def send_checked_test(db, email, subject, body, template_key):
+    try:
+        await check_invoice_recipients(db, [email])
+        await asyncio.to_thread(send_email, email, subject, body, True, template_key)
+    except MailboxNotFound as exc:
+        await record_invalid_mailbox(db, exc.recipient)
+        await db.commit()
+        raise HTTPException(422, str(exc)) from exc
+    except RecipientValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        raise HTTPException(502, "No se pudo enviar la prueba; revisa la configuración SMTP")
 
 
 @router.get("/templates", dependencies=[Depends(require_permission("marketing.view"))])
@@ -136,10 +153,7 @@ async def direct_test(payload: DirectTestInput, db: AsyncSession = Depends(get_d
     email = str(payload.email).lower()
     if await db.get(Suppression, email):
         raise HTTPException(409, "El destinatario solicitó la baja")
-    try:
-        await asyncio.to_thread(send_email, email, payload.subject, payload.body, True, payload.template_key)
-    except Exception:
-        raise HTTPException(502, "No se pudo enviar la prueba; revisa la configuración SMTP")
+    await send_checked_test(db, email, payload.subject, payload.body, payload.template_key)
     return {"detail": "Correo de prueba aceptado por SMTP"}
 
 
@@ -157,10 +171,7 @@ async def test_send(campaign_id: UUID, payload: TestInput, db: AsyncSession = De
     email = str(payload.email).lower()
     if await db.get(Suppression, email):
         raise HTTPException(409, "El destinatario solicitó la baja")
-    try:
-        await asyncio.to_thread(send_email, email, item.subject, item.body, True, item.template_key)
-    except Exception:
-        raise HTTPException(502, "No se pudo enviar la prueba; revisa la configuración SMTP")
+    await send_checked_test(db, email, item.subject, item.body, item.template_key)
     return {"detail": "Correo de prueba aceptado por SMTP"}
 
 

@@ -38,7 +38,7 @@ def test_invalid_contact_lists_rejected(values):
 @pytest.mark.asyncio
 async def test_create_update_preserve_contacts_and_legacy_primary():
     user = user_record(email='principal@example.com', emails=['principal@example.com', 'other@example.com'])
-    repo = SimpleNamespace(get=AsyncMock(return_value=user), update=AsyncMock(side_effect=lambda u: u),
+    repo = SimpleNamespace(session=None, get=AsyncMock(return_value=user), update=AsyncMock(side_effect=lambda u: u),
                            add=AsyncMock(return_value=user))
     uow = SimpleNamespace(user_repository=repo, commit=AsyncMock(), rollback=AsyncMock())
     auth = SimpleNamespace(execute=AsyncMock())
@@ -71,7 +71,7 @@ def smtp_settings():
 async def test_queue_multiple_contacts_and_extras_without_changing_customer(monkeypatch):
     invoice = SimpleNamespace(id=uuid4(), transaction_id=uuid4(), status='accepted',
         environment='production', customer_email='original@example.com', email_delivered_to=['sent@example.com'])
-    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice),
+    repo = SimpleNamespace(session=None, get_invoice=AsyncMock(return_value=invoice),
         queue_invoice_email=AsyncMock(return_value=True), commit=AsyncMock(), refresh=AsyncMock(), add_event=AsyncMock(),
         get_transaction_for_billing=AsyncMock(return_value=SimpleNamespace(user=SimpleNamespace(
             email='main@example.com', emails=['main@example.com', 'second@example.com']))))
@@ -95,7 +95,7 @@ async def test_retry_only_unsent_recipients_after_partial_smtp_failure(monkeypat
         email_recipients=['first@example.com', 'second@example.com'], email_delivered_to=[])
     async def record(invoice_id, recipient):
         invoice.email_delivered_to.append(recipient)
-    repo = SimpleNamespace(list_pending_emails=AsyncMock(return_value=[invoice]),
+    repo = SimpleNamespace(session=None, list_pending_emails=AsyncMock(return_value=[invoice]),
         claim_invoice_email=AsyncMock(return_value=True), record_email_delivery=AsyncMock(side_effect=record),
         complete_invoice_email=AsyncMock(), add_event=AsyncMock(), commit=AsyncMock())
     monkeypatch.setattr(billing.GetInvoicePdfUseCase, 'execute', AsyncMock(return_value=(b'%PDF-test', 'test.pdf')))
@@ -118,7 +118,7 @@ async def test_retry_only_unsent_recipients_after_partial_smtp_failure(monkeypat
 async def test_explicit_extra_recipient_never_adds_unselected_customer(monkeypatch):
     invoice = SimpleNamespace(id=uuid4(), transaction_id=uuid4(), status='accepted',
         environment='production', customer_email='customer@example.com', email_delivered_to=[])
-    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice),
+    repo = SimpleNamespace(session=None, get_invoice=AsyncMock(return_value=invoice),
         get_transaction_for_billing=AsyncMock(), queue_invoice_email=AsyncMock(return_value=True),
         add_event=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock())
     monkeypatch.setattr(billing.InvoiceDTO, 'from_entity', lambda row: row)
@@ -131,3 +131,8 @@ async def test_explicit_extra_recipient_never_adds_unselected_customer(monkeypat
     with pytest.raises(ValueError):
         await uc.execute(invoice.id, SendInvoiceEmailCmd(recipients=[]))
     repo.queue_invoice_email.assert_not_awaited()
+
+
+@pytest.fixture(autouse=True)
+def isolate_recipient_preflight(monkeypatch):
+    monkeypatch.setattr(billing, "check_invoice_recipients", AsyncMock())

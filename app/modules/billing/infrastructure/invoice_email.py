@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 
 from app.core.settings import Settings
+from app.modules.billing.infrastructure.recipient_validation import validate_recipient_domain, raise_for_invalid_mailbox
 
 
 def ensure_invoice_email_ready(settings: Settings, recipient: str | None) -> None:
@@ -27,6 +28,7 @@ def ensure_invoice_email_ready(settings: Settings, recipient: str | None) -> Non
 def send_invoice_pdf(settings: Settings, *, recipient: str, full_number: str,
                      issuer_name: str, pdf: bytes, filename: str) -> None:
     ensure_invoice_email_ready(settings, recipient)
+    recipient = validate_recipient_domain(recipient)
     if not pdf.startswith(b"%PDF-"):
         raise ValueError("El proveedor no entregó un PDF válido")
     message = EmailMessage()
@@ -43,4 +45,15 @@ def send_invoice_pdf(settings: Settings, *, recipient: str, full_number: str,
         smtp.starttls(context=ssl.create_default_context())
         smtp.ehlo()
         smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        smtp.send_message(message)
+        try:
+            refused = smtp.send_message(message)
+        except smtplib.SMTPRecipientsRefused as exc:
+            for address, refusal in exc.recipients.items():
+                if address.casefold() == recipient.casefold():
+                    raise_for_invalid_mailbox(recipient, refusal)
+            raise
+        if refused:
+            for address, refusal in refused.items():
+                if address.casefold() == recipient.casefold():
+                    raise_for_invalid_mailbox(recipient, refusal)
+            raise smtplib.SMTPRecipientsRefused(refused)

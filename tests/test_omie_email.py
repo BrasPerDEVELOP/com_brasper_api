@@ -13,7 +13,7 @@ def fixture_service():
     row = SimpleNamespace(transaction_id=uuid4(), status="issued", nfse_id=42, nfse_number="16298",
                           snapshot={"issuer": "BRASPER"}, email_status=None, email_error=None, email_recipients=[],
                           email_delivered_to=[], email_sent_at=None)
-    repo = SimpleNamespace(get=AsyncMock(return_value=row), contacts=AsyncMock(return_value=["client@example.com"]),
+    repo = SimpleNamespace(db=None, get=AsyncMock(return_value=row), contacts=AsyncMock(return_value=["client@example.com"]),
                            queue=AsyncMock(return_value=True), pending=AsyncMock(return_value=[row.transaction_id]),
                            claim=AsyncMock(return_value=True), delivered=AsyncMock(), complete=AsyncMock())
     settings = SimpleNamespace(SMTP_HOST="smtp.example.com", SMTP_USERNAME="test", SMTP_PASSWORD="test",
@@ -162,3 +162,8 @@ async def test_pdf_download_is_bounded_and_sends_no_credentials(monkeypatch):
     monkeypatch.setattr(pdf_module, "MAX_PDF_BYTES", 10)
     with pytest.raises(ValueError, match="tamaño"):
         await pdf_module.download_pdf("https://app.omie.com.br/pdf", transport=transport)
+
+
+@pytest.fixture(autouse=True)
+def isolate_recipient_preflight(monkeypatch):
+    monkeypatch.setattr(module, "check_invoice_recipients", AsyncMock())

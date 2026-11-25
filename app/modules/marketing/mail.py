@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.core.settings import get_settings
 from app.modules.marketing.template_renderer import render_email, render_plain_email
+from app.modules.billing.infrastructure.recipient_validation import validate_recipient_domain, raise_for_invalid_mailbox
 
 
 def check_config():
@@ -54,6 +55,7 @@ def build_message(email, subject, body, test=False, template_key=None):
 
 
 def send_email(email, subject, body, test=False, template_key=None):
+    email = validate_recipient_domain(email)
     message = build_message(email, subject, body, test, template_key)
     s = get_settings()
     with smtplib.SMTP(s.SMTP_HOST, s.SMTP_PORT, timeout=30) as smtp:
@@ -61,4 +63,15 @@ def send_email(email, subject, body, test=False, template_key=None):
         smtp.starttls(context=ssl.create_default_context())
         smtp.ehlo()
         smtp.login(s.SMTP_USERNAME, s.SMTP_PASSWORD)
-        smtp.send_message(message)
+        try:
+            refused = smtp.send_message(message)
+        except smtplib.SMTPRecipientsRefused as exc:
+            for address, refusal in exc.recipients.items():
+                if address.casefold() == email.casefold():
+                    raise_for_invalid_mailbox(email, refusal)
+            raise
+        if refused:
+            for address, refusal in refused.items():
+                if address.casefold() == email.casefold():
+                    raise_for_invalid_mailbox(email, refusal)
+            raise smtplib.SMTPRecipientsRefused(refused)

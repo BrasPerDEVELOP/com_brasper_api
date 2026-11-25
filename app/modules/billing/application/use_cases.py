@@ -15,6 +15,9 @@ Orden de una emisión (ver documento "Integración Brasper · APISUNAT"):
 from __future__ import annotations
 
 from app.shared.contact_emails import registered_emails, unique_emails
+from app.modules.billing.infrastructure.recipient_validation import (
+    check_invoice_recipients, record_invalid_mailbox, MailboxNotFound, RecipientValidationError,
+)
 
 import json
 import logging
@@ -913,6 +916,7 @@ class RequestInvoiceEmailUseCase:
         recipients = [e for e in unique_emails(recipients) if e.casefold() not in delivered]
         if not recipients:
             raise ValueError("El PDF ya fue enviado a todos los correos seleccionados")
+        await check_invoice_recipients(self.repo.session, recipients)
         if not await self.repo.queue_invoice_email(invoice_id, recipients):
             raise ValueError("El PDF tiene un envío en curso. Actualiza el detalle")
         await self.repo.add_event(invoice_id, "email_requested", {"recipients": recipients, "actor": actor})
@@ -938,16 +942,16 @@ class DeliverPendingInvoiceEmailsUseCase:
                 continue
             smtp_completed = False
             try:
+                completed = {e.casefold() for e in (getattr(invoice, "email_delivered_to", None) or [])}
+                recipients = [e for e in unique_emails(getattr(invoice, "email_recipients", None) or [invoice.customer_email]) if e.casefold() not in completed]
+                if recipients:
+                    await check_invoice_recipients(self.repo.session, recipients)
                 pdf, filename = await GetInvoicePdfUseCase(
                     self.repo, self.client, self.settings, self.file_service
                 ).execute(invoice.id)
                 issuer = self.settings.billing_issuer(invoice.issuer_ruc)
                 issuer_name = issuer.display_name if issuer else invoice.issuer_ruc
-                completed = {e.casefold() for e in (getattr(invoice, "email_delivered_to", None) or [])}
-                recipients = getattr(invoice, "email_recipients", None) or [invoice.customer_email]
-                for recipient in unique_emails(recipients):
-                    if recipient.casefold() in completed:
-                        continue
+                for recipient in recipients:
                     await asyncio.to_thread(
                         send_invoice_pdf, self.settings,
                         recipient=recipient,
@@ -970,8 +974,11 @@ class DeliverPendingInvoiceEmailsUseCase:
                     # SMTP succeeded but recording failed: retain the sending claim.
                     # An operator must reconcile this uncertain outcome before retrying.
                     continue
+                if isinstance(exc, MailboxNotFound):
+                    await record_invalid_mailbox(self.repo.session, exc.recipient)
                 await self.repo.complete_invoice_email(invoice.id, sent=False)
-                await self.repo.add_event(invoice.id, InvoiceEventType.email_failed.value)
+                await self.repo.add_event(invoice.id, InvoiceEventType.email_failed.value,
+                    {"reason": str(exc)} if isinstance(exc, RecipientValidationError) else None)
                 await self.repo.commit()
             else:
                 await self.repo.complete_invoice_email(invoice.id, sent=True)

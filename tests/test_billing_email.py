@@ -15,7 +15,7 @@ async def test_delivery_claims_accepted_invoice_once(monkeypatch):
         id=uuid4(), issuer_ruc="20608550454", customer_email="cliente@example.com",
         full_number="BB02-00000001",
     )
-    repo = SimpleNamespace(
+    repo = SimpleNamespace(session=None,
         list_pending_emails=AsyncMock(return_value=[invoice]),
         claim_invoice_email=AsyncMock(side_effect=[True, False]),
         record_email_delivery=AsyncMock(),
@@ -41,7 +41,7 @@ async def test_delivery_claims_accepted_invoice_once(monkeypatch):
 async def test_email_request_uses_default_or_edited_recipient(monkeypatch, explicit, expected):
     invoice = SimpleNamespace(id=uuid4(), transaction_id=uuid4(), status='accepted',
                               environment='production', customer_email='cliente@example.com')
-    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice),
+    repo = SimpleNamespace(session=None, get_invoice=AsyncMock(return_value=invoice),
                            get_transaction_for_billing=AsyncMock(return_value=None),
                            queue_invoice_email=AsyncMock(return_value=True),
                            add_event=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock())
@@ -58,7 +58,7 @@ async def test_email_request_uses_default_or_edited_recipient(monkeypatch, expli
 @pytest.mark.asyncio
 async def test_email_request_rejects_unaccepted_invoice():
     invoice = SimpleNamespace(status='sent')
-    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice), queue_invoice_email=AsyncMock())
+    repo = SimpleNamespace(session=None, get_invoice=AsyncMock(return_value=invoice), queue_invoice_email=AsyncMock())
     settings = SimpleNamespace(BILLING_ENABLED=True)
     with pytest.raises(ValueError, match='acepte'):
         await use_cases.RequestInvoiceEmailUseCase(repo, settings).execute(uuid4(), SendInvoiceEmailCmd())
@@ -69,7 +69,7 @@ async def test_email_request_rejects_unaccepted_invoice():
 @pytest.mark.parametrize('recipient', ['', 'no-es-correo'])
 async def test_email_request_rejects_invalid_address_before_queue(recipient):
     invoice = SimpleNamespace(status='accepted', environment='production')
-    repo = SimpleNamespace(get_invoice=AsyncMock(return_value=invoice), queue_invoice_email=AsyncMock())
+    repo = SimpleNamespace(session=None, get_invoice=AsyncMock(return_value=invoice), queue_invoice_email=AsyncMock())
     settings = SimpleNamespace(BILLING_ENABLED=True, APISUNAT_ENVIRONMENT='production')
     with pytest.raises(ValueError, match='correo'):
         await use_cases.RequestInvoiceEmailUseCase(repo, settings).execute(
@@ -82,3 +82,8 @@ def test_description_uses_transaction_company():
     transaction = SimpleNamespace(code='PxB-001832', company_name='INGENITECH S.A.C.')
     assert use_cases.invoice_item_description(settings, transaction) == (
         'Comisión por operación PxB-001832. Razón social: INGENITECH S.A.C.')
+
+
+@pytest.fixture(autouse=True)
+def isolate_recipient_preflight(monkeypatch):
+    monkeypatch.setattr(use_cases, "check_invoice_recipients", AsyncMock())

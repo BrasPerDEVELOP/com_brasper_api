@@ -10,6 +10,13 @@ from app.modules.marketing.schemas import CampaignInput
 from app.modules.marketing import mail, routes, worker
 
 
+@pytest.fixture(autouse=True)
+def isolate_recipient_checks(monkeypatch):
+    monkeypatch.setattr(worker, 'check_invoice_recipients', AsyncMock())
+    monkeypatch.setattr(routes, 'check_invoice_recipients', AsyncMock())
+    monkeypatch.setattr(mail, 'validate_recipient_domain', lambda address: address)
+
+
 def campaign_payload(**overrides):
     return dict(name="Campaña", subject="Promoción", body="Hola", emails=["a@example.com"],
                 consent_confirmed=True, **overrides)
@@ -108,6 +115,7 @@ def test_smtp_uses_tls_and_private_recipient(monkeypatch):
         PUBLIC_URL="https://api.example.com", SECRET_KEY="test-key-which-is-long-enough-1234567890")
     monkeypatch.setattr(mail, "get_settings", lambda: settings)
     smtp = MagicMock()
+    smtp.send_message.return_value = {}
     factory = MagicMock()
     factory.return_value.__enter__.return_value = smtp
     monkeypatch.setattr(mail.smtplib, "SMTP", factory)

@@ -20,7 +20,15 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.modules.coin.domain.enums import Currency, CurrencyEnumType
-from app.shared.model_base import ORMBaseModel
+from app.shared.model_base import ORMBase, ORMBaseModel
+
+
+class InvoiceEmailSuppression(ORMBase):
+    __tablename__ = "email_suppressions"
+    __table_args__ = {"schema": "billing"}
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class BillingSeries(ORMBaseModel):

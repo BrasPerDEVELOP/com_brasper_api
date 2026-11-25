@@ -13,6 +13,7 @@ from app.modules.omie.infrastructure.pdf import download_pdf
 from app.modules.omie.infrastructure.client import OmieError
 from app.modules.transactions.domain.models import Transaction
 from app.shared.contact_emails import registered_emails, unique_emails, validate_emails
+from app.modules.billing.infrastructure.recipient_validation import check_invoice_recipients, record_invalid_mailbox, MailboxNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ class OmieEmailService:
         recipients = [email for email in recipients if email.casefold() not in delivered]
         if not recipients:
             raise ValueError("El PDF ya fue enviado a todos los correos seleccionados")
+        await check_invoice_recipients(self.repo.db, recipients)
         if not await self.repo.queue(tx_id, recipients):
             raise ValueError("El PDF tiene un envío en curso. Actualiza el detalle")
         return await self.details(tx_id)
@@ -109,6 +111,10 @@ class OmieEmailService:
             try:
                 if row.status != "issued":
                     raise ValueError("La nota fiscal ya no está emitida")
+                pending = [email for email in unique_emails(row.email_recipients or [])
+                           if email.casefold() not in {e.casefold() for e in row.email_delivered_to or []}]
+                if pending:
+                    await check_invoice_recipients(self.repo.db, pending)
                 # Reuses the note-number and URL validation of the PDF action.
                 document = await self.billing.pdf(tx_id)
                 pdf = await download_pdf(document["url"])
@@ -131,6 +137,8 @@ class OmieEmailService:
                     # Keep the claim when SMTP succeeded but persistence failed.
                     # Retrying automatically could duplicate a delivered message.
                     raise
+                if isinstance(exc, MailboxNotFound):
+                    await record_invalid_mailbox(self.repo.db, exc.recipient)
                 message = str(exc)[:600] if isinstance(exc, (ValueError, OmieError)) else "No se pudo entregar el correo. Intenta más tarde."
                 await self.repo.complete(row, "failed", error=message)
             else:

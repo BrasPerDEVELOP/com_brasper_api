@@ -13,6 +13,9 @@ from app.core.settings import get_settings
 from app.db.base import AsyncSessionLocal, engine
 from app.modules.marketing.mail import send_email
 from app.modules.marketing.models import Campaign, Recipient, Suppression
+from app.modules.billing.infrastructure.recipient_validation import (
+    check_invoice_recipients, record_invalid_mailbox, MailboxNotFound, RecipientValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,15 @@ async def deliver_one(db):
     ))).scalar_one()
     if attempts >= get_settings().MARKETING_DAILY_LIMIT:
         return False
+    # Validate each recipient independently so a bad address does not stop the campaign.
+    # Preflight failures do not consume the SMTP daily allowance.
+    try:
+        await check_invoice_recipients(db, [recipient.email])
+    except RecipientValidationError as exc:
+        recipient.status = "failed"
+        recipient.error = str(exc)[:250]
+        await db.commit()
+        return True
     recipient.status = "processing"
     recipient.attempted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -50,6 +62,14 @@ async def deliver_one(db):
                                 False, getattr(campaign, "template_key", None))
         recipient.status = "sent"
         recipient.sent_at = datetime.now(timezone.utc)
+    except MailboxNotFound as exc:
+        await record_invalid_mailbox(db, exc.recipient)
+        # 'suppressed' is reserved for marketing opt-outs in the existing UI.
+        recipient.status = "failed"
+        recipient.error = str(exc)[:250]
+    except RecipientValidationError as exc:
+        recipient.status = "failed"
+        recipient.error = str(exc)[:250]
     except Exception:
         # SMTP exceptions can include addresses and credentials. Never persist their text.
         recipient.status = "failed"
