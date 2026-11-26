@@ -100,6 +100,16 @@ def _parse_identifications_form(value: Optional[str]) -> Optional[list[UserIdent
 class PhoneAreaFields(BaseModel):
     """Zona asociada al número telefónico, no residencia ni nacionalidad."""
 
+    whatsapp_username: Optional[str] = Field(None, max_length=100, description="Usuario de WhatsApp independiente del teléfono")
+
+    @field_validator("whatsapp_username", mode="before")
+    @classmethod
+    def normalize_whatsapp_username(cls, value):
+        if isinstance(value, str):
+            username = value.strip().lstrip('@').strip()
+            return f'@{username}' if username else None
+        return value
+
     local_area_code: Optional[str] = Field(
         None, min_length=1, max_length=6, pattern=r"^[0-9]+$",
         description="Código de área local sin código de país; DDD de 2 dígitos en Brasil, por ejemplo 11",
@@ -191,6 +201,7 @@ class UserCreateCmd(ContactEmailFields):
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
         phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
+        whatsapp_username: Annotated[Optional[str], Form(max_length=100)] = None,
         code_phone: Optional[PhoneCode] = Form(None),
         local_area_code: Annotated[Optional[str], Form()] = None,
         local_area_name: Annotated[Optional[str], Form()] = None,
@@ -208,6 +219,7 @@ class UserCreateCmd(ContactEmailFields):
             is_agent=is_agent,
             role=role,
             phone=phone,
+            whatsapp_username=whatsapp_username,
             code_phone=code_phone,
             local_area_code=local_area_code,
             local_area_name=local_area_name,
@@ -265,6 +277,8 @@ class UserUpdateCmd(ContactEmailFields):
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
         phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
+        whatsapp_username: Annotated[Optional[str], Form(max_length=100)] = None,
+        clear_whatsapp_username: Annotated[bool, Form()] = False,
         code_phone: Optional[PhoneCode] = Form(None),
         local_area_code: Annotated[Optional[str], Form()] = None,
         local_area_name: Annotated[Optional[str], Form()] = None,
@@ -281,6 +295,7 @@ class UserUpdateCmd(ContactEmailFields):
             is_agent=is_agent,
             role=role,
             phone=phone,
+            whatsapp_username=whatsapp_username,
             code_phone=code_phone,
             local_area_code=local_area_code,
             local_area_name=local_area_name,
@@ -288,7 +303,10 @@ class UserUpdateCmd(ContactEmailFields):
         )
         if identifications is not None:
             values["identifications"] = _parse_identifications_form(identifications)
-        cmd = cls(**{key: value for key, value in values.items() if value is not None})
+        values = {key: value for key, value in values.items() if value is not None}
+        if clear_whatsapp_username:
+            values["whatsapp_username"] = None
+        cmd = cls(**values)
         for key, raw in (("permissions_granted", permissions_granted), ("permissions_revoked", permissions_revoked)):
             if isinstance(raw, str):
                 from fastapi import HTTPException

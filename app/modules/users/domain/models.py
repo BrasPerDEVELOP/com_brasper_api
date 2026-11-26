@@ -80,6 +80,7 @@ class User(ORMBaseModel):
     is_agent: Mapped[Optional[bool]] = mapped_column(Boolean, default=True, nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UserRole enum value
     phone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # número o @usuario
+    whatsapp_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     code_phone: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # PhoneCode enum value (ej. +51)
     # Zona de numeración del teléfono; no representa el domicilio del usuario.
     local_area_code: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)

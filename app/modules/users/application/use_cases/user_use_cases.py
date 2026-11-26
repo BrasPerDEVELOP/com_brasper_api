@@ -179,6 +179,7 @@ class CreateUserUseCase:
                 is_agent=cmd.is_agent,
                 role=cmd.role.value if cmd.role else None,
                 phone=cmd.phone,
+                whatsapp_username=cmd.whatsapp_username,
                 code_phone=cmd.code_phone.value if cmd.code_phone else None,
                 local_area_code=cmd.local_area_code,
                 local_area_name=cmd.local_area_name,
@@ -253,6 +254,8 @@ class UpdateUserUseCase:
                 existing_user.is_agent = cmd.is_agent
             if "role" in cmd.model_fields_set:
                 existing_user.role = cmd.role.value if cmd.role else None
+            if "whatsapp_username" in cmd.model_fields_set:
+                existing_user.whatsapp_username = cmd.whatsapp_username
             if "phone" in cmd.model_fields_set:
                 existing_user.phone = cmd.phone
             if "code_phone" in cmd.model_fields_set:
