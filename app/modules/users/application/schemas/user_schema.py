@@ -13,7 +13,7 @@ from app.shared.media import to_media_url
 
 
 def _normalize_phone(value):
-    """Conserva @usuarios y ceros iniciales; acepta enteros de clientes antiguos."""
+    """Conserva ceros iniciales; acepta enteros de clientes antiguos."""
     if isinstance(value, str):
         return value.strip() or None
     if isinstance(value, int) and not isinstance(value, bool):
@@ -23,7 +23,7 @@ def _normalize_phone(value):
 
 UserPhone = Annotated[
     Optional[str],
-    Field(max_length=100, description="Número telefónico o @usuario; hasta 100 caracteres"),
+    Field(max_length=100, pattern=r"^[0-9]+$", description="Teléfono: solo dígitos del 0 al 9"),
     BeforeValidator(_normalize_phone),
 ]
 
@@ -200,7 +200,7 @@ class UserCreateCmd(ContactEmailFields):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
+        phone: Optional[str] = Form(None, max_length=100, pattern=r"^[0-9]+$", description="Teléfono: solo dígitos del 0 al 9"),
         whatsapp_username: Annotated[Optional[str], Form(max_length=100)] = None,
         code_phone: Optional[PhoneCode] = Form(None),
         local_area_code: Annotated[Optional[str], Form()] = None,
@@ -276,7 +276,7 @@ class UserUpdateCmd(ContactEmailFields):
         permissions_revoked: Optional[str] = Form(None),
         is_agent: Optional[bool] = Form(None),
         role: Optional[UserRole] = Form(None),
-        phone: Optional[str] = Form(None, max_length=100, description="Número telefónico o @usuario"),
+        phone: Optional[str] = Form(None, max_length=100, pattern=r"^[0-9]+$", description="Teléfono: solo dígitos del 0 al 9"),
         whatsapp_username: Annotated[Optional[str], Form(max_length=100)] = None,
         clear_whatsapp_username: Annotated[bool, Form()] = False,
         code_phone: Optional[PhoneCode] = Form(None),

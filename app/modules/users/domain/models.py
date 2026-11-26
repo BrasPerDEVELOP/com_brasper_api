@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Optional
 import uuid
 
-from sqlalchemy import String, Boolean, ForeignKey, Index, Integer, text, JSON
+from sqlalchemy import CheckConstraint, String, Boolean, ForeignKey, Index, Integer, text, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,6 +50,7 @@ class UserIdentification(ORMBaseModel):
 class User(ORMBaseModel):
     __tablename__ = "user"
     __table_args__ = (
+        CheckConstraint("phone IS NULL OR phone ~ '^[0-9]+$'", name="ck_user_phone_digits"),
         Index(
             "ix_user_email_alive",
             "email",
@@ -79,7 +80,7 @@ class User(ORMBaseModel):
     document_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # DocumentType enum value
     is_agent: Mapped[Optional[bool]] = mapped_column(Boolean, default=True, nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UserRole enum value
-    phone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # número o @usuario
+    phone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # solo dígitos; el usuario de WhatsApp tiene su propio campo
     whatsapp_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     code_phone: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # PhoneCode enum value (ej. +51)
     # Zona de numeración del teléfono; no representa el domicilio del usuario.

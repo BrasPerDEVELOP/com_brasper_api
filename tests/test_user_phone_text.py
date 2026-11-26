@@ -1,4 +1,4 @@
-"""Regressions for @usernames crossing HTTP validation and user persistence."""
+"""Regressions for numeric phone contacts crossing HTTP validation and persistence."""
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -23,7 +23,7 @@ from app.modules.users.domain.models import User
 
 @pytest.mark.parametrize("cls", [UserCreateCmd, UserUpdateCmd, UpdateCurrentUserCmd])
 @pytest.mark.parametrize("raw,expected", [
-    (" @evymur2 ", "@evymur2"), ("001234567", "001234567"),
+    ("001234567", "001234567"),
     (987654321, "987654321"), ("987654321", "987654321"),
     (None, None), ("", None), ("   ", None),
 ])
@@ -62,7 +62,7 @@ def phone_client():
 
 
 @pytest.mark.parametrize("method", ["post", "put"])
-@pytest.mark.parametrize("phone", ["@evymur2", "001234567", "987654321"])
+@pytest.mark.parametrize("phone", ["001234567", "987654321"])
 @pytest.mark.parametrize("code", [None, "+51"])
 def test_multipart_accepts_phone_with_or_without_country(phone_client, method, phone, code):
     fields = {"id": str(uuid4()), "phone": phone}
@@ -78,7 +78,7 @@ def test_http_length_limit_and_optional_profile_phone(phone_client):
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "phone"]
     assert "phone" not in phone_client.put("/user", data={"id": str(uuid4())}).json()
-    for raw, expected in [("@evymur2", "@evymur2"), (987654321, "987654321"), (None, None)]:
+    for raw, expected in [("001234567", "001234567"), (987654321, "987654321"), (None, None)]:
         response = phone_client.put("/auth/me", json={"phone": raw})
         assert response.status_code == 200
         assert response.json()["phone"] == expected
@@ -96,7 +96,7 @@ def test_read_dtos_serialize_text_and_legacy_records(raw, expected):
         assert dto.model_validate(user).model_dump()["phone"] == expected
 
 
-async def test_create_and_update_persist_username():
+async def test_create_and_update_persist_numeric_phone():
     saved = User(id=uuid4(), created_at=datetime.now(timezone.utc),
                  updated_at=datetime.now(timezone.utc), identifications=[],
                  permissions_granted=[], permissions_revoked=[])
@@ -111,11 +111,11 @@ async def test_create_and_update_persist_username():
     uow.user_repository.update = AsyncMock(side_effect=lambda user: user)
     uow.commit = AsyncMock()
     uow.rollback = AsyncMock()
-    created = await CreateUserUseCase(uow, AsyncMock()).execute(UserCreateCmd(phone="@evymur2"), None)
-    assert created.phone == saved.phone == "@evymur2"
+    created = await CreateUserUseCase(uow, AsyncMock()).execute(UserCreateCmd(phone="009876543"), None)
+    assert created.phone == saved.phone == "009876543"
     update = UpdateUserUseCase(uow)
     await update.execute(UserUpdateCmd(id=saved.id, names="Nuevo"))
-    assert saved.phone == "@evymur2"
+    assert saved.phone == "009876543"
     updated = await update.execute(UserUpdateCmd(id=saved.id, phone="001234567"))
     assert updated.phone == saved.phone == "001234567"
     await update.execute(UserUpdateCmd(id=saved.id, phone=None))
@@ -140,3 +140,11 @@ async def test_ai_numeric_phone_queries_bind_text(operation):
         ))
     params = session.scalars.call_args.args[0].compile().params
     assert params["phone_1"] == "987654321"
+
+
+@pytest.mark.parametrize('phone', ['@cliente', 'b98990', '12e3', '-123', '+51999', '99 88', '１２３'])
+def test_non_numeric_phone_is_rejected_by_all_write_endpoints(phone_client, phone):
+    for method in ('post', 'put'):
+        response = phone_client.request(method, '/user', data={'id': str(uuid4()), 'phone': phone})
+        assert response.status_code == 422, response.text
+    assert phone_client.put('/auth/me', json={'phone': phone}).status_code == 422
