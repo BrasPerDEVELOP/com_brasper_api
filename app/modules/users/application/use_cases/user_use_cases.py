@@ -151,7 +151,9 @@ class CreateUserUseCase:
         self._uow = uow
         self._auth_service = auth_service
 
-    async def execute(self, cmd: UserCreateCmd, profile_image: Optional[UploadFile]) -> UserReadDTO:
+    async def execute(
+        self, cmd: UserCreateCmd, profile_image: Optional[UploadFile], *, created_by: Optional[str] = None,
+    ) -> UserReadDTO:
         logger.info("Creando nuevo usuario")
         try:
             auth_id = None
@@ -167,6 +169,7 @@ class CreateUserUseCase:
 
             user = User(
                 auth_id=auth_id,
+                created_by=created_by,
                 permissions_granted=cmd.permissions_granted or [],
                 permissions_revoked=cmd.permissions_revoked or [],
                 names=cmd.names,

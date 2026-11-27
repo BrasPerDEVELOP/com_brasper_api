@@ -154,7 +154,9 @@ async def create_user(
         cmd = cmd.model_copy(
             update={"role": UserRole.client, "is_agent": False, "auth_id": None}
         )
-    created = await use_case.execute(cmd, image)
+    # The creator is trusted authentication context, never a submitted form field.
+    creator_id = actor.get("user_id") if is_internal_creation else None
+    created = await use_case.execute(cmd, image, created_by=str(creator_id) if creator_id else None)
     if audit_event and created:
         audit_event.entity_id = str(created.id)
         audit_event.new_values = redact_data(cmd.model_dump(mode="json"))
